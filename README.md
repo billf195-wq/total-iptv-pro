@@ -4,6 +4,25 @@ IPTV player for **Android TV / phone** and **Desktop** (Linux & Windows).
 
 **Developed by Bill Foster.**
 
+## Downloads (v1.1.8)
+
+Desktop builds (GitHub Release):
+
+- **Linux:** [TotalIptvPro-linux-1.1.8.tar.gz](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIptvPro-linux-1.1.8.tar.gz)
+- **Windows:** [TotalIptvPro-windows-1.1.8.zip](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIptvPro-windows-1.1.8.zip)
+
+All releases: https://github.com/billf195-wq/total-iptv-pro/releases
+
+### Linux quick start
+```bash
+tar xzf TotalIptvPro-linux-1.1.8.tar.gz
+# then run the app binary inside the extracted folder
+```
+
+### Windows quick start
+Unzip `TotalIptvPro-windows-1.1.8.zip` and run the `.exe`.
+
+
 ## Repos layout
 
 | Folder | What |
