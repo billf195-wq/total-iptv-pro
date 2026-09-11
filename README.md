@@ -15,7 +15,7 @@ IPTV player for **Android TV / phone** and **Desktop** (Linux & Windows).
 
 Optional — thank you if you tip:
 
-[Donate with PayPal](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=billf195%40gmail.com&currency_code=USD&item_name=Support%20Total%20IPTV%20Pro%20(Bill%20Foster))
+[Donate with PayPal](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=billf195%40yahoo.com&currency_code=USD&item_name=Support%20Total%20IPTV%20Pro%20(Bill%20Foster))
 
 ## License / note
 
