@@ -1,0 +1,10 @@
+**/build/
+**/.gradle/
+**/.kotlin/
+**/local.properties
+**/*.apk
+**/*.aab
+**/*.exe
+**/*.msi
+**/.DS_Store
+**/__pycache__/

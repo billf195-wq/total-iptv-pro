@@ -1,0 +1,595 @@
+package com.totaliptv.pro.desktop.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.totaliptv.pro.desktop.data.Category
+import com.totaliptv.pro.desktop.data.ChannelEpg
+import com.totaliptv.pro.desktop.data.EpgProgram
+import com.totaliptv.pro.desktop.data.MediaItem
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+/**
+ * Live TV guide: category chips, channel list, and program timeline.
+ * Selecting a program/channel plays that live stream.
+ */
+@Composable
+fun GuideScreen(
+    channels: List<MediaItem>,
+    categories: List<Category>,
+    epgByStreamId: Map<Int, ChannelEpg>,
+    epgLoadingIds: Set<Int>,
+    playingTitle: String?,
+    guideStyle: String = "current",
+    onNeedEpg: (MediaItem) -> Unit,
+    onPlayChannel: (MediaItem) -> Unit,
+    onStop: () -> Unit
+) {
+    val classic = guideStyle.equals("classic", ignoreCase = true)
+
+    var selectedCategoryId by remember { mutableStateOf<String?>(null) }
+    var selectedChannelId by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
+
+    val filtered = remember(channels, selectedCategoryId, query) {
+        channels.asSequence()
+            .filter { selectedCategoryId == null || it.categoryId == selectedCategoryId }
+            .filter {
+                query.isBlank() || it.name.contains(query, ignoreCase = true) ||
+                    (it.groupTitle?.contains(query, ignoreCase = true) == true)
+            }
+            .toList()
+    }
+
+    val selected = filtered.find { it.id == selectedChannelId } ?: filtered.firstOrNull()
+    LaunchedEffect(selected?.id) {
+        selectedChannelId = selected?.id
+        selected?.let { onNeedEpg(it) }
+    }
+
+    var tick by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30_000)
+            tick++
+        }
+    }
+    val liveNow = remember(tick) { System.currentTimeMillis() }
+
+    Column(Modifier.fillMaxSize().padding(20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Schedule, null, tint = TipBlue)
+            Spacer(Modifier.width(8.dp))
+            Text(if (classic) "TV Guide · Classic" else "TV Guide", style = MaterialTheme.typography.headlineMedium, color = TipOnBg, modifier = Modifier.weight(1f))
+            Text(
+                DateTimeFormatter.ofPattern("EEE MMM d · h:mm a")
+                    .format(LocalDateTime.now()),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            if (playingTitle != null) {
+                Spacer(Modifier.width(12.dp))
+                TextButton(onClick = onStop) { Text("Stop player") }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = { Text("Filter channels…") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = TipBlue,
+                unfocusedBorderColor = TipSurfaceAlt,
+                focusedContainerColor = TipSurface,
+                unfocusedContainerColor = TipSurface,
+                focusedTextColor = TipOnBg,
+                unfocusedTextColor = TipOnBg,
+                cursorColor = TipBlue,
+                focusedPlaceholderColor = TipMuted,
+                unfocusedPlaceholderColor = TipMuted
+            )
+        )
+        Spacer(Modifier.height(10.dp))
+        if (categories.isNotEmpty()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    FilterChip(
+                        selected = selectedCategoryId == null,
+                        onClick = { selectedCategoryId = null },
+                        label = { Text("All") }
+                    )
+                }
+                items(categories, key = { it.id }) { cat ->
+                    FilterChip(
+                        selected = selectedCategoryId == cat.id,
+                        onClick = { selectedCategoryId = cat.id },
+                        label = { Text(cat.name, maxLines = 1) }
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+
+        if (filtered.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No live channels in this filter.", color = TipMuted)
+            }
+            return
+        }
+
+        if (classic) {
+            ClassicGuideGrid(
+                channels = filtered,
+                epgByStreamId = epgByStreamId,
+                epgLoadingIds = epgLoadingIds,
+                liveNow = liveNow,
+                selectedChannelId = selected?.id,
+                onSelectChannel = { ch ->
+                    selectedChannelId = ch.id
+                    onNeedEpg(ch)
+                },
+                onNeedEpg = onNeedEpg,
+                onPlayChannel = onPlayChannel
+            )
+            return
+        }
+
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Channel list
+            LazyColumn(
+                Modifier
+                    .width(if (classic) 360.dp else 280.dp)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(TipSurface)
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(filtered, key = { it.id }) { ch ->
+                    val sel = ch.id == selected?.id
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (sel) TipBlue.copy(alpha = 0.25f) else TipSurfaceAlt)
+                            .clickable {
+                                selectedChannelId = ch.id
+                                onNeedEpg(ch)
+                            }
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RemoteArtwork(
+                            url = ch.logoUrl,
+                            contentDescription = ch.name,
+                            modifier = Modifier.size(36.dp).clip(RoundedCornerShape(6.dp)),
+                            fallbackIcon = Icons.Default.LiveTv,
+                            contentScale = ContentScale.Fit
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            ch.name,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
+                            color = if (sel) TipBlue else TipOnBg,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            // Program panel + mini timeline for nearby channels
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                if (selected != null) {
+                    val sid = selected.xtreamStreamId
+                    val epg = sid?.let { epgByStreamId[it] }
+                    val loading = sid != null && sid in epgLoadingIds
+                    val programs = epg?.programs.orEmpty()
+
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(TipSurface)
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RemoteArtwork(
+                            url = selected.logoUrl,
+                            contentDescription = selected.name,
+                            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
+                            fallbackIcon = Icons.Default.LiveTv,
+                            contentScale = ContentScale.Fit
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(selected.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TipOnBg)
+                            val nowProg = programs.find { it.contains(liveNow) }
+                            Text(
+                                nowProg?.let { "Now: ${it.title}" } ?: selected.groupTitle ?: "Live",
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = TipAccent
+                            )
+                        }
+                        Button(
+                            onClick = { onPlayChannel(selected) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = TipBlue,
+                                contentColor = TipOnAmber
+                            )
+                        ) {
+                            Icon(Icons.Default.PlayArrow, null, tint = TipOnAmber)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Watch", color = TipOnAmber, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    Text(
+                        if (classic) "What's on" else "Schedule",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TipOnBg
+                    )
+                    Spacer(Modifier.height(8.dp))
+
+                    when {
+                        loading && programs.isEmpty() -> {
+                            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = TipBlue)
+                            }
+                        }
+                        programs.isEmpty() -> {
+                            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                                Text(
+                                    "No EPG for this channel (provider may not publish guide data).",
+                                    color = TipMuted
+                                )
+                            }
+                        }
+                        else -> {
+                            if (!classic) {
+                                // Current: horizontal timeline strip for selected channel
+                                val windowStart = liveNow - 30 * 60_000L
+                                val windowEnd = liveNow + 3 * 60 * 60_000L
+                                val windowPrograms = programs.filter { it.endMs > windowStart && it.startMs < windowEnd }
+                                val scroll = rememberScrollState()
+                                val pxPerMin = 2.2f
+                                val totalMin = ((windowEnd - windowStart) / 60_000L).toFloat().coerceAtLeast(1f)
+                                val timelineWidth = (totalMin * pxPerMin).dp
+
+                                Column(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(TipSurface)
+                                        .padding(12.dp)
+                                ) {
+                                    Row(Modifier.horizontalScroll(scroll)) {
+                                        Box(Modifier.width(timelineWidth).height(22.dp)) {
+                                            var t = windowStart
+                                            val hourFmt = DateTimeFormatter.ofPattern("h a")
+                                            while (t < windowEnd) {
+                                                val x = ((t - windowStart) / 60_000.0 * pxPerMin).toFloat()
+                                                val label = Instant.ofEpochMilli(t).atZone(ZoneId.systemDefault()).format(hourFmt)
+                                                Text(
+                                                    label,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    modifier = Modifier.offset(x = x.dp)
+                                                )
+                                                t += 60 * 60_000L
+                                            }
+                                        }
+                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    Row(Modifier.horizontalScroll(scroll)) {
+                                        Box(Modifier.width(timelineWidth).height(56.dp)) {
+                                            windowPrograms.forEach { prog ->
+                                                val start = prog.startMs.coerceAtLeast(windowStart)
+                                                val end = prog.endMs.coerceAtMost(windowEnd)
+                                                val x = ((start - windowStart) / 60_000.0 * pxPerMin).toFloat()
+                                                val w = ((end - start) / 60_000.0 * pxPerMin).toFloat().coerceAtLeast(40f)
+                                                val isNow = prog.contains(liveNow)
+                                                Box(
+                                                    Modifier
+                                                        .offset(x = x.dp)
+                                                        .width(w.dp)
+                                                        .fillMaxHeight()
+                                                        .padding(end = 3.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(if (isNow) TipBlue.copy(alpha = 0.45f) else TipSurfaceAlt)
+                                                        .border(
+                                                            width = if (isNow) 1.dp else 0.dp,
+                                                            color = TipAccent,
+                                                            shape = RoundedCornerShape(8.dp)
+                                                        )
+                                                        .clickable { onPlayChannel(selected) }
+                                                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                                                ) {
+                                                    Column {
+                                                        Text(
+                                                            prog.title,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            fontWeight = FontWeight.Medium,
+                                                            style = MaterialTheme.typography.bodyMedium
+                                                        )
+                                                        Text(
+                                                            formatRange(prog.startMs, prog.endMs),
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            color = TipMuted,
+                                                            maxLines = 1
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            val nowX = ((liveNow - windowStart) / 60_000.0 * pxPerMin).toFloat()
+                                            Box(
+                                                Modifier
+                                                    .offset(x = nowX.dp)
+                                                    .width(2.dp)
+                                                    .fillMaxHeight()
+                                                    .background(TipAccent)
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(12.dp))
+                            }
+
+                            // Classic = schedule list only (Shield-style). Current = list under timeline.
+                            LazyColumn(
+                                Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(if (classic) 4.dp else 6.dp)
+                            ) {
+                                items(programs, key = { it.id }) { prog ->
+                                    ProgramRow(
+                                        program = prog,
+                                        isNow = prog.contains(liveNow),
+                                        onClick = { onPlayChannel(selected) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+@Composable
+private fun ClassicGuideGrid(
+    channels: List<MediaItem>,
+    epgByStreamId: Map<Int, ChannelEpg>,
+    epgLoadingIds: Set<Int>,
+    liveNow: Long,
+    selectedChannelId: String?,
+    onSelectChannel: (MediaItem) -> Unit,
+    onNeedEpg: (MediaItem) -> Unit,
+    onPlayChannel: (MediaItem) -> Unit
+) {
+    val windowStart = liveNow - 15 * 60_000L
+    val windowEnd = liveNow + 3 * 60 * 60_000L
+    val pxPerMin = 2.8f
+    val totalMin = ((windowEnd - windowStart) / 60_000L).toFloat().coerceAtLeast(1f)
+    val timelineWidth = (totalMin * pxPerMin).dp
+    val hScroll = rememberScrollState()
+    val visible = channels.take(80)
+
+    // Prefetch EPG for first rows
+    LaunchedEffect(visible.map { it.id }.joinToString()) {
+        visible.take(24).forEach { onNeedEpg(it) }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Text(
+            "Classic grid — scroll sideways for the next 3 hours. Tap a show to watch.",
+            color = TipMuted,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(8.dp))
+        // Time header
+        Row(Modifier.fillMaxWidth()) {
+            Spacer(Modifier.width(200.dp))
+            Row(Modifier.weight(1f).horizontalScroll(hScroll)) {
+                Box(Modifier.width(timelineWidth).height(24.dp)) {
+                    var t = windowStart
+                    val hourFmt = DateTimeFormatter.ofPattern("h a")
+                    while (t < windowEnd) {
+                        val x = ((t - windowStart) / 60_000.0 * pxPerMin).toFloat()
+                        Text(
+                            Instant.ofEpochMilli(t).atZone(ZoneId.systemDefault()).format(hourFmt),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TipOnBg,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.offset(x = x.dp)
+                        )
+                        t += 60 * 60_000L
+                    }
+                    val nowX = ((liveNow - windowStart) / 60_000.0 * pxPerMin).toFloat()
+                    Box(Modifier.offset(x = nowX.dp).width(2.dp).fillMaxHeight().background(TipAccent))
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            items(visible, key = { it.id }) { ch ->
+                val sid = ch.xtreamStreamId
+                val programs = sid?.let { epgByStreamId[it]?.programs }.orEmpty()
+                val loading = sid != null && sid in epgLoadingIds
+                val sel = ch.id == selectedChannelId
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (sel) TipBlue.copy(alpha = 0.18f) else TipSurface)
+                        .clickable { onSelectChannel(ch) },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        Modifier
+                            .width(200.dp)
+                            .fillMaxHeight()
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RemoteArtwork(
+                            url = ch.logoUrl,
+                            contentDescription = ch.name,
+                            modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp)),
+                            fallbackIcon = Icons.Default.LiveTv,
+                            contentScale = ContentScale.Fit
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            ch.name,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            color = if (sel) TipBlue else TipOnBg,
+                            fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(Modifier.weight(1f).horizontalScroll(hScroll).fillMaxHeight()) {
+                        Box(Modifier.width(timelineWidth).fillMaxHeight().padding(vertical = 4.dp)) {
+                            when {
+                                loading && programs.isEmpty() -> {
+                                    Text("Loading…", color = TipMuted, modifier = Modifier.padding(8.dp))
+                                }
+                                programs.isEmpty() -> {
+                                    Box(
+                                        Modifier
+                                            .fillMaxSize()
+                                            .padding(end = 4.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(TipSurfaceAlt)
+                                            .clickable { onPlayChannel(ch) }
+                                            .padding(8.dp)
+                                    ) {
+                                        Text("Live · no EPG", color = TipMuted, maxLines = 1)
+                                    }
+                                }
+                                else -> {
+                                    programs.filter { it.endMs > windowStart && it.startMs < windowEnd }.forEach { prog ->
+                                        val start = prog.startMs.coerceAtLeast(windowStart)
+                                        val end = prog.endMs.coerceAtMost(windowEnd)
+                                        val x = ((start - windowStart) / 60_000.0 * pxPerMin).toFloat()
+                                        val w = ((end - start) / 60_000.0 * pxPerMin).toFloat().coerceAtLeast(48f)
+                                        val isNow = prog.contains(liveNow)
+                                        Box(
+                                            Modifier
+                                                .offset(x = x.dp)
+                                                .width(w.dp)
+                                                .fillMaxHeight()
+                                                .padding(end = 3.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(if (isNow) TipBlue else TipSurfaceAlt)
+                                                .clickable {
+                                                    onSelectChannel(ch)
+                                                    onPlayChannel(ch)
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                                        ) {
+                                            Text(
+                                                prog.title,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                                color = if (isNow) TipOnAmber else TipOnBg,
+                                                fontWeight = if (isNow) FontWeight.Bold else FontWeight.Medium,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
+                                    }
+                                    val nowX = ((liveNow - windowStart) / 60_000.0 * pxPerMin).toFloat()
+                                    Box(
+                                        Modifier
+                                            .offset(x = nowX.dp)
+                                            .width(2.dp)
+                                            .fillMaxHeight()
+                                            .background(TipAccent)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProgramRow(program: EpgProgram, isNow: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (isNow) TipBlue.copy(alpha = 0.2f) else TipSurface)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.width(110.dp)) {
+            Text(formatTime(program.startMs), fontWeight = FontWeight.Medium, color = TipOnBg)
+            Text(formatTime(program.endMs), style = MaterialTheme.typography.bodyMedium, color = TipMuted)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(program.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium, color = TipOnBg)
+            if (!program.description.isNullOrBlank()) {
+                Text(
+                    program.description,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+        if (isNow) {
+            Text("NOW", color = TipAccent, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(8.dp))
+        }
+        Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = TipAccent)
+    }
+}
+
+private fun formatTime(ms: Long): String {
+    val dt = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDateTime()
+    return dt.format(DateTimeFormatter.ofPattern("h:mm a"))
+}
+
+private fun formatRange(start: Long, end: Long): String =
+    "${formatTime(start)} – ${formatTime(end)}"
