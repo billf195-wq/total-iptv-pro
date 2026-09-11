@@ -9,21 +9,17 @@ IPTV player for **Android TV / phone** and **Desktop** (Linux & Windows).
 
 ## Downloads (v1.1.8)
 
-Desktop builds (GitHub Release):
+[All files on the Release page](https://github.com/billf195-wq/total-iptv-pro/releases/tag/v1.1.8) · email-ready list: [LINKS.md](LINKS.md)
 
+### Desktop
 - **Linux:** [TotalIptvPro-linux-1.1.8.tar.gz](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIptvPro-linux-1.1.8.tar.gz)
 - **Windows:** [TotalIptvPro-windows-1.1.8.zip](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIptvPro-windows-1.1.8.zip)
 
-All releases: https://github.com/billf195-wq/total-iptv-pro/releases
+### Android
+- **Android TV:** [TotalIPTVPro-android-tv-1.4.41.apk](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIPTVPro-android-tv-1.4.41.apk)
+- **Android phone:** [TotalIPTVPro-android-phone.apk](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIPTVPro-android-phone.apk)
+- **Android Pro2 (matches `android/` source):** [TotalIptvPro-android-1.0.1.apk](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIptvPro-android-1.0.1.apk)
 
-### Linux quick start
-```bash
-tar xzf TotalIptvPro-linux-1.1.8.tar.gz
-# then run the app binary inside the extracted folder
-```
-
-### Windows quick start
-Unzip `TotalIptvPro-windows-1.1.8.zip` and run the `.exe`.
 
 
 ## Repos layout
