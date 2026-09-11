@@ -1,5 +1,8 @@
 # Total IPTV Pro
 
+**Quick share links (email-ready):** [LINKS.md](LINKS.md)
+
+
 IPTV player for **Android TV / phone** and **Desktop** (Linux & Windows).
 
 **Developed by Bill Foster.**
