@@ -26,6 +26,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.time.ZoneId
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class XtreamApi(
