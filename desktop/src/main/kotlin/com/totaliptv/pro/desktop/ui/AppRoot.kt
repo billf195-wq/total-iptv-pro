@@ -29,8 +29,10 @@ import com.totaliptv.pro.desktop.data.SeriesLaunch
 import com.totaliptv.pro.desktop.data.SeriesPlayback
 import com.totaliptv.pro.desktop.data.VodDetail
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
+import com.totaliptv.pro.desktop.data.LastEpisodeBanner
 import com.totaliptv.pro.desktop.dvr.DvrKind
 import com.totaliptv.pro.desktop.dvr.DvrRecorder
+import com.totaliptv.pro.desktop.dvr.DvrStartReason
 import com.totaliptv.pro.desktop.dvr.RecordingEntry
 import com.totaliptv.pro.desktop.dvr.ScheduledRecording
 import com.totaliptv.pro.desktop.player.PlaybackAdvance
@@ -119,7 +121,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         streamUrl = item.streamUrl,
                         channelId = item.id,
                         scheduledEndMs = endMs,
-                        contentKind = item.kind.name
+                        contentKind = item.kind.name,
+                        reason = DvrStartReason.USER_RECORD
                     )
                 }
                 refreshDvr()
@@ -585,6 +588,12 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 )
                 if (outcome.reason == "skip-no-next") {
                     statusMessage = SeriesPlayback.LAST_EPISODE_MESSAGE
+                    scope.launch {
+                        delay(LastEpisodeBanner.AUTO_DISMISS_MS)
+                        if (statusMessage == SeriesPlayback.LAST_EPISODE_MESSAGE) {
+                            statusMessage = null
+                        }
+                    }
                 }
             }
         }
@@ -737,7 +746,13 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
             session = seriesSession,
             darkTheme = prefs.themeMode != "light",
             onNext = { skipToNextEpisode() },
-            onStop = { stopPlayback() }
+            onStop = { stopPlayback() },
+            onRecord = {
+                val item = playingItem
+                if (item != null && item.streamUrl.isNotBlank()) {
+                    recordNow(item, item.name, null)
+                }
+            }
         )
     }
 

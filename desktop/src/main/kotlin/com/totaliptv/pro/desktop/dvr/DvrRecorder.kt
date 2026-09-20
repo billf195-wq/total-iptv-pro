@@ -65,8 +65,12 @@ object DvrRecorder {
         streamUrl: String,
         channelId: String? = null,
         scheduledEndMs: Long? = null,
-        contentKind: String = DvrKind.LIVE
+        contentKind: String = DvrKind.LIVE,
+        reason: DvrStartReason = DvrStartReason.USER_RECORD
     ): RecordingEntry {
+        if (!DvrStartPolicy.allowsImmediateStart(reason)) {
+            error("Recording is opt-in only — press Record")
+        }
         if (streamUrl.isBlank()) error("No stream URL to record")
         if (activeRef.get() != null) error("Already recording on this device — stop it first (one at a time)")
         val now = System.currentTimeMillis()
@@ -203,7 +207,8 @@ object DvrRecorder {
                     streamUrl = due.streamUrl,
                     channelId = due.channelId,
                     scheduledEndMs = due.endMs,
-                    contentKind = due.contentKind
+                    contentKind = due.contentKind,
+                    reason = DvrStartReason.SCHEDULE_DUE
                 )
             }.onFailure { lastMessage = it.message }
             return

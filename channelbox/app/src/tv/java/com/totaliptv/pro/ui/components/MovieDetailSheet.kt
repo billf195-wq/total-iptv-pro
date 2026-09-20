@@ -379,21 +379,6 @@ fun MovieDetailSheet(
                             modifier = Modifier.focusRequester(playFocus)
                         )
                     }
-                }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TopBarChip(
-                        label = if (resolvingPreview) "Preview…" else "Preview",
-                        onClick = { runPreview() },
-                        emphasized = false
-                    )
-                    TopBarChip(
-                        label = if (isFavorite) "★ Favorited" else "☆ Favorite",
-                        onClick = onToggleFavorite,
-                        emphasized = false
-                    )
                     TopBarChip(
                         label = if (isSeriesPicker) "Record episode" else "Record",
                         onClick = {
@@ -414,6 +399,21 @@ fun MovieDetailSheet(
                                 com.totaliptv.pro.dvr.DvrActions.recordNow(context, enriched)
                             }
                         },
+                        emphasized = false
+                    )
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TopBarChip(
+                        label = if (resolvingPreview) "Preview…" else "Preview",
+                        onClick = { runPreview() },
+                        emphasized = false
+                    )
+                    TopBarChip(
+                        label = if (isFavorite) "★ Favorited" else "☆ Favorite",
+                        onClick = onToggleFavorite,
                         emphasized = false
                     )
                     TopBarChip(

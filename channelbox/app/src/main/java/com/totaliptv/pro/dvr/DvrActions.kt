@@ -22,7 +22,8 @@ object DvrActions {
                 streamUrl = item.streamUrl,
                 channelId = item.id,
                 scheduledEndMs = endMs,
-                contentKind = item.kind.name
+                contentKind = item.kind.name,
+                reason = DvrStartReason.USER_RECORD
             )
             val kind = DvrKind.normalize(item.kind.name)
             val verb = if (DvrKind.isFiniteDownload(kind, item.streamUrl)) "Downloading" else "Recording"

@@ -50,6 +50,7 @@ import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.ContentKind
 import com.totaliptv.pro.desktop.data.LiveChannelMapping
+import com.totaliptv.pro.desktop.data.LastEpisodeBanner
 import com.totaliptv.pro.desktop.data.SeriesPlayback
 import com.totaliptv.pro.desktop.data.FavoritesStore
 import com.totaliptv.pro.desktop.data.MediaItem
@@ -276,7 +277,13 @@ fun BrowseScreen(
                     Text(playingTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, color = TipAccent)
                     if (recordingTitle == null && playingItem != null && playingItem.streamUrl.isNotBlank()) {
                         TextButton(onClick = { onRecordNow(playingItem, playingItem.name, null) }) {
-                            Text("Record")
+                            Text(
+                                when (playingItem.kind) {
+                                    ContentKind.SERIES -> "Record episode"
+                                    ContentKind.VOD -> "Record movie"
+                                    else -> "Record"
+                                }
+                            )
                         }
                     }
                     TextButton(onClick = onStop) { Text("Stop player") }
@@ -1117,20 +1124,27 @@ private fun SeriesDetailPane(
                                     Text("Next S${nextEp.season}E${nextEp.episodeNum}", color = TipOnBg)
                                 }
                             }
-                            if (continueEp != null && continueEp.streamUrl.isNotBlank()) {
+                            if (continueEp != null) {
                                 OutlinedButton(
                                     onClick = {
                                         onRecordEpisode(continueEp.toMediaItem(detail.name, detail.seriesId))
                                     },
-                                    enabled = !recordingBusy,
+                                    enabled = !recordingBusy && continueEp.streamUrl.isNotBlank(),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = TipOnBg),
                                     border = androidx.compose.foundation.BorderStroke(1.dp, TipBlue)
                                 ) {
                                     Text("Record S${continueEp.season}E${continueEp.episodeNum}", color = TipOnBg)
                                 }
                             }
-                            if (nextEp == null && (hasResume || playingThisSeries)) {
-                                    Text(
+                            val knownLast = LastEpisodeBanner.isKnownLastEpisode(
+                                detail.episodes,
+                                playingSeason ?: resumeSeason,
+                                playingEpisodeNum ?: resumeEpisodeNum,
+                                playingEpisodeId ?: resumeEpisodeId,
+                                playingStreamUrl
+                            )
+                            if (knownLast && nextEp == null) {
+                                Text(
                                     SeriesPlayback.LAST_EPISODE_MESSAGE,
                                     color = TipMuted,
                                     style = MaterialTheme.typography.bodyMedium
@@ -1197,9 +1211,7 @@ private fun SeriesDetailPane(
                             highlighted = highlighted,
                             onClick = { onPlayEpisode(media) },
                             onToggleFavorite = null,
-                            onRecord = if (media.streamUrl.isNotBlank()) {
-                                { onRecordEpisode(media) }
-                            } else null,
+                            onRecord = { onRecordEpisode(media) },
                             recordingBusy = recordingBusy
                         )
                     }
@@ -1292,12 +1304,15 @@ private fun MediaRow(
             }
         }
         if (onRecord != null) {
-            IconButton(onClick = onRecord, enabled = !recordingBusy) {
+            TextButton(onClick = onRecord, enabled = !recordingBusy && item.streamUrl.isNotBlank()) {
                 Icon(
                     Icons.Default.FiberManualRecord,
-                    contentDescription = "Record now",
-                    tint = if (recordingBusy) TipMuted else TipAccent
+                    contentDescription = null,
+                    tint = if (recordingBusy) TipMuted else TipAccent,
+                    modifier = Modifier.size(16.dp)
                 )
+                Spacer(Modifier.width(4.dp))
+                Text("Record", color = if (recordingBusy) TipMuted else TipOnBg, fontWeight = FontWeight.SemiBold)
             }
         }
         IconButton(onClick = onClick) {

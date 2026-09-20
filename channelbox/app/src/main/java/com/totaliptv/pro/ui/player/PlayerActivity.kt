@@ -248,7 +248,7 @@ class PlayerActivity : ComponentActivity() {
         controls.addView(controlBtn("Retry") { retryPlayback() })
         controls.addView(controlBtn("Play with VLC") { openInVlc() })
         controls.addView(controlBtn("Favorite") { toggleFavorite() })
-        controls.addView(controlBtn("Record") {
+        controls.addView(controlBtn(if (mediaKind == ContentKind.SERIES) "Record episode" else "Record") {
             val app = application as TotalIptvProApp
             val item = com.totaliptv.pro.data.model.MediaItem(
                 id = mediaId,
