@@ -15,7 +15,9 @@ data class SavedPrefs(
     val onboarded: Boolean = false,
     val themeMode: String = "dark",
     val posterColumns: Int = 6,
-    val browseSort: String = "AZ"
+    val browseSort: String = "AZ",
+    /** HTTP shelf for Shield / phone in-app APK updates (version-pro2.json). */
+    val updateShelfUrl: String = "http://192.168.4.39:8766/"
 )
 
 data class Category(

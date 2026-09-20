@@ -15,7 +15,9 @@ class PreferencesStore(context: Context) {
         onboarded = prefs.getBoolean(KEY_ONBOARDED, false),
         themeMode = prefs.getString(KEY_THEME, "dark") ?: "dark",
         posterColumns = prefs.getInt(KEY_COLS, 6).coerceIn(5, 6),
-        browseSort = prefs.getString(KEY_SORT, "AZ") ?: "AZ"
+        browseSort = prefs.getString(KEY_SORT, "AZ") ?: "AZ",
+        updateShelfUrl = prefs.getString(KEY_SHELF, "http://192.168.4.39:8766/")
+            ?: "http://192.168.4.39:8766/"
     )
 
     fun save(p: SavedPrefs) {
@@ -28,6 +30,7 @@ class PreferencesStore(context: Context) {
             .putString(KEY_THEME, p.themeMode)
             .putInt(KEY_COLS, p.posterColumns.coerceIn(5, 6))
             .putString(KEY_SORT, p.browseSort)
+            .putString(KEY_SHELF, p.updateShelfUrl)
             .apply()
     }
 
@@ -45,5 +48,6 @@ class PreferencesStore(context: Context) {
         private const val KEY_THEME = "themeMode"
         private const val KEY_COLS = "posterColumns"
         private const val KEY_SORT = "browseSort"
+        private const val KEY_SHELF = "updateShelfUrl"
     }
 }

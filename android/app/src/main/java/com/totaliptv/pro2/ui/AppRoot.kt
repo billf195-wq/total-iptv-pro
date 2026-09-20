@@ -14,6 +14,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -41,8 +46,18 @@ fun AppRoot(
     onResumeEntry: (ResumeStore.ResumeEntry) -> Unit,
     onCheckAppUpdate: () -> Unit,
     onDownloadAppUpdate: () -> Unit,
-    onInstallAppUpdate: () -> Unit
+    onInstallAppUpdate: () -> Unit,
+    onUpdateShelfUrl: (String) -> Unit = {}
 ) {
+    var showSplash by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(SplashTiming.DURATION_MS)
+        showSplash = false
+    }
+    if (showSplash) {
+        SplashScreen()
+        return
+    }
     when {
         state.showOnboarding -> OnboardingScreen(
             initial = state.prefs,
@@ -90,7 +105,8 @@ fun AppRoot(
                 onResumeEntry = onResumeEntry,
                 onCheckAppUpdate = onCheckAppUpdate,
                 onDownloadAppUpdate = onDownloadAppUpdate,
-                onInstallAppUpdate = onInstallAppUpdate
+                onInstallAppUpdate = onInstallAppUpdate,
+                onUpdateShelfUrl = onUpdateShelfUrl
             )
         }
         else -> Box(Modifier.fillMaxSize().background(TipBg), contentAlignment = Alignment.Center) {
@@ -116,7 +132,8 @@ private fun MainShell(
     onResumeEntry: (ResumeStore.ResumeEntry) -> Unit,
     onCheckAppUpdate: () -> Unit,
     onDownloadAppUpdate: () -> Unit,
-    onInstallAppUpdate: () -> Unit
+    onInstallAppUpdate: () -> Unit,
+    onUpdateShelfUrl: (String) -> Unit = {}
 ) {
     Column(Modifier.fillMaxSize().background(TipBg)) {
         TopBanner()
@@ -172,6 +189,12 @@ private fun MainShell(
                                 detail = state.seriesDetail,
                                 loading = state.seriesLoading,
                                 error = state.seriesError,
+                                resumeSeason = state.resumeEntries.firstOrNull {
+                                    it.seriesId != null && it.seriesId == state.seriesDetail?.seriesId
+                                }?.season,
+                                resumeEpisodeNum = state.resumeEntries.firstOrNull {
+                                    it.seriesId != null && it.seriesId == state.seriesDetail?.seriesId
+                                }?.episodeNum,
                                 onBack = onCloseSeries,
                                 onPlay = onPlay
                             )
@@ -211,7 +234,8 @@ private fun MainShell(
                         onChangeSource = onChangeSource,
                         onCheckAppUpdate = onCheckAppUpdate,
                         onDownloadAppUpdate = onDownloadAppUpdate,
-                        onInstallAppUpdate = onInstallAppUpdate
+                        onInstallAppUpdate = onInstallAppUpdate,
+                        onUpdateShelfUrl = onUpdateShelfUrl
                     )
                 }
             }

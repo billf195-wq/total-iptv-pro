@@ -39,6 +39,7 @@ import com.totaliptv.pro2.data.Category
 import com.totaliptv.pro2.data.ChannelEpg
 import com.totaliptv.pro2.data.LiveChannelMapping
 import com.totaliptv.pro2.data.MediaItem
+import com.totaliptv.pro2.data.SeriesPlayback
 import com.totaliptv.pro2.update.UpdatePhase
 import com.totaliptv.pro2.update.UpdateUiState
 import com.totaliptv.pro2.data.ResumeStore
@@ -228,9 +229,23 @@ fun SeriesDetailPane(
     detail: SeriesDetail?,
     loading: Boolean,
     error: String?,
+    resumeSeason: Int? = null,
+    resumeEpisodeNum: Int? = null,
     onBack: () -> Unit,
     onPlay: (MediaItem) -> Unit
 ) {
+    val seasons = remember(detail) { detail?.let { SeriesPlayback.seasonNumbers(it.episodes) }.orEmpty() }
+    var selectedSeason by remember(detail?.seriesId) { mutableStateOf<Int?>(resumeSeason) }
+    val visible = remember(detail, selectedSeason) {
+        detail?.let { SeriesPlayback.inSeason(it.episodes, selectedSeason) }.orEmpty()
+    }
+    val continueEp = remember(detail, resumeSeason, resumeEpisodeNum) {
+        detail?.let { SeriesPlayback.continueEpisode(it.episodes, resumeSeason, resumeEpisodeNum) }
+    }
+    val nextEp = remember(detail, resumeSeason, resumeEpisodeNum) {
+        detail?.let { SeriesPlayback.nextEpisode(it.episodes, resumeSeason, resumeEpisodeNum) }
+    }
+
     Column(Modifier.fillMaxSize()) {
         AmberButton("Back", onClick = onBack)
         Spacer(Modifier.height(TipDimens.dp(12)))
@@ -245,8 +260,44 @@ fun SeriesDetailPane(
                     Text(it, color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp, maxLines = 4, overflow = TextOverflow.Ellipsis)
                 }
                 Spacer(Modifier.height(TipDimens.dp(12)))
+                Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
+                    if (continueEp != null) {
+                        AmberButton(
+                            if (resumeSeason != null) "Continue S${continueEp.season}E${continueEp.episodeNum}" else "Play first episode",
+                            onClick = { onPlay(continueEp.toMediaItem(detail.name, detail.seriesId)) }
+                        )
+                    }
+                    if (nextEp != null && resumeSeason != null) {
+                        AmberButton(
+                            "Next S${nextEp.season}E${nextEp.episodeNum}",
+                            onClick = { onPlay(nextEp.toMediaItem(detail.name, detail.seriesId)) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(TipDimens.dp(12)))
+                Text("Season", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
+                Spacer(Modifier.height(TipDimens.dp(6)))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
+                    item {
+                        Chip("All seasons", selected = selectedSeason == null, onClick = { selectedSeason = null })
+                    }
+                    items(seasons, key = { it }) { season ->
+                        Chip(
+                            if (season > 0) "Season $season" else "Specials",
+                            selected = selectedSeason == season,
+                            onClick = { selectedSeason = season }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(TipDimens.dp(12)))
+                Text(
+                    "${visible.size} episodes",
+                    color = TipGoldMuted,
+                    fontSize = TipDimens.BodyMediumSp
+                )
+                Spacer(Modifier.height(TipDimens.dp(8)))
                 LazyColumn {
-                    items(detail.episodes, key = { it.id }) { ep ->
+                    items(visible, key = { it.id }) { ep ->
                         TipFocusable(
                             onClick = { onPlay(ep.toMediaItem(detail.name, detail.seriesId)) },
                             modifier = Modifier.fillMaxWidth().padding(vertical = TipDimens.dp(2))
@@ -405,7 +456,8 @@ fun SettingsPane(
     onChangeSource: () -> Unit,
     onCheckAppUpdate: () -> Unit,
     onDownloadAppUpdate: () -> Unit,
-    onInstallAppUpdate: () -> Unit
+    onInstallAppUpdate: () -> Unit,
+    onUpdateShelfUrl: (String) -> Unit = {}
 ) {
     Column(Modifier.fillMaxSize()) {
         PaneTitle("Settings")
@@ -442,11 +494,28 @@ fun SettingsPane(
         AmberButton("Change source", onClick = onChangeSource)
 
         Spacer(Modifier.height(TipDimens.dp(24)))
-        Text("App updates", color = TipGoldText, fontSize = TipDimens.BodyLargeSp, fontWeight = FontWeight.SemiBold)
+        Text("App updates (Shield / phone)", color = TipGoldText, fontSize = TipDimens.BodyLargeSp, fontWeight = FontWeight.SemiBold)
         Text(
             "Installed: ${update.localVersionName.ifBlank { "?" }} (${update.localVersionCode})",
             color = TipGoldMuted,
             fontSize = TipDimens.BodyMediumSp
+        )
+        Text(
+            "Shelf URL (same LAN as GTR / Bigboybill). After Download, tap Install and allow unknown sources if Shield asks.",
+            color = TipGoldMuted,
+            fontSize = TipDimens.BodyMediumSp
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        BasicTextField(
+            value = prefs.updateShelfUrl,
+            onValueChange = onUpdateShelfUrl,
+            singleLine = true,
+            textStyle = TextStyle(color = TipGoldText, fontSize = TipDimens.BodyLargeSp),
+            cursorBrush = SolidColor(TipAmber),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(TipSurface, RoundedCornerShape(TipDimens.PosterCorner))
+                .padding(TipDimens.dp(12))
         )
         Spacer(Modifier.height(TipDimens.dp(10)))
         AmberButton(

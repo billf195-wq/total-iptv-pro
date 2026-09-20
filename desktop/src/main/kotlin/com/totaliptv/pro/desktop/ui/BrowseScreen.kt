@@ -45,6 +45,7 @@ import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.ContentKind
 import com.totaliptv.pro.desktop.data.LiveChannelMapping
+import com.totaliptv.pro.desktop.data.SeriesPlayback
 import com.totaliptv.pro.desktop.data.FavoritesStore
 import com.totaliptv.pro.desktop.data.MediaItem
 import com.totaliptv.pro.desktop.data.SavedPrefs
@@ -134,6 +135,8 @@ fun BrowseScreen(
                 error = seriesError,
                 playingTitle = playingTitle,
                 isFavorite = seriesMedia?.let { favoriteKeys.contains(it.id) } == true,
+                resumeSeason = resumeEntries.firstOrNull { it.seriesId == seriesDetail?.seriesId }?.season,
+                resumeEpisodeNum = resumeEntries.firstOrNull { it.seriesId == seriesDetail?.seriesId }?.episodeNum,
                 onToggleFavorite = { seriesMedia?.let(onToggleFavorite) },
                 onPlayEpisode = onPlay,
                 onBack = onCloseSeries,
@@ -867,6 +870,8 @@ private fun SeriesDetailPane(
     error: String?,
     playingTitle: String?,
     isFavorite: Boolean,
+    resumeSeason: Int? = null,
+    resumeEpisodeNum: Int? = null,
     onToggleFavorite: () -> Unit,
     onPlayEpisode: (MediaItem) -> Unit,
     onBack: () -> Unit,
@@ -954,22 +959,86 @@ private fun SeriesDetailPane(
                         if (error != null) {
                             Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                         }
+                        Spacer(Modifier.height(10.dp))
+                        val continueEp = SeriesPlayback.continueEpisode(
+                            detail.episodes, resumeSeason, resumeEpisodeNum
+                        )
+                        val nextEp = SeriesPlayback.nextEpisode(
+                            detail.episodes, resumeSeason, resumeEpisodeNum
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (continueEp != null) {
+                                Button(
+                                    onClick = {
+                                        onPlayEpisode(continueEp.toMediaItem(detail.name, detail.seriesId))
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = TipBlue,
+                                        contentColor = TipOnAmber
+                                    )
+                                ) {
+                                    Text(
+                                        if (resumeSeason != null) {
+                                            "Continue S${continueEp.season}E${continueEp.episodeNum}"
+                                        } else {
+                                            "Play first episode"
+                                        },
+                                        color = TipOnAmber,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            if (nextEp != null && resumeSeason != null) {
+                                OutlinedButton(
+                                    onClick = {
+                                        onPlayEpisode(nextEp.toMediaItem(detail.name, detail.seriesId))
+                                    },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TipOnBg),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, TipBlue)
+                                ) {
+                                    Text("Next S${nextEp.season}E${nextEp.episodeNum}", color = TipOnBg)
+                                }
+                            }
+                        }
                     }
                 }
-                val bySeason = detail.episodes.groupBy { it.season }.toSortedMap()
+                val seasons = SeriesPlayback.seasonNumbers(detail.episodes)
+                var selectedSeason by remember(detail.seriesId) { mutableStateOf(resumeSeason) }
+                if (seasons.size > 1) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = selectedSeason == null,
+                                onClick = { selectedSeason = null },
+                                label = { Text("All seasons") }
+                            )
+                        }
+                        items(seasons, key = { "season-chip-$it" }) { season ->
+                            FilterChip(
+                                selected = selectedSeason == season,
+                                onClick = { selectedSeason = season },
+                                label = { Text(if (season > 0) "Season $season" else "Specials") }
+                            )
+                        }
+                    }
+                }
+                val visible = SeriesPlayback.inSeason(detail.episodes, selectedSeason)
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    bySeason.forEach { (season, eps) ->
-                        item(key = "season-$season") {
+                    if (selectedSeason != null) {
+                        item(key = "season-head-$selectedSeason") {
                             Text(
-                                if (season > 0) "Season $season" else "Episodes",
+                                if (selectedSeason!! > 0) "Season $selectedSeason" else "Specials",
                                 style = MaterialTheme.typography.titleMedium,
                                 modifier = Modifier.padding(vertical = 8.dp)
                             )
                         }
-                        items(eps, key = { it.id }) { ep ->
-                            val media = ep.toMediaItem(detail.name, detail.seriesId)
-                            MediaRow(media, isFavorite = false, onClick = { onPlayEpisode(media) }, onToggleFavorite = null)
-                        }
+                    }
+                    items(visible, key = { it.id }) { ep ->
+                        val media = ep.toMediaItem(detail.name, detail.seriesId)
+                        MediaRow(media, isFavorite = false, onClick = { onPlayEpisode(media) }, onToggleFavorite = null)
                     }
                 }
             }

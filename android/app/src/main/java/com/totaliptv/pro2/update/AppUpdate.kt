@@ -1,6 +1,7 @@
 package com.totaliptv.pro2.update
 
 import android.app.Activity
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -43,9 +44,12 @@ data class UpdateUiState(
 )
 
 object AppUpdateConfig {
+    const val DEFAULT_SHELF = "http://192.168.4.39:8766/"
+
     /** Pro 2 shelves only — never fetch original TotalIPTVPro version.json. */
     val shelfBases: List<String> = listOf(
-        "http://192.168.4.39:8766/",
+        DEFAULT_SHELF,
+        "http://192.168.4.39:8767/",
         "http://10.0.2.2:8766/", // Android emulator → this Ubuntu host
         "http://192.168.4.37:8765/"
     )
@@ -97,11 +101,14 @@ class AppUpdateManager(private val context: Context) {
      * Fetch Pro-2 version metadata from the first reachable shelf.
      * Rejects any payload that points at the original TotalIPTVPro.apk.
      */
-    fun check(): UpdateUiState {
+    fun check(preferredShelf: String? = null): UpdateUiState {
         val (localCode, localName) = localVersion()
         val errors = mutableListOf<String>()
+        val bases = linkedSetOf<String>()
+        preferredShelf?.trim()?.takeIf { it.isNotBlank() }?.let { bases += normalizeShelf(it) }
+        AppUpdateConfig.shelfBases.forEach { bases += normalizeShelf(it) }
 
-        for (base in AppUpdateConfig.shelfBases) {
+        for (base in bases) {
             val baseNorm = base.trimEnd('/') + "/"
             for (path in AppUpdateConfig.versionPaths) {
                 val url = baseNorm + path.trimStart('/')
@@ -158,7 +165,7 @@ class AppUpdateManager(private val context: Context) {
                 shelfBaseUrl = shelfBaseUrl
             )
         }
-        val apkName = APP_APK_NAME
+        val apkName = remote.apk.trim().substringAfterLast('/').ifBlank { APP_APK_NAME }
         val url = shelfBaseUrl.trimEnd('/') + "/" + apkName
         return try {
             val dir = File(context.cacheDir, "updates").apply { mkdirs() }
@@ -215,15 +222,39 @@ class AppUpdateManager(private val context: Context) {
             )
         }
 
+        fun normalizeShelf(url: String): String {
+            val t = url.trim().ifBlank { AppUpdateConfig.DEFAULT_SHELF }
+            return if (t.endsWith("/")) t else "$t/"
+        }
+
         fun installApk(activity: Activity, apkFile: File) {
             val authority = "${activity.packageName}.fileprovider"
             val uri = FileProvider.getUriForFile(activity, authority, apkFile)
+            val mime = "application/vnd.android.package-archive"
             val view = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
+                setDataAndType(uri, mime)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                clipData = ClipData.newRawUri("apk", uri)
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                putExtra(Intent.EXTRA_RETURN_RESULT, true)
             }
-            activity.startActivity(view)
+            try {
+                activity.startActivity(view)
+                return
+            } catch (_: Throwable) {
+                // Fall through to ACTION_INSTALL_PACKAGE for some Shield / Leanback builds
+            }
+            val install = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                data = uri
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                clipData = ClipData.newRawUri("apk", uri)
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                putExtra(Intent.EXTRA_RETURN_RESULT, true)
+            }
+            activity.startActivity(install)
         }
     }
 

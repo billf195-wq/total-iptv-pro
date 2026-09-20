@@ -4,15 +4,25 @@ import android.os.Bundle
 import android.view.KeyEvent
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import com.totaliptv.pro2.data.ContentKind
+import com.totaliptv.pro2.data.ResumeStore
 
 class PlayerActivity : ComponentActivity() {
     private var player: ExoPlayer? = null
     private var playerView: PlayerView? = null
+    private var urls: List<String> = emptyList()
+    private var titles: List<String> = emptyList()
+    private var seasons: List<Int> = emptyList()
+    private var episodeNums: List<Int> = emptyList()
+    private var index: Int = 0
+    private var seriesId: Int = 0
+    private var seriesName: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -22,6 +32,19 @@ class PlayerActivity : ComponentActivity() {
             finish()
             return
         }
+
+        urls = intent.getStringArrayListExtra(EXTRA_URLS).orEmpty()
+        titles = intent.getStringArrayListExtra(EXTRA_TITLES).orEmpty()
+        seasons = intent.getIntegerArrayListExtra(EXTRA_SEASONS).orEmpty()
+        episodeNums = intent.getIntegerArrayListExtra(EXTRA_EP_NUMS).orEmpty()
+        index = intent.getIntExtra(EXTRA_START_INDEX, 0).coerceAtLeast(0)
+        seriesId = intent.getIntExtra(EXTRA_SERIES_ID, 0)
+        seriesName = intent.getStringExtra(EXTRA_SERIES_NAME).orEmpty()
+        if (urls.isEmpty()) {
+            urls = listOf(url)
+            titles = listOf(title)
+        }
+        if (index >= urls.size) index = 0
 
         playerView = PlayerView(this).apply {
             layoutParams = FrameLayout.LayoutParams(
@@ -37,16 +60,65 @@ class PlayerActivity : ComponentActivity() {
 
         player = ExoPlayer.Builder(this).build().also { exo ->
             playerView?.player = exo
-            exo.setMediaItem(MediaItem.fromUri(url))
-            exo.prepare()
+            playIndex(exo, index, announce = false)
             exo.playWhenReady = true
             exo.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_ENDED) finish()
+                    if (playbackState == Player.STATE_ENDED) {
+                        if (!playNext()) finish()
+                    }
                 }
             })
         }
-        title.let { setTitle(it) }
+    }
+
+    private fun playIndex(exo: ExoPlayer, i: Int, announce: Boolean) {
+        if (i !in urls.indices) return
+        index = i
+        val title = titles.getOrElse(i) { "" }
+        exo.setMediaItem(MediaItem.fromUri(urls[i]))
+        exo.prepare()
+        exo.play()
+        setTitle(title)
+        if (announce && title.isNotBlank()) {
+            Toast.makeText(this, title, Toast.LENGTH_SHORT).show()
+        }
+        recordCurrent()
+    }
+
+    private fun playNext(): Boolean {
+        val exo = player ?: return false
+        if (index + 1 >= urls.size) return false
+        playIndex(exo, index + 1, announce = true)
+        return true
+    }
+
+    private fun playPrevious(): Boolean {
+        val exo = player ?: return false
+        if (index - 1 < 0) return false
+        playIndex(exo, index - 1, announce = true)
+        return true
+    }
+
+    private fun recordCurrent() {
+        if (seriesId <= 0 || index !in urls.indices) return
+        val season = seasons.getOrNull(index)
+        val epNum = episodeNums.getOrNull(index)
+        val title = titles.getOrElse(index) { seriesName }
+        ResumeStore(this).recordPlay(
+            com.totaliptv.pro2.data.MediaItem(
+                id = "ep-${seriesId}-${season ?: 0}-${epNum ?: index}",
+                name = title,
+                streamUrl = urls[index],
+                categoryId = null,
+                kind = ContentKind.SERIES,
+                playable = true,
+                parentSeriesId = seriesId,
+                parentSeriesName = seriesName.ifBlank { null },
+                season = season,
+                episodeNum = epNum
+            )
+        )
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -67,6 +139,12 @@ class PlayerActivity : ComponentActivity() {
             KeyEvent.KEYCODE_MEDIA_PAUSE -> {
                 player?.pause(); return true
             }
+            KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_CHANNEL_UP -> {
+                if (playNext()) return true
+            }
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                if (playPrevious()) return true
+            }
         }
         return super.onKeyDown(keyCode, event)
     }
@@ -86,5 +164,12 @@ class PlayerActivity : ComponentActivity() {
     companion object {
         const val EXTRA_URL = "url"
         const val EXTRA_TITLE = "title"
+        const val EXTRA_URLS = "urls"
+        const val EXTRA_TITLES = "titles"
+        const val EXTRA_SEASONS = "seasons"
+        const val EXTRA_EP_NUMS = "ep_nums"
+        const val EXTRA_START_INDEX = "start_index"
+        const val EXTRA_SERIES_ID = "series_id"
+        const val EXTRA_SERIES_NAME = "series_name"
     }
 }

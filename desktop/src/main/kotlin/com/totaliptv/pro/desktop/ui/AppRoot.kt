@@ -22,11 +22,16 @@ import com.totaliptv.pro.desktop.data.FavoritesStore
 import com.totaliptv.pro.desktop.data.ResumeStore
 import com.totaliptv.pro.desktop.data.SavedPrefs
 import com.totaliptv.pro.desktop.data.SeriesDetail
+import com.totaliptv.pro.desktop.data.SeriesEpisode
+import com.totaliptv.pro.desktop.data.SeriesPlayback
 import com.totaliptv.pro.desktop.data.VodDetail
 import com.totaliptv.pro.desktop.player.StreamPlayer
+import com.totaliptv.pro.desktop.update.AppUpdateManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 
 @Composable
 fun AppRoot() {
@@ -54,6 +59,17 @@ fun AppRoot() {
     var vodDetail by remember { mutableStateOf<VodDetail?>(null) }
     var vodLoading by remember { mutableStateOf(false) }
     var vodError by remember { mutableStateOf<String?>(null) }
+
+    var showSplash by remember { mutableStateOf(true) }
+    val playSeq = remember { AtomicInteger(0) }
+    var lastSeriesEpisodes by remember { mutableStateOf<List<SeriesEpisode>>(emptyList()) }
+    var lastSeriesName by remember { mutableStateOf("") }
+    var lastSeriesId by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(Unit) {
+        delay(SplashTiming.DURATION_MS)
+        showSplash = false
+    }
 
     fun persist(p: SavedPrefs) {
         PreferencesStore.save(p)
@@ -131,6 +147,9 @@ fun AppRoot() {
                 prefs = saved
                 val detail = withContext(Dispatchers.IO) { repo.loadSeriesDetail(saved, item) }
                 seriesDetail = detail
+                lastSeriesEpisodes = detail.episodes
+                lastSeriesName = detail.name
+                lastSeriesId = detail.seriesId
             } catch (t: Throwable) {
                 seriesError = t.message ?: t.javaClass.simpleName
                 seriesDetail = null
@@ -185,6 +204,7 @@ fun AppRoot() {
             openSeries(item)
             return
         }
+        val seq = playSeq.incrementAndGet()
         scope.launch {
             try {
                 val playerPref = PreferencesStore.load().preferredPlayer
@@ -197,6 +217,28 @@ fun AppRoot() {
                 }
                 playingTitle = item.name
                 error = null
+                val episodes = when {
+                    item.parentSeriesId != null && seriesDetail?.seriesId == item.parentSeriesId ->
+                        seriesDetail?.episodes.orEmpty()
+                    item.parentSeriesId != null && lastSeriesId == item.parentSeriesId ->
+                        lastSeriesEpisodes
+                    else -> emptyList()
+                }
+                if (item.kind == ContentKind.SERIES && episodes.isNotEmpty()) {
+                    val seriesName = item.parentSeriesName ?: lastSeriesName
+                    val seriesId = item.parentSeriesId ?: lastSeriesId
+                    launch(Dispatchers.IO) {
+                        val naturalEnd = StreamPlayer.waitForExit()
+                        if (!naturalEnd || seq != playSeq.get()) return@launch
+                        val next = SeriesPlayback.nextEpisode(episodes, item.season, item.episodeNum)
+                            ?: return@launch
+                        withContext(Dispatchers.Main) {
+                            if (seq == playSeq.get()) {
+                                playItem(next.toMediaItem(seriesName, seriesId))
+                            }
+                        }
+                    }
+                }
             } catch (t: Throwable) {
                 error = t.message
                 playingTitle = null
@@ -282,9 +324,25 @@ fun AppRoot() {
             loading = false
             showOnboarding = true
         }
+        // Quiet update check so GTR / Bigboybill see a banner when a shelf package is ready.
+        launch(Dispatchers.IO) {
+            val shelf = PreferencesStore.load().updateShelfUrl
+            val result = AppUpdateManager().check(shelf)
+            if (result.phase == com.totaliptv.pro.desktop.update.UpdatePhase.Available) {
+                withContext(Dispatchers.Main) {
+                    if (statusMessage.isNullOrBlank()) {
+                        statusMessage = result.message + " — open Settings to install"
+                    }
+                }
+            }
+        }
     }
 
     TipTheme(darkTheme = prefs.themeMode != "light") {
+        if (showSplash) {
+            SplashScreen()
+            return@TipTheme
+        }
         when {
             showOnboarding -> {
                 OnboardingScreen(
@@ -364,11 +422,13 @@ fun AppRoot() {
                     },
                     onToggleFavorite = { toggleFavorite(it) },
                     onStop = {
+                        playSeq.incrementAndGet()
                         StreamPlayer.stop()
                         playingTitle = null
                     },
                     onRefresh = { refreshFromSaved() },
                     onLogout = {
+                        playSeq.incrementAndGet()
                         StreamPlayer.stop()
                         playingTitle = null
                         catalog = null

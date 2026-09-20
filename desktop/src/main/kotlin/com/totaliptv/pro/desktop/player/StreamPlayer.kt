@@ -10,9 +10,12 @@ import java.io.File
 object StreamPlayer {
     @Volatile
     private var current: Process? = null
+    @Volatile
+    private var stoppedByUser: Boolean = false
 
     fun play(url: String, preferredPlayer: String = "auto"): String {
-        stop()
+        stoppedByUser = false
+        stopProcessOnly()
         val cmd = resolvePlayerCommand(url, preferredPlayer)
             ?: error(
                 if (AppPaths.isWindows) {
@@ -29,11 +32,32 @@ object StreamPlayer {
     }
 
     fun stop() {
+        stoppedByUser = true
+        stopProcessOnly()
+    }
+
+    private fun stopProcessOnly() {
         current?.destroyForcibly()
         current = null
     }
 
     fun isPlaying(): Boolean = current?.isAlive == true
+
+    /**
+     * Block until the current player process exits.
+     * @return true if the process ended on its own (ready for next episode).
+     */
+    fun waitForExit(): Boolean {
+        val proc = current ?: return false
+        return try {
+            proc.waitFor()
+            val natural = !stoppedByUser
+            if (current === proc) current = null
+            natural
+        } catch (_: InterruptedException) {
+            false
+        }
+    }
 
     fun availablePlayers(): List<String> {
         val found = mutableListOf<String>()

@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.totaliptv.pro"
-version = "1.1.8"
+version = "1.1.9"
 
 repositories {
     mavenCentral()
@@ -45,7 +45,7 @@ compose.desktop {
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi
             )
             packageName = "TotalIptvPro"
-            packageVersion = "1.1.8"
+            packageVersion = "1.1.9"
             description = "Total IPTV Pro — desktop IPTV player (Linux & Windows)"
             linux {
                 packageName = "total-iptv-pro"
