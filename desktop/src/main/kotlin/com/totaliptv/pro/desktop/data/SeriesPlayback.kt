@@ -95,4 +95,19 @@ object SeriesPlayback {
         nextEpisode(episodes, season, episodeNum, episodeId)?.let { return it }
         return sortedEpisodes(episodes).firstOrNull()
     }
+
+    /**
+     * Episode the in-app Next button should play: after last-watched, or after
+     * the first episode when there is no resume. Never gated on hasResume —
+     * a following episode is enough.
+     */
+    fun nextActionEpisode(
+        episodes: List<SeriesEpisode>,
+        season: Int?,
+        episodeNum: Int?,
+        episodeId: String? = null
+    ): SeriesEpisode? {
+        val current = continueEpisode(episodes, season, episodeNum, episodeId) ?: return null
+        return nextEpisode(episodes, current.season, current.episodeNum, current.id)
+    }
 }

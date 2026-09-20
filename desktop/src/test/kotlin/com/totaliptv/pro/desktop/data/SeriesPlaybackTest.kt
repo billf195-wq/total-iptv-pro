@@ -51,6 +51,17 @@ class SeriesPlaybackTest {
     }
 
     @Test
+    fun nextActionEpisodeShowsWithoutResumeOnFirstPlay() {
+        val eps = listOf(ep(1, 1), ep(1, 2), ep(2, 1))
+        // No resume row: Next is S01E02, not hidden and not a duplicate of Play first.
+        assertEquals("1-2", SeriesPlayback.nextActionEpisode(eps, null, null, null)?.id)
+        assertEquals("1-2", SeriesPlayback.nextActionEpisode(eps, 1, 1)?.id)
+        assertEquals("2-1", SeriesPlayback.nextActionEpisode(eps, 1, 2)?.id)
+        assertNull(SeriesPlayback.nextActionEpisode(eps, 2, 1))
+        assertNull(SeriesPlayback.nextActionEpisode(listOf(ep(1, 1)), null, null, null))
+    }
+
+    @Test
     fun resumeLookupMatchesSeriesKeyNotEpisodeStreamId() {
         val entries = listOf(
             ResumeStore.ResumeEntry(
