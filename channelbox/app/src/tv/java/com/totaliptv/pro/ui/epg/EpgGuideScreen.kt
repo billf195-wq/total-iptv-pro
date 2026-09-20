@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -34,6 +35,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
@@ -124,6 +131,7 @@ fun EpgGuideScreen(
     }
     val windowEnd = windowStart + WINDOW_HOURS * 60 * 60 * 1000L
     val scroll = rememberScrollState()
+    val listState = rememberLazyListState()
 
     val selectedCategoryName = remember(selectedCategoryId, liveCategories) {
         if (selectedCategoryId == GUIDE_ALL_ID) "ALL"
@@ -139,13 +147,11 @@ fun EpgGuideScreen(
         // Always rebind EPG for the visible channel set on category chip change.
         val myGen = guideLoadGen + 1
         guideLoadGen = myGen
-        loading = true
         status = "Loading guide… | $selectedCategoryName"
         scroll.scrollTo(0)
         focusedChannelId = null
 
         val filterCategoryId = selectedCategoryId.takeUnless { it == GUIDE_ALL_ID }
-        // Same helper + category as Live TV — no take() cap (old GUIDE_CHANNEL_LIMIT / GUIDE_EPG_MAX).
         val channels = LiveChannelMapping.filterLiveChannels(repository.liveItems(), filterCategoryId)
         if (channels.isEmpty()) {
             rows = emptyList()
@@ -158,26 +164,70 @@ fun EpgGuideScreen(
             return@LaunchedEffect
         }
 
-        // Skeleton rows first so the grid recomposes for this category immediately.
-        rows = channels.map { EpgChannelRow(channel = it) }
-        // Allow play only for this generation's rows (blocks stale focused row from prior category).
-        if (guideLoadGen != myGen) return@LaunchedEffect
+        // Paint rows immediately (cache hits already have blocks). Play is allowed.
+        rows = channels.map { repository.peekCachedGuideRow(it) ?: EpgChannelRow(channel = it) }
         loading = false
+        if (guideLoadGen != myGen) return@LaunchedEffect
 
         if (!repository.hasXtreamEpg()) {
             status = "EPG requires an Xtream source. Showing channel list only. | $selectedCategoryName"
             return@LaunchedEffect
         }
 
-        status = "Loading programming… | $selectedCategoryName"
-        val filled = repository.loadGuideRows(channels)
+        fun withDataCount() = rows.count { it.programs.isNotEmpty() || it.nowNext.now != null }
+        val cachedN = withDataCount()
+        status = if (cachedN > 0) {
+            "Timeline | $cachedN channels | $selectedCategoryName | loading…"
+        } else {
+            "Loading programming… | $selectedCategoryName"
+        }
+
+        val ids = channels.map { it.id }
+        val alreadyCached = channels.mapNotNull { ch ->
+            ch.id.takeIf { repository.peekCachedGuideRow(ch) != null }
+        }.toSet()
+        val order = GuideEpgLoad.fetchOrder(
+            channelIds = ids,
+            firstVisibleIndex = listState.firstVisibleItemIndex.coerceAtLeast(0),
+            focusedId = focusedChannelId,
+            alreadyStarted = alreadyCached
+        )
+
+        // Fetch on IO, apply rows on Main. supervisorScope: one failure must not cancel the rest.
+        // Do not read Compose state or send a Channel from Dispatchers.IO (1.4.53 dropped all updates).
+        supervisorScope {
+            for (idx in order) {
+                val ch = channels[idx]
+                launch {
+                    val filled = withContext(Dispatchers.IO) {
+                        try {
+                            repository.loadGuideRow(ch)
+                        } catch (ce: CancellationException) {
+                            throw ce
+                        } catch (_: Throwable) {
+                            EpgChannelRow(channel = ch)
+                        }
+                    }
+                    if (!isActive || guideLoadGen != myGen) return@launch
+                    rows = GuideEpgLoad.applyRow(rows, filled)
+                    val n = withDataCount()
+                    status = "Timeline | $n / ${channels.size} | $selectedCategoryName | ${timeFmt.format(Date())}"
+                    Log.i(
+                        "TotalIPTV.Guide",
+                        "guideRowApplied name=${filled.channel.name} id=${filled.channel.id} " +
+                            "sid=${filled.channel.xtreamStreamId} programs=${filled.programs.size} " +
+                            "n=$n/${channels.size}"
+                    )
+                }
+            }
+        }
+
         if (guideLoadGen != myGen) return@LaunchedEffect
-        rows = filled
-        val withData = filled.count { it.programs.isNotEmpty() || it.nowNext.now != null }
-        status = if (withData == 0) {
+        val n = withDataCount()
+        status = if (n == 0) {
             "Server returned no EPG data. Showing channels only. | $selectedCategoryName"
         } else {
-            "Timeline | $withData channels | $selectedCategoryName | ${timeFmt.format(Date())}"
+            "Timeline | $n channels | $selectedCategoryName | ${timeFmt.format(Date())}"
         }
     }
 
@@ -277,6 +327,7 @@ fun EpgGuideScreen(
                 }
 
                 LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxSize()

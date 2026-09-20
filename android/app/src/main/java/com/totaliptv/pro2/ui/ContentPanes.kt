@@ -38,6 +38,7 @@ import com.totaliptv.pro2.data.Catalog
 import com.totaliptv.pro2.data.Category
 import com.totaliptv.pro2.data.ChannelEpg
 import com.totaliptv.pro2.data.LiveChannelMapping
+import com.totaliptv.pro2.data.LiveEpgBinding
 import com.totaliptv.pro2.data.MediaItem
 import com.totaliptv.pro2.data.SeriesPlayback
 import com.totaliptv.pro2.update.UpdatePhase
@@ -421,7 +422,11 @@ fun GuidePane(
                     when {
                         sid != null && sid in epgLoadingIds -> CircularProgressIndicator(color = TipAmber)
                         sid != null -> {
-                            val programs = epgByStreamId[sid]?.programs.orEmpty()
+                            val programs = LiveEpgBinding.bindForDisplay(
+                                ch,
+                                epgByStreamId[sid]?.programs.orEmpty(),
+                                channels
+                            )
                             if (programs.isEmpty()) {
                                 Text("No EPG for this channel", color = TipGoldMuted)
                             } else {

@@ -15,6 +15,7 @@ import kotlinx.serialization.json.longOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.time.ZoneId
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
@@ -33,6 +34,9 @@ class XtreamApi(
         coerceInputValues = true
     }
 ) {
+    /** From `server_info.timezone` / `time_now` on the last successful login probe. */
+    internal var providerZone: ZoneId? = null
+
     @Serializable
     data class XtreamCategory(
         @SerialName("category_id") val categoryId: String = "",
@@ -115,6 +119,7 @@ class XtreamApi(
         if (probe.contains("\"auth\":0") || probe.contains("\"auth\": 0")) {
             error("Xtream login rejected (auth=0). Check URL/user/pass.")
         }
+        providerZone = parseServerInfoZone(probe)
 
         val liveCatsRaw = getList<XtreamCategory>(host, username, password, "get_live_categories")
         val liveStreams = getList<LiveStream>(host, username, password, "get_live_streams")
@@ -393,7 +398,12 @@ class XtreamApi(
         return ChannelEpg(streamId = streamId, programs = programs)
     }
 
-    private fun parseEpgListings(body: String, streamId: Int): List<EpgProgram> {
+    internal fun parseEpgListings(
+        body: String,
+        streamId: Int,
+        displayZone: ZoneId = ZoneId.systemDefault(),
+        nowMs: Long = System.currentTimeMillis()
+    ): List<EpgProgram> {
         if (body.isBlank()) return emptyList()
         val root = runCatching { json.parseToJsonElement(body) }.getOrNull() ?: return emptyList()
         val listings: JsonArray = when (root) {
@@ -404,12 +414,26 @@ class XtreamApi(
             is JsonArray -> root
             else -> return emptyList()
         }
-        val out = ArrayList<EpgProgram>(listings.size)
+        data class Raw(
+            val id: String,
+            val title: String,
+            val description: String?,
+            val primary: EpgTime.Instants,
+            val localText: EpgTime.Instants
+        )
+        val textZone = providerZone ?: displayZone
+        val rawRows = ArrayList<Raw>(listings.size)
         for (el in listings) {
             val obj = el as? JsonObject ?: continue
-            val startMs = epgTimeMs(obj, "start_timestamp", "start")
-            val endMs = epgTimeMs(obj, "stop_timestamp", "end")
+            val startTs = obj["start_timestamp"]?.jsonPrimitive?.contentOrNull
+            val endTs = obj["stop_timestamp"]?.jsonPrimitive?.contentOrNull
+            val startText = obj["start"]?.jsonPrimitive?.contentOrNull
+            val endText = obj["end"]?.jsonPrimitive?.contentOrNull
+            val startMs = EpgTime.fromFields(startTs, startText, displayZone, providerZone)
+            val endMs = EpgTime.fromFields(endTs, endText, displayZone, providerZone)
             if (startMs <= 0L || endMs <= 0L || endMs <= startMs) continue
+            val localStart = startText?.let { EpgTime.fromNaiveInZone(it, textZone) } ?: startMs
+            val localEnd = endText?.let { EpgTime.fromNaiveInZone(it, textZone) } ?: endMs
             val title = decodeEpgText(
                 obj["title"]?.jsonPrimitive?.contentOrNull
                     ?: obj["name"]?.jsonPrimitive?.contentOrNull
@@ -421,36 +445,51 @@ class XtreamApi(
             val id = obj["id"]?.jsonPrimitive?.contentOrNull
                 ?: obj["epg_id"]?.jsonPrimitive?.contentOrNull
                 ?: "$streamId-$startMs"
-            out += EpgProgram(
+            rawRows += Raw(
                 id = id,
                 title = title,
                 description = desc,
-                startMs = startMs,
-                endMs = endMs,
+                primary = EpgTime.Instants(startMs, endMs),
+                localText = if (localStart > 0L && localEnd > localStart) {
+                    EpgTime.Instants(localStart, localEnd)
+                } else {
+                    EpgTime.Instants(startMs, endMs)
+                }
+            )
+        }
+        val aligned = EpgTime.alignToNow(
+            rawRows.map { it.primary },
+            rawRows.map { it.localText },
+            nowMs
+        )
+        return rawRows.zip(aligned) { row, times ->
+            EpgProgram(
+                id = row.id,
+                title = row.title,
+                description = row.description,
+                startMs = times.startMs,
+                endMs = times.endMs,
                 channelStreamId = streamId
             )
-        }
-        out.sortBy { it.startMs }
-        return out
+        }.sortedBy { it.startMs }
     }
 
-    private fun epgTimeMs(obj: JsonObject, tsKey: String, textKey: String): Long {
-        val ts = obj[tsKey]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
-        if (ts != null && ts > 0) {
-            // Xtream usually uses unix seconds
-            return if (ts < 10_000_000_000L) ts * 1000L else ts
-        }
-        val text = obj[textKey]?.jsonPrimitive?.contentOrNull ?: return 0L
-        val normalized = text.trim().take(19).replace('T', ' ')
-        return try {
-            val parsed = java.time.LocalDateTime.parse(
-                normalized,
-                java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-            )
-            parsed.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-        } catch (_: Exception) {
-            0L
-        }
+    internal fun epgTimeMs(obj: JsonObject, tsKey: String, textKey: String): Long {
+        val ts = obj[tsKey]?.jsonPrimitive?.contentOrNull
+        val text = obj[textKey]?.jsonPrimitive?.contentOrNull
+        return EpgTime.fromFields(ts, text, ZoneId.systemDefault(), providerZone)
+    }
+
+    internal fun parseServerInfoZone(body: String): ZoneId? {
+        val root = runCatching { json.parseToJsonElement(body) }.getOrNull() as? JsonObject
+            ?: return null
+        val info = (root["server_info"] as? JsonObject) ?: root
+        val named = info["timezone"]?.jsonPrimitive?.contentOrNull
+            ?.let { EpgTime.zoneOrNull(it) }
+        if (named != null) return named
+        val timeNow = info["time_now"]?.jsonPrimitive?.contentOrNull
+        val tsNow = info["timestamp_now"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+        return EpgTime.inferProviderZone(timeNow, tsNow)
     }
 
     private fun decodeEpgText(raw: String?): String {

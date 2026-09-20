@@ -34,6 +34,8 @@ import androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -114,6 +116,10 @@ class PlayerActivity : ComponentActivity() {
     private var startOver = false
     private var catalogId: String? = null
     private lateinit var watchProgressStore: WatchProgressStore
+    /** Actual URI passed to ExoPlayer (live prefers .ts; may flip to .m3u8). */
+    private var playbackUrl: String = ""
+    private var triedAlternateLiveUrl = false
+    private var bufferWatchJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -267,18 +273,13 @@ class PlayerActivity : ComponentActivity() {
             return
         }
 
-        // Preferred player = VLC: hand off immediately (built-in still available via Retry).
-        val appPrefs = (application as TotalIptvProApp).preferences
+        // Always start built-in ExoPlayer. Guide/live catalog URLs are .m3u8;
+        // ExoPlayer plays .ts first (progressive, same shape as VOD .mp4).
+        // VLC Intent still uses [streamUrl] (.m3u8) as a fallback button.
+        playbackUrl = PlayerStream.preferredExoUrl(streamUrl, isLivePlayback())
+        triedAlternateLiveUrl = false
+        initPlayer()
         scope.launch {
-            val preferred = runCatching { appPrefs.getPreferredPlayer() }.getOrDefault(PreferredPlayer.BUILTIN)
-            if (preferred == PreferredPlayer.VLC) {
-                statusView?.text = "Opening in VLC..."
-                statusView?.isVisible = true
-                overlay?.isVisible = true
-                openInVlc()
-            } else {
-                initPlayer()
-            }
             loadEpgOverlay()
             showOverlayTemporarily()
         }
@@ -366,34 +367,26 @@ class PlayerActivity : ComponentActivity() {
     private fun isLivePlayback(): Boolean = mediaKind == ContentKind.LIVE
 
     /** Build MediaItem; apply live target offset only for LIVE IPTV. */
-    private fun buildMediaItem(): MediaItem {
-        val builder = MediaItem.Builder().setUri(streamUrl)
-        if (isLivePlayback()) {
-            builder.setLiveConfiguration(
-                MediaItem.LiveConfiguration.Builder()
-                    // Generous target for jittery IPTV/HLS/TS; VOD path skips this.
-                    .setTargetOffsetMs(35_000)
-                    .setMinOffsetMs(12_000)
-                    .setMaxOffsetMs(70_000)
-                    .setMinPlaybackSpeed(0.97f)
-                    .setMaxPlaybackSpeed(1.03f)
-                    .build()
-            )
-        }
+    private fun buildMediaItem(url: String = playbackUrl.ifBlank { streamUrl }): MediaItem {
+        val builder = MediaItem.Builder().setUri(url)
+        PlayerStream.mimeForUrl(url)?.let { builder.setMimeType(it) }
+        // Do not force a live target offset. Xtream HLS windows are ~5–12s;
+        // a 6–35s target sat behind live and never reached READY (VOD is .mp4).
         return builder.build()
     }
 
     private fun buildLoadControl(): DefaultLoadControl {
-        // LIVE: larger cushions for unstable IPTV. VOD: moderate defaults (no huge startup wait).
+        // LIVE: small cushions so a short window / MPEG-TS can start (VOD-like).
+        // The old 30s/120s live buffers never filled on a 5–12s HLS window.
         val minBufferMs: Int
         val maxBufferMs: Int
         val bufferForPlaybackMs: Int
         val bufferForPlaybackAfterRebufferMs: Int
         if (isLivePlayback()) {
-            minBufferMs = 30_000
-            maxBufferMs = 120_000
-            bufferForPlaybackMs = 3_500
-            bufferForPlaybackAfterRebufferMs = 8_000
+            minBufferMs = PlayerStream.LIVE_MIN_BUFFER_MS
+            maxBufferMs = PlayerStream.LIVE_MAX_BUFFER_MS
+            bufferForPlaybackMs = PlayerStream.LIVE_PLAYBACK_BUFFER_MS
+            bufferForPlaybackAfterRebufferMs = PlayerStream.LIVE_REBUFFER_MS
         } else {
             minBufferMs = 15_000
             maxBufferMs = 50_000
@@ -521,7 +514,20 @@ class PlayerActivity : ComponentActivity() {
                 .build()
         }
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(this)
+        val headers = linkedMapOf(
+            "Accept" to "*/*",
+            "Connection" to "keep-alive"
+        )
+        PlayerStream.refererFor(playbackUrl.ifBlank { streamUrl })?.let { headers["Referer"] = it }
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent(PlayerStream.STREAM_USER_AGENT)
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(25_000)
+            .setKeepPostFor302Redirects(true)
+            .setDefaultRequestProperties(headers)
+        val dataSourceFactory = DefaultDataSource.Factory(this, httpFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         val playerBuilder = ExoPlayer.Builder(this, renderersFactory)
             .setTrackSelector(trackSelector)
@@ -558,6 +564,25 @@ class PlayerActivity : ComponentActivity() {
         )
         exo.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                    statusView?.text = "Catching live edge…"
+                    statusView?.isVisible = true
+                    exo.seekToDefaultPosition()
+                    exo.prepare()
+                    exo.playWhenReady = true
+                    return
+                }
+                val httpFail =
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                        error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
+                        error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                        error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ||
+                        error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+                        error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                        error.errorCode == PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE
+                if (httpFail && tryAlternateLiveUrl("Retrying live URL…")) {
+                    return
+                }
                 // One auto-retry with software-preferring renderers on hard decode failure.
                 val decodeFail =
                     error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
@@ -596,8 +621,10 @@ class PlayerActivity : ComponentActivity() {
                         statusView?.text = "Buffering..."
                         statusView?.isVisible = true
                         overlay?.isVisible = true
+                        watchLiveBufferStuck()
                     }
                     Player.STATE_READY -> {
+                        bufferWatchJob?.cancel()
                         statusView?.text = ""
                         statusView?.isVisible = false
                         retryCount = 0
@@ -917,12 +944,45 @@ class PlayerActivity : ComponentActivity() {
             .show()
     }
 
+    /**
+     * Guide/live: if MPEG-TS fails or HLS never leaves BUFFERING, flip to the
+     * other Xtream form (`.ts` ↔ `.m3u8`). One flip only.
+     */
+    private fun tryAlternateLiveUrl(reason: String): Boolean {
+        if (!isLivePlayback() || triedAlternateLiveUrl) return false
+        val alt = PlayerStream.alternateLiveUrl(playbackUrl.ifBlank { streamUrl }, streamUrl)
+            ?: return false
+        triedAlternateLiveUrl = true
+        playbackUrl = alt
+        statusView?.text = reason
+        statusView?.isVisible = true
+        overlay?.isVisible = true
+        Log.i("TotalIPTV.Live", "liveUrlFlip reason=$reason url=$alt")
+        initPlayer()
+        return true
+    }
+
+    private fun watchLiveBufferStuck() {
+        if (!isLivePlayback() || triedAlternateLiveUrl) return
+        bufferWatchJob?.cancel()
+        bufferWatchJob = scope.launch {
+            delay(PlayerStream.LIVE_STUCK_BUFFER_MS)
+            val exo = player ?: return@launch
+            if (exo.playbackState == Player.STATE_BUFFERING && !exo.isPlaying) {
+                tryAlternateLiveUrl("Live still buffering — trying other URL…")
+            }
+        }
+    }
+
     private fun retryPlayback() {
         retryCount++
         statusView?.text = "Retry #$retryCount…"
         statusView?.isVisible = true
         overlay?.isVisible = true
         englishAutoApplied.set(false)
+        playbackUrl = PlayerStream.preferredExoUrl(streamUrl, isLivePlayback())
+        triedAlternateLiveUrl = false
+        bufferWatchJob?.cancel()
         // Rebuild so decoder-fallback / software-preferring factory stays applied.
         initPlayer()
     }
@@ -964,6 +1024,7 @@ class PlayerActivity : ComponentActivity() {
         savePlaybackProgress()
         progressSaveJob?.cancel()
         hideOverlayJob?.cancel()
+        bufferWatchJob?.cancel()
         playerView?.player = null
         player?.release()
         player = null
@@ -1152,6 +1213,9 @@ class PlayerActivity : ComponentActivity() {
         resumeApplied = false
         preferSoftwareDecoders = false
         englishAutoApplied.set(false)
+        playbackUrl = PlayerStream.preferredExoUrl(item.streamUrl, live = false)
+        triedAlternateLiveUrl = false
+        bufferWatchJob?.cancel()
         initPlayer()
         cachedNextEpisode = null
         refreshPlayNextButton()

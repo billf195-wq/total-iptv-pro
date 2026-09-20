@@ -57,8 +57,8 @@ class SeriesPlaybackTest {
     @Test
     fun splashTitleKeepsNameAndSmallerVersionSuffix() {
         assertEquals("Total IPTV Pro", SplashBranding.APP_TITLE)
-        assertEquals("1.0.4", SplashBranding.versionLabel("1.0.4"))
-        assertEquals("1.0.4-debug", SplashBranding.versionLabel(" 1.0.4-debug "))
+        assertEquals("1.0.7", SplashBranding.versionLabel("1.0.7"))
+        assertEquals("1.0.7-debug", SplashBranding.versionLabel(" 1.0.7-debug "))
     }
 
     @Test

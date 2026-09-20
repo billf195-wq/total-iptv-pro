@@ -15,7 +15,7 @@ class SplashTimingTest {
     @Test
     fun splashTitleKeepsNameAndSmallerVersionSuffix() {
         assertEquals("Total IPTV Pro", SplashBranding.APP_TITLE)
-        assertEquals("1.4.49", SplashBranding.versionLabel("1.4.49"))
-        assertEquals("1.4.26-phone", SplashBranding.versionLabel(" 1.4.26-phone "))
+        assertEquals("1.4.54", SplashBranding.versionLabel("1.4.54"))
+        assertEquals("1.4.31-phone", SplashBranding.versionLabel(" 1.4.31-phone "))
     }
 }
