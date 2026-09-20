@@ -145,11 +145,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setSection(section: NavSection) {
+        val liveFamily = setOf(NavSection.LIVE, NavSection.GUIDE)
+        val keepLiveFilters = _state.value.section in liveFamily && section in liveFamily
         _state.update {
             it.copy(
                 section = section,
-                searchQuery = "",
-                selectedCategoryId = null,
+                searchQuery = if (keepLiveFilters) it.searchQuery else "",
+                selectedCategoryId = if (keepLiveFilters) it.selectedCategoryId else null,
                 seriesDetail = null,
                 seriesError = null
             )

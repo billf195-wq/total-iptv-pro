@@ -195,7 +195,9 @@ private fun MainShell(
                         catalog = state.catalog!!,
                         epgByStreamId = state.epgByStreamId,
                         epgLoadingIds = state.epgLoadingIds,
+                        search = state.searchQuery,
                         categoryId = state.selectedCategoryId,
+                        onSearch = onSearch,
                         onCategory = onCategory,
                         onNeedEpg = onNeedEpg,
                         onPlay = onPlay

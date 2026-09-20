@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.totaliptv.pro2.data.Catalog
 import com.totaliptv.pro2.data.Category
 import com.totaliptv.pro2.data.ChannelEpg
+import com.totaliptv.pro2.data.LiveChannelMapping
 import com.totaliptv.pro2.data.MediaItem
 import com.totaliptv.pro2.update.UpdatePhase
 import com.totaliptv.pro2.update.UpdateUiState
@@ -146,9 +147,7 @@ fun LivePane(
     onPlay: (MediaItem) -> Unit
 ) {
     val filtered = remember(catalog, search, categoryId) {
-        catalog.liveItems
-            .filter { categoryId == null || it.categoryId == categoryId }
-            .filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
+        LiveChannelMapping.filterLiveChannels(catalog.liveItems, categoryId, search)
     }
     Column(Modifier.fillMaxSize()) {
         FilterBar(
@@ -274,39 +273,42 @@ fun GuidePane(
     catalog: Catalog,
     epgByStreamId: Map<Int, ChannelEpg>,
     epgLoadingIds: Set<Int>,
+    search: String,
     categoryId: String?,
+    onSearch: (String) -> Unit,
     onCategory: (String?) -> Unit,
     onNeedEpg: (MediaItem) -> Unit,
     onPlay: (MediaItem) -> Unit
 ) {
-    val channels = remember(catalog, categoryId) {
-        catalog.liveItems.filter { categoryId == null || it.categoryId == categoryId }.take(200)
+    val channels = remember(catalog, categoryId, search) {
+        LiveChannelMapping.filterLiveChannels(catalog.liveItems, categoryId, search)
     }
-    var selected by remember { mutableStateOf<MediaItem?>(null) }
+    var selectedId by remember { mutableStateOf<String?>(null) }
+    val selected = channels.find { it.id == selectedId } ?: channels.firstOrNull()
     val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
-    LaunchedEffect(selected) {
+    LaunchedEffect(selected?.id) {
+        selectedId = selected?.id
         selected?.let { onNeedEpg(it) }
     }
 
     Column(Modifier.fillMaxSize()) {
         PaneTitle("TV Guide")
         FilterBar(
-            search = "",
-            onSearch = {},
+            search = search,
+            onSearch = onSearch,
             categories = catalog.liveCategories,
             categoryId = categoryId,
             onCategory = onCategory,
             sort = null,
-            onSort = null,
-            showSearch = false
+            onSort = null
         )
         Row(Modifier.fillMaxSize()) {
             LazyColumn(Modifier.weight(0.4f)) {
                 items(channels, key = { it.id }) { ch ->
                     TipFocusable(
                         onClick = {
-                            selected = ch
+                            selectedId = ch.id
                             onNeedEpg(ch)
                         },
                         modifier = Modifier.fillMaxWidth()

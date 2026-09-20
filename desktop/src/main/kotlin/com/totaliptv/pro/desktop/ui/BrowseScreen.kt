@@ -44,6 +44,7 @@ import com.totaliptv.pro.desktop.data.Catalog
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.ContentKind
+import com.totaliptv.pro.desktop.data.LiveChannelMapping
 import com.totaliptv.pro.desktop.data.FavoritesStore
 import com.totaliptv.pro.desktop.data.MediaItem
 import com.totaliptv.pro.desktop.data.SavedPrefs
@@ -191,9 +192,12 @@ fun BrowseScreen(
                     query = ""
                 }
                 NavBtn("Live TV", Icons.Default.LiveTv, nav == MainNav.LIVE) {
+                    val stayOnLiveFamily = nav == MainNav.LIVE || nav == MainNav.GUIDE
                     nav = MainNav.LIVE
-                    selectedCategoryId = null
-                    query = ""
+                    if (!stayOnLiveFamily) {
+                        selectedCategoryId = null
+                        query = ""
+                    }
                 }
                 NavBtn("Movies", Icons.Default.Movie, nav == MainNav.MOVIES) {
                     nav = MainNav.MOVIES
@@ -206,7 +210,12 @@ fun BrowseScreen(
                     query = ""
                 }
                 NavBtn("TV Guide", Icons.Default.Schedule, nav == MainNav.GUIDE) {
+                    val stayOnLiveFamily = nav == MainNav.LIVE || nav == MainNav.GUIDE
                     nav = MainNav.GUIDE
+                    if (!stayOnLiveFamily) {
+                        selectedCategoryId = null
+                        query = ""
+                    }
                 }
                 NavBtn("Favorites", Icons.Default.Favorite, nav == MainNav.FAVORITES) {
                     nav = MainNav.FAVORITES
@@ -269,6 +278,10 @@ fun BrowseScreen(
                         epgLoadingIds = epgLoadingIds,
                         playingTitle = playingTitle,
                         guideStyle = prefs.guideStyle,
+                        selectedCategoryId = selectedCategoryId,
+                        onCategoryChange = { selectedCategoryId = it },
+                        query = query,
+                        onQueryChange = { query = it },
                         onNeedEpg = onNeedEpg,
                         onPlayChannel = onPlay,
                         onStop = onStop
@@ -383,16 +396,16 @@ private fun BrowseContentPane(
         ContentKind.SERIES -> catalog.seriesItems
     }
     val filtered = remember(kind, selectedCategoryId, query, catalog, browseSort) {
-        val base = allItems.asSequence()
-            .filter { selectedCategoryId == null || it.categoryId == selectedCategoryId }
-            .filter {
-                query.isBlank() || it.name.contains(query, ignoreCase = true) ||
-                    (it.groupTitle?.contains(query, ignoreCase = true) == true)
-            }
-            .toList()
         if (kind == ContentKind.LIVE) {
-            base
+            LiveChannelMapping.filterLiveChannels(allItems, selectedCategoryId, query)
         } else {
+            val base = allItems.asSequence()
+                .filter { selectedCategoryId == null || it.categoryId == selectedCategoryId }
+                .filter {
+                    query.isBlank() || it.name.contains(query, ignoreCase = true) ||
+                        (it.groupTitle?.contains(query, ignoreCase = true) == true)
+                }
+                .toList()
             when (browseSort) {
                 BrowseSort.AZ -> base.sortedBy { it.name.lowercase() }
                 BrowseSort.ZA -> base.sortedByDescending { it.name.lowercase() }

@@ -84,4 +84,7 @@ dependencies {
 
     // Images
     implementation("io.coil-kt:coil-compose:2.7.0")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlin:kotlin-test")
 }
