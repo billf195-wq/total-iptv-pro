@@ -107,7 +107,7 @@ fun SeriesNextOverlay(
                     .padding(14.dp)
             ) {
                 Text(
-                    "NEXT EPISODE",
+                    if (next != null) "NEXT EPISODE" else "LAST EPISODE",
                     color = TipBlue,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp
@@ -147,12 +147,23 @@ fun SeriesNextOverlay(
                             )
                         }
                     } else {
-                        Text(
-                            "Last episode",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TipMuted,
-                            modifier = Modifier.weight(1f)
-                        )
+                        Button(
+                            onClick = {},
+                            enabled = false,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = TipSurfaceAlt,
+                                contentColor = TipMuted,
+                                disabledContainerColor = TipSurfaceAlt,
+                                disabledContentColor = TipMuted
+                            ),
+                            modifier = Modifier.weight(1f).height(48.dp)
+                        ) {
+                            Text(
+                                SeriesPlayback.LAST_EPISODE_MESSAGE,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                        }
                     }
                     OutlinedButton(
                         onClick = onStop,

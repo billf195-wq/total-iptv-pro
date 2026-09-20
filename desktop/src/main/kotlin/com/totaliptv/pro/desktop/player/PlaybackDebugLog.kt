@@ -55,7 +55,9 @@ object PlaybackDebugLog {
         playerBinary: String,
         windows: Boolean,
         playlist: Boolean,
-        reason: String
+        reason: String,
+        episodeCount: Int? = null,
+        episodeIndex: Int? = null
     ): String {
         val sxex = when {
             season != null && episodeNum != null -> "S${season}E${episodeNum}"
@@ -79,6 +81,14 @@ object PlaybackDebugLog {
             append(windows)
             append(" playlist=")
             append(playlist)
+            if (episodeCount != null) {
+                append(" eps=")
+                append(episodeCount)
+            }
+            if (episodeIndex != null) {
+                append(" idx=")
+                append(episodeIndex)
+            }
         }
     }
 
@@ -90,7 +100,9 @@ object PlaybackDebugLog {
         playerBinary: String,
         windows: Boolean,
         playlist: Boolean,
-        reason: String
+        reason: String,
+        episodeCount: Int? = null,
+        episodeIndex: Int? = null
     ) {
         runCatching {
             val dir = AppPaths.configDir
@@ -105,7 +117,9 @@ object PlaybackDebugLog {
                 playerBinary = playerBinary,
                 windows = windows,
                 playlist = playlist,
-                reason = reason
+                reason = reason,
+                episodeCount = episodeCount,
+                episodeIndex = episodeIndex
             )
             Files.writeString(
                 path,

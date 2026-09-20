@@ -5,6 +5,8 @@ package com.totaliptv.pro.desktop.data
  * Order is always season then episode number — never list index.
  */
 object SeriesPlayback {
+    const val LAST_EPISODE_MESSAGE = "Last episode of this series"
+
     fun sortedEpisodes(episodes: List<SeriesEpisode>): List<SeriesEpisode> =
         episodes.sortedWith(compareBy({ it.season }, { it.episodeNum }, { it.id }))
 
@@ -136,5 +138,28 @@ object SeriesPlayback {
         if (url.isBlank()) return null
         val byUrl = sorted.indexOfFirst { it.streamUrl.trim() == url }
         return if (byUrl >= 0) sorted.getOrNull(byUrl + 1) else null
+    }
+
+    /**
+     * 0-based index in season/episode order, or -1 if not found.
+     * First value is episode count. Used by skip-no-next debug lines (eps=40 idx=39).
+     */
+    fun indexInSeries(
+        episodes: List<SeriesEpisode>,
+        season: Int?,
+        episodeNum: Int?,
+        episodeId: String? = null,
+        streamUrl: String? = null
+    ): Pair<Int, Int> {
+        val sorted = sortedEpisodes(episodes)
+        if (sorted.isEmpty()) return 0 to -1
+        var idx = indexOfEpisode(sorted, season, episodeNum, episodeId)
+        if (idx < 0) {
+            val url = streamUrl?.trim().orEmpty()
+            if (url.isNotBlank()) {
+                idx = sorted.indexOfFirst { it.streamUrl.trim() == url }
+            }
+        }
+        return sorted.size to idx
     }
 }

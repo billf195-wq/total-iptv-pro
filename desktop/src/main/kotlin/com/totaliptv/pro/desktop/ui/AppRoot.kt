@@ -398,6 +398,13 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null) {
                 session?.current?.streamUrl
             )
         if (next == null || next.streamUrl.isBlank()) {
+            val (eps, idx) = SeriesPlayback.indexInSeries(
+                episodes,
+                session?.current?.season,
+                session?.current?.episodeNum,
+                session?.current?.id,
+                session?.current?.streamUrl
+            )
             PlaybackDebugLog.record(
                 episodeId = session?.current?.id,
                 season = session?.current?.season,
@@ -406,8 +413,11 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null) {
                 playerBinary = "-",
                 windows = AppPaths.isWindows,
                 playlist = StreamPlayer.lastLaunchWasPlaylist,
-                reason = "skip-no-next"
+                reason = "skip-no-next",
+                episodeCount = eps,
+                episodeIndex = idx
             )
+            statusMessage = SeriesPlayback.LAST_EPISODE_MESSAGE
             return
         }
         val name = session?.seriesName ?: lastSeriesName

@@ -83,6 +83,19 @@ class SeriesPlaybackTest {
     }
 
     @Test
+    fun indexInSeriesReportsCountAndZeroBasedIndexForFinale() {
+        val eps = listOf(ep(1, 1), ep(3, 9), ep(3, 10, "909664"))
+        val (count, idx) = SeriesPlayback.indexInSeries(eps, 3, 10, "909664")
+        assertEquals(3, count)
+        assertEquals(2, idx)
+        assertNull(SeriesPlayback.nextAfterPlaying(eps, 3, 10, "909664"))
+        assertEquals(SeriesPlayback.LAST_EPISODE_MESSAGE, "Last episode of this series")
+        val miss = SeriesPlayback.indexInSeries(eps, 9, 9, "nope")
+        assertEquals(3, miss.first)
+        assertEquals(-1, miss.second)
+    }
+
+    @Test
     fun resumeLookupMatchesSeriesKeyNotEpisodeStreamId() {
         val entries = listOf(
             ResumeStore.ResumeEntry(
