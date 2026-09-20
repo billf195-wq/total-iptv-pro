@@ -392,7 +392,7 @@ fun SettingsScreen(
             item {
                 FocusableCard(
                     title = "Preferred player: ${preferredPlayer.label}",
-                    subtitle = "Built-in (ExoPlayer), Ask (suggest VLC on decode fail), or always open VLC. Tap to cycle.",
+                    subtitle = "Built-in always starts ExoPlayer. Ask suggests VLC on decode fail. VLC is a hand-off button, not the only player. Tap to cycle.",
                     onClick = {
                         scope.launch {
                             val next = PreferredPlayer.next(preferredPlayer)

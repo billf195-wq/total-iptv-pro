@@ -7,12 +7,20 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import com.totaliptv.pro2.data.ContentKind
 import com.totaliptv.pro2.data.ResumeStore
 
+@UnstableApi
 class PlayerActivity : ComponentActivity() {
     private var player: ExoPlayer? = null
     private var playerView: PlayerView? = null
@@ -23,6 +31,8 @@ class PlayerActivity : ComponentActivity() {
     private var index: Int = 0
     private var seriesId: Int = 0
     private var seriesName: String = ""
+    private var playbackUrl: String = ""
+    private var triedTsFallback = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,25 +68,92 @@ class PlayerActivity : ComponentActivity() {
         }
         setContentView(playerView)
 
-        player = ExoPlayer.Builder(this).build().also { exo ->
-            playerView?.player = exo
-            playIndex(exo, index, announce = false)
-            exo.playWhenReady = true
-            exo.addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_ENDED) {
-                        if (!playNext()) finish()
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent(PlayerStream.STREAM_USER_AGENT)
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(25_000)
+            .setKeepPostFor302Redirects(true)
+        val dataSourceFactory = DefaultDataSource.Factory(this, httpFactory)
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15_000, 50_000, 1_500, 3_000)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
+        player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setLoadControl(loadControl)
+            .setLivePlaybackSpeedControl(
+                DefaultLivePlaybackSpeedControl.Builder()
+                    .setFallbackMinPlaybackSpeed(0.97f)
+                    .setFallbackMaxPlaybackSpeed(1.03f)
+                    .build()
+            )
+            .build()
+            .also { exo ->
+                playerView?.player = exo
+                playIndex(exo, index, announce = false)
+                exo.playWhenReady = true
+                exo.addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
+                        if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                            exo.seekToDefaultPosition()
+                            exo.prepare()
+                            exo.playWhenReady = true
+                            return
+                        }
+                        val httpFail =
+                            error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                                error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
+                                error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                                error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED
+                        val tsAlt = PlayerStream.tsFallbackUrl(playbackUrl)
+                        if (httpFail && !triedTsFallback && !tsAlt.isNullOrBlank()) {
+                            triedTsFallback = true
+                            playbackUrl = tsAlt
+                            exo.setMediaItem(buildMediaItem(tsAlt))
+                            exo.prepare()
+                            exo.play()
+                            return
+                        }
+                        Toast.makeText(
+                            this@PlayerActivity,
+                            "Playback error: ${error.errorCodeName}",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
-                }
-            })
+
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (playbackState == Player.STATE_ENDED) {
+                            if (!playNext()) finish()
+                        }
+                    }
+                })
+            }
+    }
+
+    private fun buildMediaItem(url: String): MediaItem {
+        val builder = MediaItem.Builder().setUri(url)
+        PlayerStream.mimeForUrl(url)?.let { builder.setMimeType(it) }
+        if (PlayerStream.isHlsUrl(url)) {
+            builder.setLiveConfiguration(
+                MediaItem.LiveConfiguration.Builder()
+                    .setTargetOffsetMs(PlayerStream.LIVE_TARGET_OFFSET_MS)
+                    .setMinOffsetMs(PlayerStream.LIVE_MIN_OFFSET_MS)
+                    .setMaxOffsetMs(PlayerStream.LIVE_MAX_OFFSET_MS)
+                    .build()
+            )
         }
+        return builder.build()
     }
 
     private fun playIndex(exo: ExoPlayer, i: Int, announce: Boolean) {
         if (i !in urls.indices) return
         index = i
         val title = titles.getOrElse(i) { "" }
-        exo.setMediaItem(MediaItem.fromUri(urls[i]))
+        playbackUrl = urls[i]
+        triedTsFallback = false
+        exo.setMediaItem(buildMediaItem(playbackUrl))
         exo.prepare()
         exo.play()
         setTitle(title)

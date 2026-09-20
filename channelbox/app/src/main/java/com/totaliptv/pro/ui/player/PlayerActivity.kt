@@ -34,6 +34,8 @@ import androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -114,6 +116,9 @@ class PlayerActivity : ComponentActivity() {
     private var startOver = false
     private var catalogId: String? = null
     private lateinit var watchProgressStore: WatchProgressStore
+    /** Actual URI passed to ExoPlayer (may switch .m3u8 → .ts on HTTP failure). */
+    private var playbackUrl: String = ""
+    private var triedTsFallback = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -267,18 +272,13 @@ class PlayerActivity : ComponentActivity() {
             return
         }
 
-        // Preferred player = VLC: hand off immediately (built-in still available via Retry).
-        val appPrefs = (application as TotalIptvProApp).preferences
+        // Always start built-in ExoPlayer. Preferred=VLC used to skip this and only
+        // fire an external Intent — so live looked "VLC-only". VLC stays a button /
+        // error fallback, not the only path.
+        playbackUrl = streamUrl
+        triedTsFallback = false
+        initPlayer()
         scope.launch {
-            val preferred = runCatching { appPrefs.getPreferredPlayer() }.getOrDefault(PreferredPlayer.BUILTIN)
-            if (preferred == PreferredPlayer.VLC) {
-                statusView?.text = "Opening in VLC..."
-                statusView?.isVisible = true
-                overlay?.isVisible = true
-                openInVlc()
-            } else {
-                initPlayer()
-            }
             loadEpgOverlay()
             showOverlayTemporarily()
         }
@@ -366,15 +366,16 @@ class PlayerActivity : ComponentActivity() {
     private fun isLivePlayback(): Boolean = mediaKind == ContentKind.LIVE
 
     /** Build MediaItem; apply live target offset only for LIVE IPTV. */
-    private fun buildMediaItem(): MediaItem {
-        val builder = MediaItem.Builder().setUri(streamUrl)
-        if (isLivePlayback()) {
+    private fun buildMediaItem(url: String = playbackUrl.ifBlank { streamUrl }): MediaItem {
+        val builder = MediaItem.Builder().setUri(url)
+        PlayerStream.mimeForUrl(url)?.let { builder.setMimeType(it) }
+        if (isLivePlayback() && PlayerStream.isHlsUrl(url)) {
             builder.setLiveConfiguration(
                 MediaItem.LiveConfiguration.Builder()
-                    // Generous target for jittery IPTV/HLS/TS; VOD path skips this.
-                    .setTargetOffsetMs(35_000)
-                    .setMinOffsetMs(12_000)
-                    .setMaxOffsetMs(70_000)
+                    // Xtream HLS windows are ~5–12s. 35s target sat behind live.
+                    .setTargetOffsetMs(PlayerStream.LIVE_TARGET_OFFSET_MS)
+                    .setMinOffsetMs(PlayerStream.LIVE_MIN_OFFSET_MS)
+                    .setMaxOffsetMs(PlayerStream.LIVE_MAX_OFFSET_MS)
                     .setMinPlaybackSpeed(0.97f)
                     .setMaxPlaybackSpeed(1.03f)
                     .build()
@@ -521,7 +522,14 @@ class PlayerActivity : ComponentActivity() {
                 .build()
         }
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(this)
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent(PlayerStream.STREAM_USER_AGENT)
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(25_000)
+            .setKeepPostFor302Redirects(true)
+        val dataSourceFactory = DefaultDataSource.Factory(this, httpFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         val playerBuilder = ExoPlayer.Builder(this, renderersFactory)
             .setTrackSelector(trackSelector)
@@ -558,6 +566,29 @@ class PlayerActivity : ComponentActivity() {
         )
         exo.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                    statusView?.text = "Catching live edge…"
+                    statusView?.isVisible = true
+                    exo.seekToDefaultPosition()
+                    exo.prepare()
+                    exo.playWhenReady = true
+                    return
+                }
+                val httpFail =
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                        error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
+                        error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                        error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED
+                val tsAlt = PlayerStream.tsFallbackUrl(playbackUrl.ifBlank { streamUrl })
+                if (httpFail && !triedTsFallback && !tsAlt.isNullOrBlank()) {
+                    triedTsFallback = true
+                    playbackUrl = tsAlt
+                    statusView?.text = "Retrying MPEG-TS…"
+                    statusView?.isVisible = true
+                    overlay?.isVisible = true
+                    initPlayer()
+                    return
+                }
                 // One auto-retry with software-preferring renderers on hard decode failure.
                 val decodeFail =
                     error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
@@ -923,6 +954,8 @@ class PlayerActivity : ComponentActivity() {
         statusView?.isVisible = true
         overlay?.isVisible = true
         englishAutoApplied.set(false)
+        playbackUrl = streamUrl
+        triedTsFallback = false
         // Rebuild so decoder-fallback / software-preferring factory stays applied.
         initPlayer()
     }
