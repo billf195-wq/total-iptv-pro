@@ -17,10 +17,10 @@ class GuideTimeTest {
     private val epochMs: Long = Instant.parse("2026-09-20T19:00:00Z").toEpochMilli()
 
     @Test
-    fun zoneFollowsComputerNotHardcodedChicago() {
-        assertEquals(ZoneId.systemDefault(), GuideTime.zone())
+    fun zoneFollowsOsTimeZoneNotAHardcodedDisplayZone() {
+        assertEquals(OsTimeZone.current(), GuideTime.zone())
         val src = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/data/GuideTime.kt").readText()
-        assertTrue(src.contains("ZoneId.systemDefault()"))
+        assertTrue(src.contains("OsTimeZone.current()"))
         assertFalse(src.contains("America/Chicago"))
         val guide = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/ui/GuideScreen.kt").readText()
         assertTrue(guide.contains("GuideTime.formatClock"))

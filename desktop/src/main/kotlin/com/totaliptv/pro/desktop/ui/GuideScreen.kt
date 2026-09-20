@@ -28,6 +28,7 @@ import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.EpgProgram
 import com.totaliptv.pro.desktop.data.GuideTime
 import com.totaliptv.pro.desktop.data.LiveChannelMapping
+import com.totaliptv.pro.desktop.data.LiveEpgBinding
 import com.totaliptv.pro.desktop.data.MediaItem
 
 /**
@@ -204,7 +205,12 @@ fun GuideScreen(
                     val sid = selected.xtreamStreamId
                     val epg = sid?.let { epgByStreamId[it] }
                     val loading = sid != null && sid in epgLoadingIds
-                    val programs = epg?.programs.orEmpty()
+                    val programs = LiveEpgBinding.bindForDisplay(
+                        channel = selected,
+                        programs = epg?.programs.orEmpty(),
+                        siblings = filtered,
+                        nowMs = liveNow
+                    )
 
                     Row(
                         Modifier
@@ -436,7 +442,12 @@ private fun ClassicGuideGrid(
         ) {
             items(visible, key = { it.id }) { ch ->
                 val sid = ch.xtreamStreamId
-                val programs = sid?.let { epgByStreamId[it]?.programs }.orEmpty()
+                val programs = LiveEpgBinding.bindForDisplay(
+                    channel = ch,
+                    programs = sid?.let { epgByStreamId[it]?.programs }.orEmpty(),
+                    siblings = channels,
+                    nowMs = liveNow
+                )
                 val loading = sid != null && sid in epgLoadingIds
                 val sel = ch.id == selectedChannelId
                 Row(

@@ -7,59 +7,125 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import java.time.Instant
 import java.time.ZoneId
+import java.time.ZoneOffset
 
 class EpgTimeTest {
 
     private val chicago: ZoneId = ZoneId.of("America/Chicago")
     private val utc: ZoneId = ZoneId.of("UTC")
-    private val epochSec: Long = Instant.parse("2026-09-20T19:00:00Z").epochSecond
-    private val epochMs: Long = epochSec * 1000L
+
+    /** 2:00 PM CDT = 19:00 UTC on 2026-09-20. */
+    private val twoPmChicago: Long = Instant.parse("2026-09-20T19:00:00Z").toEpochMilli()
+    private val twoPmUtc: Long = Instant.parse("2026-09-20T14:00:00Z").toEpochMilli()
+    private val epochSec: Long = twoPmChicago / 1000L
 
     @Test
-    fun unixSecondsAreUtcEpochMsNotLocalWallTime() {
-        assertEquals(epochMs, EpgTime.fromUnixOrMillis(epochSec))
-        assertEquals(epochMs, EpgTime.fromUnixOrMillis(epochMs))
+    fun unixSecondsAreUtcEpochMsDisplayedInOsZone() {
+        assertEquals(twoPmChicago, EpgTime.fromUnixOrMillis(epochSec))
         assertEquals("2:00 PM", GuideTime.formatTime(EpgTime.fromUnixOrMillis(epochSec), chicago))
         assertEquals("7:00 PM", GuideTime.formatTime(EpgTime.fromUnixOrMillis(epochSec), utc))
     }
 
     @Test
-    fun naiveXtreamTextIsUtcNotComputerLocal() {
-        assertEquals(epochMs, EpgTime.fromText("2026-09-20 19:00:00"))
-        assertEquals(epochMs, EpgTime.fromText("2026-09-20T19:00:00Z"))
-        assertEquals(epochMs, EpgTime.fromText("2026-09-20T14:00:00-05:00"))
-        assertEquals("2:00 PM", GuideTime.formatTime(EpgTime.fromText("2026-09-20 19:00:00"), chicago))
+    fun naiveTextUsesOsOrProviderZoneLikeAndroidNotForcedUtc() {
+        assertEquals(twoPmChicago, EpgTime.fromNaiveInZone("2026-09-20 14:00:00", chicago))
+        assertEquals(twoPmUtc, EpgTime.fromNaiveInZone("2026-09-20 14:00:00", ZoneOffset.UTC))
+        assertEquals(twoPmChicago, EpgTime.fromText("2026-09-20T19:00:00Z", chicago))
+        assertEquals(twoPmChicago, EpgTime.fromText("2026-09-20T14:00:00-05:00", chicago))
+        assertEquals(
+            twoPmChicago,
+            EpgTime.fromFields(null, "2026-09-20 14:00:00", displayZone = chicago)
+        )
+        assertEquals("2:00 PM", GuideTime.formatTime(twoPmChicago, chicago))
     }
 
     @Test
-    fun timestampFieldWinsOverNaiveText() {
-        assertEquals(epochMs, EpgTime.fromFields(epochSec.toString(), "1999-01-01 00:00:00"))
-        assertEquals(epochMs, EpgTime.fromFields(null, "2026-09-20 19:00:00"))
-        assertEquals(0L, EpgTime.fromFields(null, null))
-        assertEquals(0L, EpgTime.fromFields("0", ""))
+    fun consistentUnixTimestampWinsOverNaiveLabel() {
+        assertEquals(
+            twoPmChicago,
+            EpgTime.fromFields(epochSec.toString(), "1999-01-01 00:00:00", chicago)
+        )
+        assertEquals(
+            twoPmChicago,
+            EpgTime.fromFields(epochSec.toString(), "2026-09-20 19:00:00", chicago, providerZone = utc)
+        )
+        assertEquals(0L, EpgTime.fromFields(null, null, chicago))
     }
 
     @Test
-    fun xtreamListingParseKeepsUtcEpochAndLocalDisplay() {
+    fun localWallStuffedIntoUnixUsesProviderZoneNotUtcEpoch() {
+        // Panel stored 2:00 PM Central as unix(14:00 UTC) — UTC epoch mislabeled.
+        val fakeUnix = (twoPmUtc / 1000L).toString()
+        val fixed = EpgTime.fromFields(
+            timestamp = fakeUnix,
+            text = "2026-09-20 14:00:00",
+            displayZone = chicago,
+            providerZone = chicago
+        )
+        assertEquals(twoPmChicago, fixed)
+        assertEquals("2:00 PM", GuideTime.formatTime(fixed, chicago))
+    }
+
+    @Test
+    fun alignToNowPrefersLocalTextWhenTimestampRowMissesNow() {
+        val now = twoPmChicago + 60_000L
+        val primary = listOf(EpgTime.Instants(twoPmUtc, twoPmUtc + 3_600_000L))
+        val local = listOf(EpgTime.Instants(twoPmChicago, twoPmChicago + 3_600_000L))
+        val picked = EpgTime.alignToNow(primary, local, now)
+        assertEquals(twoPmChicago, picked.single().startMs)
+        assertTrue(picked.single().contains(now))
+    }
+
+    @Test
+    fun inferProviderZoneFromServerClock() {
+        assertEquals(
+            chicago,
+            EpgTime.inferProviderZone("2026-09-20 14:00:00", epochSec)
+        )
+        val utcLike = EpgTime.inferProviderZone("2026-09-20 19:00:00", epochSec)
+        assertTrue(utcLike == utc || utcLike?.id == "Etc/UTC" || OsTimeZone.isUtcLike(utcLike ?: utc))
+    }
+
+    @Test
+    fun xtreamListingAlignsMislabeledUnixToChicagoNow() {
+        val api = XtreamApi()
+        api.providerZone = chicago
+        val fakeSec = twoPmUtc / 1000L
         val body = """
             {"epg_listings":[
               {
                 "id":"p1",
                 "title":"Evening News",
-                "start_timestamp":"$epochSec",
-                "stop_timestamp":"${epochSec + 3600}",
-                "start":"2026-09-20 19:00:00",
-                "end":"2026-09-20 20:00:00"
+                "start_timestamp":"$fakeSec",
+                "stop_timestamp":"${fakeSec + 3600}",
+                "start":"2026-09-20 14:00:00",
+                "end":"2026-09-20 15:00:00"
               }
             ]}
         """.trimIndent()
-        val programs = XtreamApi().parseEpgListings(body, 341)
+        val now = twoPmChicago + 30_000L
+        val programs = api.parseEpgListings(body, 341, displayZone = chicago, nowMs = now)
         assertEquals(1, programs.size)
-        assertEquals(epochMs, programs[0].startMs)
-        assertEquals(epochMs + 3_600_000L, programs[0].endMs)
-        assertTrue(programs[0].contains(epochMs + 1_000L))
+        assertEquals(twoPmChicago, programs[0].startMs)
+        assertTrue(programs[0].contains(now))
         assertEquals("2:00 PM", GuideTime.formatTime(programs[0].startMs, chicago))
-        val obj = Json.parseToJsonElement("""{"start_timestamp":"$epochSec","start":"ignored"}""") as JsonObject
-        assertEquals(epochMs, XtreamApi().epgTimeMs(obj, "start_timestamp", "start"))
+        val obj = Json.parseToJsonElement(
+            """{"start_timestamp":"$epochSec","start":"2026-09-20 14:00:00"}"""
+        ) as JsonObject
+        api.providerZone = chicago
+        assertEquals(twoPmChicago, api.epgTimeMs(obj, "start_timestamp", "start"))
+    }
+
+    @Test
+    fun parseServerInfoZoneReadsTimezoneAndTimeNow() {
+        val api = XtreamApi()
+        val named = api.parseServerInfoZone(
+            """{"server_info":{"timezone":"America/Chicago","timestamp_now":$epochSec,"time_now":"2026-09-20 14:00:00"}}"""
+        )
+        assertEquals(chicago, named)
+        val inferred = api.parseServerInfoZone(
+            """{"server_info":{"timestamp_now":$epochSec,"time_now":"2026-09-20 14:00:00"}}"""
+        )
+        assertEquals(chicago, inferred)
     }
 }

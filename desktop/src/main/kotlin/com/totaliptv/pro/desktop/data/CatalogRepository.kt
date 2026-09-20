@@ -88,7 +88,11 @@ class CatalogRepository(
         }
     }
 
-    /** Live EPG for one channel (short listing). M3U returns empty. */
+    /**
+     * Live EPG for one channel (short listing). Always keyed by Xtream
+     * `stream_id` — never `num`, list index, or `epg_channel_id`.
+     * M3U returns empty. Shared xmltv ids are corrected in [LiveEpgBinding].
+     */
     fun loadChannelEpg(prefs: SavedPrefs, streamId: Int, limit: Int = 12): ChannelEpg {
         if (prefs.sourceType != SourceType.XTREAM.name) {
             return ChannelEpg(streamId = streamId, programs = emptyList())

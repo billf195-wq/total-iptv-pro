@@ -15,8 +15,10 @@ package com.totaliptv.pro.desktop
  * 1.2.9: Guard auto-advance on short VLC exits; Quit kills the player tree then halt;
  *        Linux next episode must change URL (never relaunch the same episode).
  * 1.2.10: Windows live HLS stays up (no --play-and-exit); guide follows OS timezone.
+ * 1.2.11: EPG now-line vs blocks — naive times use OS/provider zone (Android);
+ *         Windows tzutil so Central is Chicago when the JRE reports UTC.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 22
-    const val VERSION_NAME: String = "1.2.10"
+    const val VERSION_CODE: Int = 23
+    const val VERSION_NAME: String = "1.2.11"
 }

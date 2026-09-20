@@ -8,9 +8,10 @@ import java.time.temporal.ChronoUnit
 /**
  * TV Guide clock, hour ticks, program ranges, and now-line.
  *
- * Always uses the **computer timezone** ([ZoneId.systemDefault]) — never a
- * hardcoded IANA zone. If the OS is set to Central, the lineup shows Central;
- * change the OS zone and the guide follows.
+ * Always uses the **computer timezone** ([OsTimeZone.current]) — never a
+ * hardcoded display zone. Windows reads `tzutil` so a Central PC maps to the
+ * IANA Central zone even when the bundled JRE reports UTC. Change the OS zone
+ * and the guide follows.
  *
  * Epoch milliseconds are UTC instants. Display converts Instant → local zone.
  * Do not treat epoch ms as a local wall-clock LocalDateTime.
@@ -20,7 +21,7 @@ object GuideTime {
     val HOUR_TICK_PATTERN: DateTimeFormatter = DateTimeFormatter.ofPattern("h a")
     val TIME_PATTERN: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
 
-    fun zone(): ZoneId = ZoneId.systemDefault()
+    fun zone(): ZoneId = OsTimeZone.current()
 
     fun nowMs(): Long = System.currentTimeMillis()
 
