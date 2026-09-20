@@ -320,8 +320,10 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 }
                 val urls = plan.urls
                 if (urls.isEmpty()) error("No stream URL for ${item.name}")
+                val live = startWithSeries.kind == ContentKind.LIVE ||
+                    StreamPlayer.isLiveStreamUrl(urls.first())
                 val binary = withContext(Dispatchers.IO) {
-                    StreamPlayer.playQueue(urls, playerPref)
+                    StreamPlayer.playQueue(urls, playerPref, live = live)
                 }
                 val launchedAtMs = StreamPlayer.lastLaunchAtMs
                 PlaybackDebugLog.record(
@@ -373,12 +375,33 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         }
                         return@launch
                     }
-                    // One URL per process (Linux + Windows). Do not treat a 5–15s
-                    // VLC crash / one-instance handoff as EOF, and never relaunch
-                    // the same episodeId/url (GTR same-episode loop).
+                    // Live: player should stay up; never sequential-next a channel.
+                    // VOD: one URL per process. Do not treat a 5–15s VLC crash /
+                    // one-instance handoff as EOF, and never relaunch the same
+                    // episodeId/url (GTR same-episode loop).
                     val durationMs = StreamPlayer.lastPlaybackDurationMs.takeIf { it > 0 }
                         ?: (System.currentTimeMillis() - launchedAtMs).coerceAtLeast(0L)
                     val exitCode = StreamPlayer.lastExitCode
+                    if (live) {
+                        PlaybackDebugLog.record(
+                            episodeId = plan.currentEpisode?.id ?: startWithSeries.id,
+                            season = startWithSeries.season ?: plan.currentEpisode?.season,
+                            episodeNum = startWithSeries.episodeNum ?: plan.currentEpisode?.episodeNum,
+                            streamUrl = startWithSeries.streamUrl,
+                            playerBinary = binary,
+                            windows = windows,
+                            playlist = playlist,
+                            reason = PlaybackAdvance.REASON_SKIPPED_LIVE,
+                            durationMs = durationMs,
+                            exitCode = exitCode
+                        )
+                        withContext(Dispatchers.Main) {
+                            if (seq == playSeq.get()) {
+                                playingTitle = null
+                            }
+                        }
+                        return@launch
+                    }
                     val sessionNow = seriesSessionRef.get()
                     val episodesNow = sessionNow?.episodes?.ifEmpty { lastSeriesEpisodes }
                         ?: lastSeriesEpisodes.ifEmpty { plan.allEpisodes }.ifEmpty { ctx?.all.orEmpty() }

@@ -26,15 +26,15 @@ import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.EpgProgram
+import com.totaliptv.pro.desktop.data.GuideTime
 import com.totaliptv.pro.desktop.data.LiveChannelMapping
+import com.totaliptv.pro.desktop.data.LiveEpgBinding
 import com.totaliptv.pro.desktop.data.MediaItem
-import java.time.Instant
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 /**
  * Live TV guide: category chips, channel list, and program timeline.
+ * Clock, hour ticks, program ranges, and the now-line use [GuideTime]
+ * (OS default zone) — no in-app timezone override.
  * Selecting a program/channel plays that live stream.
  */
 @Composable
@@ -74,7 +74,7 @@ fun GuideScreen(
             tick++
         }
     }
-    val liveNow = remember(tick) { System.currentTimeMillis() }
+    val liveNow = remember(tick) { GuideTime.nowMs() }
 
     Column(Modifier.fillMaxSize().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -82,8 +82,7 @@ fun GuideScreen(
             Spacer(Modifier.width(8.dp))
             Text(if (classic) "TV Guide · Classic" else "TV Guide", style = MaterialTheme.typography.headlineMedium, color = TipOnBg, modifier = Modifier.weight(1f))
             Text(
-                DateTimeFormatter.ofPattern("EEE MMM d · h:mm a")
-                    .format(LocalDateTime.now()),
+                GuideTime.formatClock(liveNow),
                 style = MaterialTheme.typography.bodyMedium
             )
             if (playingTitle != null) {
@@ -206,7 +205,12 @@ fun GuideScreen(
                     val sid = selected.xtreamStreamId
                     val epg = sid?.let { epgByStreamId[it] }
                     val loading = sid != null && sid in epgLoadingIds
-                    val programs = epg?.programs.orEmpty()
+                    val programs = LiveEpgBinding.bindForDisplay(
+                        channel = selected,
+                        programs = epg?.programs.orEmpty(),
+                        siblings = filtered,
+                        nowMs = liveNow
+                    )
 
                     Row(
                         Modifier
@@ -291,17 +295,13 @@ fun GuideScreen(
                                 ) {
                                     Row(Modifier.horizontalScroll(scroll)) {
                                         Box(Modifier.width(timelineWidth).height(22.dp)) {
-                                            var t = windowStart
-                                            val hourFmt = DateTimeFormatter.ofPattern("h a")
-                                            while (t < windowEnd) {
+                                            GuideTime.hourTicks(windowStart, windowEnd).forEach { t ->
                                                 val x = ((t - windowStart) / 60_000.0 * pxPerMin).toFloat()
-                                                val label = Instant.ofEpochMilli(t).atZone(ZoneId.systemDefault()).format(hourFmt)
                                                 Text(
-                                                    label,
+                                                    GuideTime.formatHourTick(t),
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     modifier = Modifier.offset(x = x.dp)
                                                 )
-                                                t += 60 * 60_000L
                                             }
                                         }
                                     }
@@ -339,7 +339,7 @@ fun GuideScreen(
                                                             style = MaterialTheme.typography.bodyMedium
                                                         )
                                                         Text(
-                                                            formatRange(prog.startMs, prog.endMs),
+                                                            GuideTime.formatRange(prog.startMs, prog.endMs),
                                                             style = MaterialTheme.typography.bodyMedium,
                                                             color = TipMuted,
                                                             maxLines = 1
@@ -420,18 +420,15 @@ private fun ClassicGuideGrid(
             Spacer(Modifier.width(200.dp))
             Row(Modifier.weight(1f).horizontalScroll(hScroll)) {
                 Box(Modifier.width(timelineWidth).height(24.dp)) {
-                    var t = windowStart
-                    val hourFmt = DateTimeFormatter.ofPattern("h a")
-                    while (t < windowEnd) {
+                    GuideTime.hourTicks(windowStart, windowEnd).forEach { t ->
                         val x = ((t - windowStart) / 60_000.0 * pxPerMin).toFloat()
                         Text(
-                            Instant.ofEpochMilli(t).atZone(ZoneId.systemDefault()).format(hourFmt),
+                            GuideTime.formatHourTick(t),
                             style = MaterialTheme.typography.bodyMedium,
                             color = TipOnBg,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.offset(x = x.dp)
                         )
-                        t += 60 * 60_000L
                     }
                     val nowX = ((liveNow - windowStart) / 60_000.0 * pxPerMin).toFloat()
                     Box(Modifier.offset(x = nowX.dp).width(2.dp).fillMaxHeight().background(TipAccent))
@@ -445,7 +442,12 @@ private fun ClassicGuideGrid(
         ) {
             items(visible, key = { it.id }) { ch ->
                 val sid = ch.xtreamStreamId
-                val programs = sid?.let { epgByStreamId[it]?.programs }.orEmpty()
+                val programs = LiveEpgBinding.bindForDisplay(
+                    channel = ch,
+                    programs = sid?.let { epgByStreamId[it]?.programs }.orEmpty(),
+                    siblings = channels,
+                    nowMs = liveNow
+                )
                 val loading = sid != null && sid in epgLoadingIds
                 val sel = ch.id == selectedChannelId
                 Row(
@@ -561,8 +563,8 @@ private fun ProgramRow(program: EpgProgram, isNow: Boolean, onClick: () -> Unit)
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.width(110.dp)) {
-            Text(formatTime(program.startMs), fontWeight = FontWeight.Medium, color = TipOnBg)
-            Text(formatTime(program.endMs), style = MaterialTheme.typography.bodyMedium, color = TipMuted)
+            Text(GuideTime.formatTime(program.startMs), fontWeight = FontWeight.Medium, color = TipOnBg)
+            Text(GuideTime.formatTime(program.endMs), style = MaterialTheme.typography.bodyMedium, color = TipMuted)
         }
         Column(Modifier.weight(1f)) {
             Text(program.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium, color = TipOnBg)
@@ -583,10 +585,3 @@ private fun ProgramRow(program: EpgProgram, isNow: Boolean, onClick: () -> Unit)
     }
 }
 
-private fun formatTime(ms: Long): String {
-    val dt = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDateTime()
-    return dt.format(DateTimeFormatter.ofPattern("h:mm a"))
-}
-
-private fun formatRange(start: Long, end: Long): String =
-    "${formatTime(start)} – ${formatTime(end)}"

@@ -1,3 +1,5 @@
+import java.io.File
+
 plugins {
     kotlin("jvm") version "2.1.10"
     kotlin("plugin.serialization") version "2.1.10"
@@ -6,7 +8,7 @@ plugins {
 }
 
 group = "com.totaliptv.pro"
-version = "1.2.9"
+version = "1.2.11"
 
 repositories {
     mavenCentral()
@@ -47,7 +49,7 @@ compose.desktop {
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi
             )
             packageName = "TotalIptvPro"
-            packageVersion = "1.2.9"
+            packageVersion = "1.2.11"
             description = "Total IPTV Pro — desktop IPTV player (Linux & Windows)"
             linux {
                 packageName = "total-iptv-pro"
@@ -60,4 +62,39 @@ compose.desktop {
             }
         }
     }
+}
+
+// Compose jlink defaults to --strip-native-commands, which drops java/javaw from
+// the bundled runtime. Copy matching launchers from the build JDK after packaging.
+tasks.matching { it.name == "createDistributable" }.configureEach {
+    doLast {
+        ensureRuntimeJavaLaunchers(project)
+    }
+}
+
+fun ensureRuntimeJavaLaunchers(project: Project) {
+    val binaries = project.layout.buildDirectory.dir("compose/binaries").get().asFile
+    if (!binaries.isDirectory) return
+    val javaHomeBin = File(System.getProperty("java.home"), "bin")
+    val launchers = listOf("java", "java.exe", "javaw", "javaw.exe")
+    binaries.walkTopDown()
+        .filter { it.isDirectory && it.name == "runtime" }
+        .forEach { runtime ->
+            val destBin = runtime.resolve("bin")
+            destBin.mkdirs()
+            for (name in launchers) {
+                val src = javaHomeBin.resolve(name)
+                val dest = destBin.resolve(name)
+                if (src.isFile && !dest.isFile) {
+                    src.copyTo(dest)
+                    dest.setExecutable(true, false)
+                    project.logger.lifecycle("Copied $name into ${destBin.relativeTo(project.projectDir)}")
+                }
+            }
+            val javaOk = destBin.resolve("java").isFile || destBin.resolve("java.exe").isFile
+            check(javaOk) {
+                "Bundled runtime is missing java/java.exe under $destBin. " +
+                    "Install JDK 21 and rebuild, or copy launchers from a matching Temurin 21."
+            }
+        }
 }

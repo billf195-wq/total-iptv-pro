@@ -120,4 +120,65 @@ class StreamPlayerTest {
         assertTrue(cmd.contains("-autoexit"))
         assertEquals("http://example.test/a.mp4", cmd.last())
     }
+
+    @Test
+    fun liveUrlDetectsXtreamHlsAndSkipsVodContainers() {
+        assertTrue(StreamPlayer.isLiveStreamUrl("http://hudv.net:80/live/user/pass/3.m3u8"))
+        assertTrue(StreamPlayer.isLiveStreamUrl("http://hudv.net/live/u/p/67.ts"))
+        assertTrue(StreamPlayer.isLiveStreamUrl("http://cdn.example.test/playlist.m3u8"))
+        assertFalse(StreamPlayer.isLiveStreamUrl("http://hudv.net:80/movie/user/pass/825824.mp4"))
+        assertFalse(StreamPlayer.isLiveStreamUrl("http://hudv.net:80/series/user/pass/627490.mkv"))
+        assertFalse(StreamPlayer.isLiveStreamUrl("http://hudv.net:80/movie/user/pass/99.m3u8"))
+    }
+
+    @Test
+    fun windowsLiveVlcOmitsPlayAndExitAndKeepsVodGuard() {
+        val liveUrl = "http://hudv.net:80/live/user/pass/341.m3u8"
+        val vodUrl = "http://hudv.net:80/series/user/pass/825824.mp4"
+        val vlc = """C:\Program Files\VideoLAN\VLC\vlc.exe"""
+        val live = StreamPlayer.vlcCommand(vlc, listOf(liveUrl), windows = true, live = true)
+        assertFalse(live.contains("--play-and-exit"), live.toString())
+        assertTrue(live.contains("--network-caching=3000"), live.toString())
+        assertTrue(live.contains("--live-caching=3000"), live.toString())
+        assertTrue(live.contains("--http-reconnect"), live.toString())
+        assertTrue(live.contains("--ignore-config"))
+        assertEquals(liveUrl, live.last())
+        val vod = StreamPlayer.vlcCommand(vlc, listOf(vodUrl), windows = true, live = false)
+        assertTrue(vod.contains("--play-and-exit"), vod.toString())
+        assertFalse(vod.contains("--http-reconnect"))
+        assertEquals(vodUrl, vod.last())
+    }
+
+    @Test
+    fun linuxLiveVlcAlsoOmitsPlayAndExit() {
+        val live = StreamPlayer.vlcCommand(
+            "/usr/bin/vlc",
+            listOf("http://hudv.net/live/u/p/3.m3u8"),
+            windows = false,
+            live = true
+        )
+        assertFalse(live.contains("--play-and-exit"))
+        assertTrue(live.contains("--fullscreen"))
+        val vod = StreamPlayer.vlcCommand(
+            "/usr/bin/vlc",
+            listOf("http://hudv.net/series/u/p/1.mkv"),
+            windows = false,
+            live = false
+        )
+        assertTrue(vod.contains("--play-and-exit"))
+    }
+
+    @Test
+    fun liveMpvKeepsWindowOpenAndFfplaySkipsAutoexit() {
+        val liveUrl = "http://hudv.net/live/u/p/84.m3u8"
+        val mpv = StreamPlayer.mpvCommand("mpv.exe", listOf(liveUrl), windows = true, live = true)
+        assertTrue(mpv.contains("--keep-open=yes"))
+        assertFalse(mpv.contains("--keep-open=no"))
+        val vod = StreamPlayer.mpvCommand("mpv", listOf("http://ex.test/a.mp4"), windows = false, live = false)
+        assertTrue(vod.contains("--keep-open=no"))
+        val ffLive = StreamPlayer.ffplayCommand("ffplay", liveUrl, live = true)
+        assertFalse(ffLive.contains("-autoexit"))
+        val ffVod = StreamPlayer.ffplayCommand("ffplay", "http://ex.test/a.mp4", live = false)
+        assertTrue(ffVod.contains("-autoexit"))
+    }
 }
