@@ -73,7 +73,7 @@ tasks.matching { it.name == "createDistributable" }.configureEach {
 fun ensureRuntimeJavaLaunchers(project: Project) {
     val binaries = project.layout.buildDirectory.dir("compose/binaries").get().asFile
     if (!binaries.isDirectory) return
-    val javaHomeBin = java.io.File(System.getProperty("java.home"), "bin")
+    val javaHomeBin = File(System.getProperty("java.home"), "bin")
     val launchers = listOf("java", "java.exe", "javaw", "javaw.exe")
     binaries.walkTopDown()
         .filter { it.isDirectory && it.name == "runtime" }
