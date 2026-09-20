@@ -1,0 +1,44 @@
+# Total IPTV Pro (ChannelBox)
+
+Original **phone + NVIDIA Shield / Android TV** app.
+
+| | |
+|---|---|
+| Folder nickname | `channelbox/` (Bill’s ChannelBox tree) |
+| applicationId | `com.totaliptv.pro` (phone flavor: `com.totaliptv.pro.phone`) |
+| App name | Total IPTV Pro |
+
+This tree is **separate from** [`android/`](../android/) **Total IPTV Pro 2** (`com.totaliptv.pro2`). Both can be installed on the same Shield. Do not mix their catalogs, prefs, or update shelves.
+
+Lean source snapshot imported from Bill Foster’s Bigboybill PC (main + phone + tv Kotlin, Gradle). Guide and Live share `LiveChannelMapping` so rows line up on `stream_id` (never provider `num`).
+
+## Features
+
+- M3U URL or Xtream Codes login
+- Phone and TV (Leanback) flavors
+- Live categories with logos, movies/series posters
+- Live TV Guide (Xtream `get_short_epg` / `get_simple_data_table`)
+- Favorites, continue watching, Media3 ExoPlayer
+- In-app update check against a LAN shelf
+
+## Build
+
+```bash
+cd channelbox
+./gradlew :app:assembleTvDebug :app:assemblePhoneDebug
+```
+
+APKs:
+
+- `app/build/outputs/apk/tv/debug/app-tv-debug.apk`
+- `app/build/outputs/apk/phone/debug/app-phone-debug.apk`
+
+## Layout
+
+```
+app/src/main/   # shared data, player, onboarding
+app/src/tv/     # Shield / Android TV UI (classic + desktop-style panes)
+app/src/phone/  # phone UI
+```
+
+Developed by Bill Foster.

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Package visibility for external VLC player (Android 11+) -->
+    <queries>
+        <package android:name="org.videolan.vlc" />
+        <package android:name="org.videolan.vlc.debug" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.google.android.youtube.tv" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="video/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="vnd.youtube" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="www.youtube.com" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="youtu.be" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="m.youtube.com" />
+        </intent>
+        <package android:name="com.google.android.youtube.googletv" />
+        <package android:name="com.android.chrome" />
+        <package android:name="com.android.browser" />
+    </queries>
+
+    <application
+        android:name=".TotalIptvProApp"
+        android:allowBackup="true"
+        android:banner="@drawable/app_banner"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.TotalIPTVPro"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".ui.player.PlayerActivity"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.TotalIPTVPro.Player" />
+
+        <activity
+            android:name=".ui.trailer.TrailerWebActivity"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout"
+            android:theme="@style/Theme.TotalIPTVPro" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

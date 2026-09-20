@@ -2,7 +2,7 @@
 
 Second Shield/Android TV app that mirrors the **Ubuntu desktop** Total IPTV Pro look (dark `#0B0F14`, amber/gold accents) and Xtream Codes features. Installs **beside** the original Total IPTV Pro (`com.totaliptv.pro`) — this app uses **`com.totaliptv.pro2`**.
 
-Does **not** modify ChannelBox / `com.totaliptv.pro`.
+Does **not** modify ChannelBox / `com.totaliptv.pro` (that app lives in [`channelbox/`](../channelbox/)).
 
 ## Package
 
