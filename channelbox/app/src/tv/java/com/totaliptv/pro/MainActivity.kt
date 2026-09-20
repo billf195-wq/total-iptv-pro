@@ -42,7 +42,7 @@ import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.theme.AppearanceMode
 import com.totaliptv.pro.ui.theme.TotalIptvProTheme
 import com.totaliptv.pro.ui.desktop.DesktopAppRoot
-import com.totaliptv.pro.ui.StartupSplash
+import com.totaliptv.pro.ui.LogoBannerSplash
 import com.totaliptv.pro.ui.StartupSplashGate
 import com.totaliptv.pro.data.local.AppLayoutMode
 import kotlinx.coroutines.flow.first
@@ -122,7 +122,7 @@ class MainActivity : ComponentActivity() {
             }
 
             if (!splashDone && !switchingLayout) {
-                StartupSplash(ready = splashCatalogReady, statusMessage = if (splashCatalogReady) null else "Updating Live / Movies / Series...", onFinished = { splashDone = true })
+                LogoBannerSplash(ready = splashCatalogReady, statusMessage = if (splashCatalogReady) null else "Updating Live / Movies / Series...", onFinished = { splashDone = true })
                 return@setContent
             }
 
