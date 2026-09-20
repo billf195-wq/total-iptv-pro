@@ -996,7 +996,10 @@ private fun SeriesDetailPane(
                             )
                         }
                         val hasResume = resumeSeason != null || resumeEpisodeNum != null || !resumeEpisodeId.isNullOrBlank()
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             if (continueEp != null) {
                                 Button(
                                     onClick = {
@@ -1028,6 +1031,12 @@ private fun SeriesDetailPane(
                                 ) {
                                     Text("Next S${nextEp.season}E${nextEp.episodeNum}", color = TipOnBg)
                                 }
+                            } else if (hasResume || playingThisSeries) {
+                                    Text(
+                                    SeriesPlayback.LAST_EPISODE_MESSAGE,
+                                    color = TipMuted,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
                             }
                         }
                     }

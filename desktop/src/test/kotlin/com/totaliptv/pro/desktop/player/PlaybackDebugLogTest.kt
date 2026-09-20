@@ -38,4 +38,25 @@ class PlaybackDebugLogTest {
         assertTrue(line.contains("url=host.test/.../5551212.mp4"), line)
         assertEquals(PlaybackDebugLog.FILE_NAME, "playback-debug.log")
     }
+
+    @Test
+    fun formatLineIncludesEpisodeCountAndIndexOnSkipNoNext() {
+        val line = PlaybackDebugLog.formatLine(
+            episodeId = "909664",
+            season = 3,
+            episodeNum = 10,
+            streamUrl = "http://host.test/series/u/p/909664.mp4",
+            playerBinary = "-",
+            windows = true,
+            playlist = false,
+            reason = "skip-no-next",
+            episodeCount = 40,
+            episodeIndex = 39
+        )
+        assertTrue(line.contains("reason=skip-no-next"), line)
+        assertTrue(line.contains("episodeId=909664"), line)
+        assertTrue(line.contains("S3E10"), line)
+        assertTrue(line.contains("eps=40"), line)
+        assertTrue(line.contains("idx=39"), line)
+    }
 }
