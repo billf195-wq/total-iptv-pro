@@ -41,6 +41,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.totaliptv.pro.desktop.AppVersion
 import com.totaliptv.pro.desktop.data.Catalog
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
@@ -94,6 +96,7 @@ fun BrowseScreen(
     onCloseVod: () -> Unit,
     onToggleFavorite: (MediaItem) -> Unit,
     onStop: () -> Unit,
+    onQuit: () -> Unit = {},
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
     onSavePrefs: (SavedPrefs) -> Unit,
@@ -247,6 +250,9 @@ fun BrowseScreen(
                     Text(playingTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, color = TipAccent)
                     TextButton(onClick = onStop) { Text("Stop player") }
                 }
+                TextButton(onClick = onQuit) {
+                    Text("Quit", color = TipOnBg, fontWeight = FontWeight.Medium)
+                }
                 Button(
                     onClick = onRefresh,
                     enabled = !refreshing,
@@ -309,7 +315,8 @@ fun BrowseScreen(
                         playingTitle = playingTitle,
                         onSavePrefs = onSavePrefs,
                         onChangeSource = onLogout,
-                        onStop = onStop
+                        onStop = onStop,
+                        onQuit = onQuit
                     )
                 }
                 MainNav.FAVORITES -> {
@@ -362,23 +369,30 @@ private fun rememberBannerBitmap(): ImageBitmap? = remember {
 @Composable
 private fun TopBanner(banner: ImageBitmap?) {
     if (banner == null) return
-    // Logo sits top-left (not centered across the full chrome width).
-    Box(
+    // Logo sits top-left; version is appended in a smaller font after the title.
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(128.dp)
             .background(TipSurface)
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        contentAlignment = Alignment.CenterStart
+        verticalAlignment = Alignment.Bottom
     ) {
         Image(
             bitmap = banner,
-            contentDescription = "Total IPTV Pro",
+            contentDescription = SplashBranding.APP_TITLE,
             modifier = Modifier
                 .fillMaxHeight()
                 .wrapContentWidth(),
             contentScale = ContentScale.Fit,
             alignment = Alignment.CenterStart
+        )
+        Spacer(Modifier.width(12.dp))
+        SplashBrandTitle(
+            versionName = AppVersion.VERSION_NAME,
+            titleSize = 22.sp,
+            versionSize = 14.sp,
+            modifier = Modifier.padding(bottom = 10.dp)
         )
     }
 }

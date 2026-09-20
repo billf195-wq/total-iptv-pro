@@ -100,12 +100,13 @@ internal class WindowsHotkeyPump private constructor(
                             continue
                         }
                         if (msg.message == WinUser.WM_QUIT) break
-                        user32.TranslateMessage(msg)
-                        user32.DispatchMessage(msg)
+                        // Do not DispatchMessage — this is a message-only helper, not an
+                        // AWT window. Dispatching WM_QUIT/others onto STATIC can keep a
+                        // hidden window alive after the UI has quit.
                     }
                 } finally {
-                    user32.UnregisterHotKey(hwnd?.pointer, ID_CTRL_RIGHT)
-                    user32.UnregisterHotKey(hwnd?.pointer, ID_MEDIA_NEXT)
+                    runCatching { user32.UnregisterHotKey(hwnd?.pointer, ID_CTRL_RIGHT) }
+                    runCatching { user32.UnregisterHotKey(hwnd?.pointer, ID_MEDIA_NEXT) }
                     if (hwnd != null) runCatching { user32.DestroyWindow(hwnd) }
                     hwndRef.set(null)
                 }

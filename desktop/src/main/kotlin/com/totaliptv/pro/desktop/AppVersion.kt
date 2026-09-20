@@ -9,8 +9,9 @@ package com.totaliptv.pro.desktop
  * 1.2.3: In-app Next SxEx shown whenever a following episode exists (not only after resume).
  * 1.2.4: Windows fullscreen Next via Ctrl+Right / Media Next + always-on-top control.
  * 1.2.5: Last-episode UX — overlay/hotkey say "Last episode of this series" instead of looking broken.
+ * 1.2.6: Real quit (no overlay restart loop), unfreeze leaving VLC fullscreen, splash version.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 17
-    const val VERSION_NAME: String = "1.2.5"
+    const val VERSION_CODE: Int = 18
+    const val VERSION_NAME: String = "1.2.6"
 }

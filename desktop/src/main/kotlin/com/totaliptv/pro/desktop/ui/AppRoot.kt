@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.totaliptv.pro.desktop.AppShutdown
 import com.totaliptv.pro.desktop.data.Catalog
 import com.totaliptv.pro.desktop.data.ContentKind
 import com.totaliptv.pro.desktop.data.CatalogRepository
@@ -39,7 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 @Composable
-fun AppRoot(seriesNextHost: SeriesNextHost? = null) {
+fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val repo = remember { CatalogRepository() }
 
@@ -532,6 +533,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null) {
     }
 
     SideEffect {
+        if (AppShutdown.isExiting()) return@SideEffect
         val host = seriesNextHost
         if (host != null) {
             host.onNext = { skipToNextEpisode() }
@@ -640,6 +642,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null) {
                     },
                     onToggleFavorite = { toggleFavorite(it) },
                     onStop = { stopPlayback() },
+                    onQuit = onQuit,
                     onRefresh = { refreshFromSaved() },
                     onLogout = {
                         stopPlayback()

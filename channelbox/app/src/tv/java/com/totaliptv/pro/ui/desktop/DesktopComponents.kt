@@ -39,8 +39,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
 import coil.compose.AsyncImage
+import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.R
 import com.totaliptv.pro.data.model.MediaItem
+import com.totaliptv.pro.ui.splash.SplashBranding
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun TipFocusable(
@@ -256,7 +260,7 @@ fun TopBanner(modifier: Modifier = Modifier) {
     ) {
         Image(
             painter = painterResource(R.drawable.app_banner),
-            contentDescription = "Total IPTV Pro",
+            contentDescription = SplashBranding.APP_TITLE,
             modifier = Modifier
                 .height(TipDimens.dp(96))
                 .width(TipDimens.dp(320))
@@ -264,6 +268,24 @@ fun TopBanner(modifier: Modifier = Modifier) {
             contentScale = ContentScale.Crop,
             alignment = Alignment.CenterStart
         )
+        Spacer(Modifier.width(TipDimens.dp(14)))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = SplashBranding.APP_TITLE,
+                color = TipGoldText,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = TipDimens.sp(22),
+                maxLines = 1
+            )
+            Spacer(Modifier.width(TipDimens.dp(10)))
+            Text(
+                text = SplashBranding.versionLabel(BuildConfig.VERSION_NAME),
+                color = TipGoldMuted,
+                fontWeight = FontWeight.Medium,
+                fontSize = TipDimens.sp(14),
+                maxLines = 1
+            )
+        }
         Spacer(Modifier.weight(1f))
     }
 }
