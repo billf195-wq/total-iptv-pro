@@ -252,7 +252,7 @@ fun SettingsScreen(
                 color = TipOnBg
             )
             Text(
-                "Pull new builds from your LAN shelf when you ship them (same idea as Shield).",
+                "Works on Bigboybill (Windows) and GTR (Linux). Use the same LAN shelf URL; Shield updates from Settings → App updates on the TV.",
                 style = MaterialTheme.typography.bodyMedium
             )
             Spacer(Modifier.height(10.dp))

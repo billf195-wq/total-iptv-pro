@@ -41,11 +41,15 @@ class XtreamApi(
 
     @Serializable
     data class LiveStream(
-        @SerialName("num") val num: Int = 0,
+        @SerialName("num") val num: JsonElement? = null,
         @SerialName("name") val name: String = "",
-        @SerialName("stream_id") val streamId: Int = 0,
+        @SerialName("stream_id") val streamId: JsonElement? = null,
+        @SerialName("id") val id: JsonElement? = null,
         @SerialName("stream_icon") val streamIcon: String? = null,
-        @SerialName("category_id") val categoryId: String? = null,
+        @SerialName("category_id") val categoryId: JsonElement? = null,
+        @SerialName("category_ids") val categoryIds: JsonElement? = null,
+        @SerialName("epg_channel_id") val epgChannelId: JsonElement? = null,
+        @SerialName("tvg_id") val tvgId: JsonElement? = null,
         @SerialName("direct_source") val directSource: String? = null
     )
 
@@ -121,22 +125,13 @@ class XtreamApi(
                 kind = ContentKind.LIVE
             )
         }
-        val liveItems = liveStreams.mapNotNull { s ->
-            val sid = s.streamId
-            if (sid <= 0) return@mapNotNull null
-            val direct = s.directSource?.trim()?.takeIf { it.isNotBlank() }
-            MediaItem(
-                id = "live-$sid",
-                name = s.name.ifBlank { "Channel $sid" },
-                streamUrl = direct ?: "$host/live/$username/$password/$sid.m3u8",
-                categoryId = s.categoryId?.let { "live-$it" },
-                kind = ContentKind.LIVE,
-                logoUrl = s.streamIcon?.takeIf { it.isNotBlank() },
-                groupTitle = liveCategories.find { it.id == "live-${s.categoryId}" }?.name,
-                xtreamStreamId = sid,
-                playable = true
+        val liveItems = LiveChannelMapping.sortLiveChannels(
+            LiveChannelMapping.dedupeLiveChannels(
+                liveStreams.mapNotNull { s ->
+                    liveStreamToMediaItem(s, host, username, password, liveCategories)
+                }
             )
-        }
+        )
         if (liveItems.isEmpty()) {
             error("No live channels returned. Check credentials or server.")
         }
@@ -235,6 +230,48 @@ class XtreamApi(
             vodItems = vodItems,
             seriesItems = seriesItems,
             warnings = warnings
+        )
+    }
+
+    /**
+     * Map one Xtream live stream to a catalog row.
+     * Playback URL always uses `stream_id` (never `num` / list index / epg_channel_id).
+     */
+    internal fun liveStreamToMediaItem(
+        s: LiveStream,
+        host: String,
+        username: String,
+        password: String,
+        liveCategories: List<Category>
+    ): MediaItem? {
+        val ids = LiveChannelMapping.parseXtreamLiveIds(
+            streamIdEl = s.streamId,
+            numEl = s.num,
+            epgChannelIdEl = s.epgChannelId,
+            categoryIdEl = s.categoryId,
+            categoryIdsEl = s.categoryIds,
+            fallbackIdEl = s.id,
+            tvgIdEl = s.tvgId
+        )
+        val sid = ids.streamId
+        if (sid <= 0) return null
+        val catalogCatIds = LiveChannelMapping.catalogCategoryIds(ids.rawCategoryIds)
+        val direct = s.directSource?.trim()?.takeIf { it.isNotBlank() }
+        return MediaItem(
+            id = "live-$sid",
+            name = s.name.ifBlank { "Channel $sid" },
+            streamUrl = direct ?: "$host/live/$username/$password/$sid.m3u8",
+            categoryId = catalogCatIds.firstOrNull(),
+            kind = ContentKind.LIVE,
+            logoUrl = s.streamIcon?.takeIf { it.isNotBlank() },
+            groupTitle = catalogCatIds.firstNotNullOfOrNull { cid ->
+                liveCategories.find { it.id == cid }?.name
+            },
+            xtreamStreamId = sid,
+            playable = true,
+            channelNum = ids.channelNum,
+            epgChannelId = ids.epgChannelId,
+            categoryIds = catalogCatIds
         )
     }
 

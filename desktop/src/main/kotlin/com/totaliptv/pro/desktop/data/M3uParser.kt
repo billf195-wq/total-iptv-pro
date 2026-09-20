@@ -41,6 +41,11 @@ object M3uParser {
                     .find(line)?.groupValues?.getOrNull(1)?.trim().orEmpty()
                 val logo = Regex("""tvg-logo="([^"]*)"""", RegexOption.IGNORE_CASE)
                     .find(line)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+                val tvgId = Regex("""tvg-id="([^"]*)"""", RegexOption.IGNORE_CASE)
+                    .find(line)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+                val tvgChno = Regex("""tvg-chno="([^"]*)"""", RegexOption.IGNORE_CASE)
+                    .find(line)?.groupValues?.getOrNull(1)?.trim()?.toIntOrNull()?.takeIf { it > 0 }
+                    ?: 0
                 val url = lines.getOrNull(i + 1)?.takeIf { !it.startsWith("#") }
                 if (url != null) {
                     val lowerGroup = group.lowercase()
@@ -77,7 +82,10 @@ object M3uParser {
                         logoUrl = logo,
                         posterUrl = logo,
                         groupTitle = catName,
-                        playable = true
+                        playable = true,
+                        channelNum = if (kind == ContentKind.LIVE) tvgChno else 0,
+                        epgChannelId = if (kind == ContentKind.LIVE) tvgId else null,
+                        categoryIds = listOf(catId)
                     )
                     when (kind) {
                         ContentKind.SERIES -> series += item
@@ -98,7 +106,7 @@ object M3uParser {
             liveCategories = liveCategories,
             vodCategories = vodCategories,
             seriesCategories = seriesCategories,
-            liveItems = live,
+            liveItems = LiveChannelMapping.sortLiveChannels(LiveChannelMapping.dedupeLiveChannels(live)),
             vodItems = vod,
             seriesItems = series
         )

@@ -50,6 +50,15 @@ data class MediaItem(
     val backdropUrl: String? = null,
     val groupTitle: String? = null,
     val xtreamStreamId: Int? = null,
+    /**
+     * Xtream bouquet / channel number (`num`). Used only for ordering, never for playback.
+     * 0 means unknown (keep catalog order among unnumbered rows).
+     */
+    val channelNum: Int = 0,
+    /** Xtream / XMLTV `epg_channel_id` (or M3U `tvg-id`). Identity only — not a stream id. */
+    val epgChannelId: String? = null,
+    /** All catalog category ids this live channel belongs to (`live-12`, …). */
+    val categoryIds: List<String> = emptyList(),
     /** False for series titles (open episodes); true for live/VOD/episodes. */
     val playable: Boolean = true,
     /** Unix epoch seconds from Xtream `added` / `last_modified` (0 if unknown). */

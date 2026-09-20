@@ -8,7 +8,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import com.totaliptv.pro2.data.ContentKind
 import com.totaliptv.pro2.data.MediaItem
+import com.totaliptv.pro2.data.SeriesPlayback
 import com.totaliptv.pro2.player.PlayerActivity
 import com.totaliptv.pro2.ui.AppRoot
 import com.totaliptv.pro2.ui.TipTheme
@@ -77,7 +79,8 @@ class MainActivity : ComponentActivity() {
                     },
                     onCheckAppUpdate = vm::checkForAppUpdate,
                     onDownloadAppUpdate = vm::downloadAppUpdate,
-                    onInstallAppUpdate = { installDownloadedUpdate() }
+                    onInstallAppUpdate = { installDownloadedUpdate() },
+                    onUpdateShelfUrl = vm::setUpdateShelfUrl
                 )
             }
         }
@@ -112,6 +115,34 @@ class MainActivity : ComponentActivity() {
             Intent(this, PlayerActivity::class.java).apply {
                 putExtra(PlayerActivity.EXTRA_URL, item.streamUrl)
                 putExtra(PlayerActivity.EXTRA_TITLE, item.name)
+                val detail = vm.state.value.seriesDetail
+                if (item.kind == ContentKind.SERIES && detail != null &&
+                    (item.parentSeriesId == null || item.parentSeriesId == detail.seriesId)
+                ) {
+                    val sorted = SeriesPlayback.sortedEpisodes(detail.episodes)
+                    val start = sorted.indexOfFirst {
+                        it.season == item.season && it.episodeNum == item.episodeNum
+                    }.let { if (it >= 0) it else 0 }
+                    putStringArrayListExtra(
+                        PlayerActivity.EXTRA_URLS,
+                        ArrayList(sorted.map { it.streamUrl })
+                    )
+                    putStringArrayListExtra(
+                        PlayerActivity.EXTRA_TITLES,
+                        ArrayList(sorted.map { ep -> ep.toMediaItem(detail.name, detail.seriesId).name })
+                    )
+                    putIntegerArrayListExtra(
+                        PlayerActivity.EXTRA_SEASONS,
+                        ArrayList(sorted.map { it.season })
+                    )
+                    putIntegerArrayListExtra(
+                        PlayerActivity.EXTRA_EP_NUMS,
+                        ArrayList(sorted.map { it.episodeNum })
+                    )
+                    putExtra(PlayerActivity.EXTRA_START_INDEX, start)
+                    putExtra(PlayerActivity.EXTRA_SERIES_ID, detail.seriesId)
+                    putExtra(PlayerActivity.EXTRA_SERIES_NAME, detail.name)
+                }
             }
         )
     }

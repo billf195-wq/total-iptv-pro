@@ -73,6 +73,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         if (saved.onboarded) loadCatalog(saved)
+        checkForAppUpdate()
     }
 
     fun checkForAppUpdate() {
@@ -88,8 +89,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 )
             }
-            val result = withContext(Dispatchers.IO) { updater.check() }
-            _state.update { it.copy(update = result) }
+            val result = withContext(Dispatchers.IO) {
+                updater.check(prefsStore.load().updateShelfUrl)
+            }
+            _state.update {
+                it.copy(
+                    update = result,
+                    statusMessage = if (
+                        result.phase == UpdatePhase.Available && it.statusMessage.isNullOrBlank()
+                    ) {
+                        result.message + " — open Settings to install on Shield"
+                    } else {
+                        it.statusMessage
+                    }
+                )
+            }
         }
     }
 
@@ -145,11 +159,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setSection(section: NavSection) {
+        val liveFamily = setOf(NavSection.LIVE, NavSection.GUIDE)
+        val keepLiveFilters = _state.value.section in liveFamily && section in liveFamily
         _state.update {
             it.copy(
                 section = section,
-                searchQuery = "",
-                selectedCategoryId = null,
+                searchQuery = if (keepLiveFilters) it.searchQuery else "",
+                selectedCategoryId = if (keepLiveFilters) it.selectedCategoryId else null,
                 seriesDetail = null,
                 seriesError = null
             )
@@ -163,6 +179,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val p = prefsStore.load().copy(browseSort = sort)
         prefsStore.save(p)
         _state.update { it.copy(browseSort = sort, prefs = p) }
+    }
+
+    fun setUpdateShelfUrl(url: String) {
+        val p = prefsStore.load().copy(
+            updateShelfUrl = com.totaliptv.pro2.update.AppUpdateManager.normalizeShelf(url)
+        )
+        prefsStore.save(p)
+        _state.update { it.copy(prefs = p) }
     }
 
     fun setPosterColumns(cols: Int) {

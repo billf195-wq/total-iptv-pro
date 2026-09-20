@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.EpgProgram
+import com.totaliptv.pro.desktop.data.LiveChannelMapping
 import com.totaliptv.pro.desktop.data.MediaItem
 import java.time.Instant
 import java.time.LocalDateTime
@@ -44,24 +45,20 @@ fun GuideScreen(
     epgLoadingIds: Set<Int>,
     playingTitle: String?,
     guideStyle: String = "current",
+    selectedCategoryId: String? = null,
+    onCategoryChange: (String?) -> Unit = {},
+    query: String = "",
+    onQueryChange: (String) -> Unit = {},
     onNeedEpg: (MediaItem) -> Unit,
     onPlayChannel: (MediaItem) -> Unit,
     onStop: () -> Unit
 ) {
     val classic = guideStyle.equals("classic", ignoreCase = true)
 
-    var selectedCategoryId by remember { mutableStateOf<String?>(null) }
     var selectedChannelId by remember { mutableStateOf<String?>(null) }
-    var query by remember { mutableStateOf("") }
 
     val filtered = remember(channels, selectedCategoryId, query) {
-        channels.asSequence()
-            .filter { selectedCategoryId == null || it.categoryId == selectedCategoryId }
-            .filter {
-                query.isBlank() || it.name.contains(query, ignoreCase = true) ||
-                    (it.groupTitle?.contains(query, ignoreCase = true) == true)
-            }
-            .toList()
+        LiveChannelMapping.filterLiveChannels(channels, selectedCategoryId, query)
     }
 
     val selected = filtered.find { it.id == selectedChannelId } ?: filtered.firstOrNull()
@@ -97,7 +94,7 @@ fun GuideScreen(
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = query,
-            onValueChange = { query = it },
+            onValueChange = onQueryChange,
             placeholder = { Text("Filter channels…") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -119,14 +116,14 @@ fun GuideScreen(
                 item {
                     FilterChip(
                         selected = selectedCategoryId == null,
-                        onClick = { selectedCategoryId = null },
+                        onClick = { onCategoryChange(null) },
                         label = { Text("All") }
                     )
                 }
                 items(categories, key = { it.id }) { cat ->
                     FilterChip(
                         selected = selectedCategoryId == cat.id,
-                        onClick = { selectedCategoryId = cat.id },
+                        onClick = { onCategoryChange(cat.id) },
                         label = { Text(cat.name, maxLines = 1) }
                     )
                 }
@@ -404,7 +401,7 @@ private fun ClassicGuideGrid(
     val totalMin = ((windowEnd - windowStart) / 60_000L).toFloat().coerceAtLeast(1f)
     val timelineWidth = (totalMin * pxPerMin).dp
     val hScroll = rememberScrollState()
-    val visible = channels.take(80)
+    val visible = channels
 
     // Prefetch EPG for first rows
     LaunchedEffect(visible.map { it.id }.joinToString()) {
