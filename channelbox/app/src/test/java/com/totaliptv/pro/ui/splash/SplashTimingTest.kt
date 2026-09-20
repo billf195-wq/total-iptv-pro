@@ -1,4 +1,4 @@
-package com.totaliptv.pro.ui
+package com.totaliptv.pro.ui.splash
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
