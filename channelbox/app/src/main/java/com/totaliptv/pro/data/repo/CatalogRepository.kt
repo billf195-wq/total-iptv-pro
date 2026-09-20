@@ -2,6 +2,7 @@ package com.totaliptv.pro.data.repo
 
 import android.util.Log
 import com.totaliptv.pro.data.LiveChannelMapping
+import com.totaliptv.pro.data.LiveEpgBinding
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.m3u.M3uParser
 import com.totaliptv.pro.data.model.Category
@@ -749,23 +750,29 @@ class CatalogRepository(
         // Always key EPG by Xtream stream_id — never channel num / list index / epg_channel_id string.
         val sid = item.xtreamStreamId ?: return emptyList()
         epgCache[sid]?.let { cached ->
+            val bound = LiveEpgBinding.bindForDisplay(item, cached, liveSiblings())
             Log.d(
                 "TotalIPTV.Guide",
-                "epgCacheHit name=${item.name} id=${item.id} sid=$sid num=${item.channelNum} programs=${cached.size} first=${cached.firstOrNull()?.title}"
+                "epgCacheHit name=${item.name} id=${item.id} sid=$sid num=${item.channelNum} programs=${bound.size} first=${bound.firstOrNull()?.title}"
             )
-            return cached
+            return bound
         }
         val short = xtreamApi.fetchShortEpg(creds, sid, limit = 10)
         val programs = if (short.isNotEmpty()) short else xtreamApi.fetchSimpleEpgTable(creds, sid)
+        val bound = LiveEpgBinding.bindForDisplay(item, programs, liveSiblings())
         Log.i(
             "TotalIPTV.Guide",
-            "epgBind name=${item.name} id=${item.id} sid=$sid num=${item.channelNum} epgCh=${item.epgChannelId} programs=${programs.size} first=${programs.firstOrNull()?.title}"
+            "epgBind name=${item.name} id=${item.id} sid=$sid num=${item.channelNum} epgCh=${item.epgChannelId} programs=${bound.size} first=${bound.firstOrNull()?.title}"
         )
         if (programs.isNotEmpty()) {
+            // Cache raw listings so bind can re-run with current nowMs / siblings.
             epgCache[sid] = programs
         }
-        return programs
+        return bound
     }
+
+    private fun liveSiblings(): List<MediaItem> =
+        cachedItems.filter { it.kind == ContentKind.LIVE }
 
     suspend fun toggleFavorite(item: MediaItem) {
         prefs.toggleFavorite(

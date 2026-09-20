@@ -82,7 +82,10 @@ data class EpgProgram(
     val title: String,
     val description: String? = null,
     val startMs: Long,
-    val endMs: Long
+    val endMs: Long,
+    val id: String = "",
+    /** Xtream stream_id this row was fetched for; 0 when unknown. */
+    val channelStreamId: Int = 0
 ) {
     fun contains(nowMs: Long): Boolean = nowMs in startMs until endMs
 }

@@ -7,6 +7,7 @@ import com.totaliptv.pro2.data.Catalog
 import com.totaliptv.pro2.data.CatalogRepository
 import com.totaliptv.pro2.data.ChannelEpg
 import com.totaliptv.pro2.data.ContentKind
+import com.totaliptv.pro2.data.LiveEpgBinding
 import com.totaliptv.pro2.data.MediaItem
 import com.totaliptv.pro2.data.PreferencesStore
 import com.totaliptv.pro2.data.ResumeStore
@@ -281,7 +282,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val saved = prefsStore.load()
                 val epg = withContext(Dispatchers.IO) { repo.loadChannelEpg(saved, sid) }
-                _state.update { it.copy(epgByStreamId = it.epgByStreamId + (sid to epg)) }
+                val siblings = _state.value.catalog?.liveItems.orEmpty()
+                val bound = epg.copy(
+                    programs = LiveEpgBinding.bindForDisplay(item, epg.programs, siblings)
+                )
+                _state.update { it.copy(epgByStreamId = it.epgByStreamId + (sid to bound)) }
             } catch (_: Throwable) {
                 _state.update {
                     it.copy(epgByStreamId = it.epgByStreamId + (sid to ChannelEpg(sid, emptyList())))

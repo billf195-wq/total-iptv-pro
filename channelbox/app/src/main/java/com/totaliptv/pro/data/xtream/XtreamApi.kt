@@ -2,6 +2,7 @@ package com.totaliptv.pro.data.xtream
 
 import android.util.Base64
 import android.util.Log
+import com.totaliptv.pro.data.EpgTime
 import com.totaliptv.pro.data.LiveChannelMapping
 import com.totaliptv.pro.data.model.Category
 import com.totaliptv.pro.data.model.ContentKind
@@ -13,18 +14,18 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.text.SimpleDateFormat
-import java.util.Locale
-import java.util.TimeZone
+import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
 class XtreamApi(
@@ -42,6 +43,9 @@ class XtreamApi(
         coerceInputValues = true
     }
 ) {
+    /** From `server_info.timezone` / `time_now` on the last successful login probe. */
+    internal var providerZone: ZoneId? = null
+
     companion object {
         private const val TAG = "TotalIPTV.Xtream"
 
@@ -130,6 +134,7 @@ class XtreamApi(
 
     @Serializable
     data class ShortEpgListing(
+        @SerialName("id") val id: String? = null,
         @SerialName("title") val title: String = "",
         @SerialName("description") val description: String? = null,
         @SerialName("start") val start: String? = null,
@@ -180,6 +185,7 @@ class XtreamApi(
             if (probe.contains("\"auth\":0") || probe.contains("\"auth\": 0")) {
                 error("Xtream login rejected (auth=0). Check URL/user/pass.")
             }
+            providerZone = parseServerInfoZone(probe)
         }
 
         val liveCatsRaw = getListFlexible<XtreamCategory>(host, username, password, "get_live_categories")
@@ -545,7 +551,7 @@ class XtreamApi(
                 host, creds.username, creds.password, "get_short_epg",
                 extra = mapOf("stream_id" to streamId.toString(), "limit" to limit.toString())
             )
-            parseEpgListings(body)
+            parseEpgListings(body, streamId)
         }.onFailure { Log.w(TAG, "get_short_epg failed for $streamId", it) }.getOrDefault(emptyList())
     }
 
@@ -556,7 +562,7 @@ class XtreamApi(
                 host, creds.username, creds.password, "get_simple_data_table",
                 extra = mapOf("stream_id" to streamId.toString())
             )
-            parseEpgListings(body)
+            parseEpgListings(body, streamId)
         }.onFailure { Log.w(TAG, "get_simple_data_table failed for $streamId", it) }.getOrDefault(emptyList())
     }
 
@@ -570,7 +576,12 @@ class XtreamApi(
         return EpgNowNext(now = now, next = next)
     }
 
-    private fun parseEpgListings(body: String): List<EpgProgram> {
+    internal fun parseEpgListings(
+        body: String,
+        streamId: Int = 0,
+        displayZone: ZoneId = ZoneId.systemDefault(),
+        nowMs: Long = System.currentTimeMillis()
+    ): List<EpgProgram> {
         if (body.isBlank() || body == "[]" || body == "{}") return emptyList()
         val trimmed = body.trimStart()
         val listings: List<ShortEpgListing> = try {
@@ -587,18 +598,71 @@ class XtreamApi(
             Log.w(TAG, "EPG parse failed", t)
             emptyList()
         }
-        return listings.mapNotNull { it.toProgram() }
+        val textZone = providerZone ?: displayZone
+        data class Raw(
+            val id: String,
+            val title: String,
+            val description: String?,
+            val primary: EpgTime.Instants,
+            val localText: EpgTime.Instants
+        )
+        val rawRows = listings.mapNotNull { listing ->
+            val title = decodeMaybeBase64(listing.title).ifBlank { "Program" }
+            val desc = listing.description?.let { decodeMaybeBase64(it) }?.takeIf { it.isNotBlank() }
+            val startMs = EpgTime.fromFields(
+                listing.startTimestamp?.toString(),
+                listing.start,
+                displayZone,
+                providerZone
+            )
+            val endMs = EpgTime.fromFields(
+                (listing.stopTimestamp ?: listing.endTimestamp)?.toString(),
+                listing.end,
+                displayZone,
+                providerZone
+            ).takeIf { it > 0L } ?: (startMs + 30 * 60 * 1000L)
+            if (startMs <= 0L || endMs <= startMs) return@mapNotNull null
+            val localStart = listing.start?.let { EpgTime.fromNaiveInZone(it, textZone) }?.takeIf { it > 0L } ?: startMs
+            val localEnd = listing.end?.let { EpgTime.fromNaiveInZone(it, textZone) }?.takeIf { it > 0L } ?: endMs
+            Raw(
+                id = listing.id?.takeIf { it.isNotBlank() } ?: "$streamId-$startMs",
+                title = title,
+                description = desc,
+                primary = EpgTime.Instants(startMs, endMs),
+                localText = if (localStart > 0L && localEnd > localStart) {
+                    EpgTime.Instants(localStart, localEnd)
+                } else {
+                    EpgTime.Instants(startMs, endMs)
+                }
+            )
+        }
+        val aligned = EpgTime.alignToNow(
+            rawRows.map { it.primary },
+            rawRows.map { it.localText },
+            nowMs
+        )
+        return rawRows.zip(aligned) { row, times ->
+            EpgProgram(
+                title = row.title,
+                description = row.description,
+                startMs = times.startMs,
+                endMs = times.endMs,
+                id = row.id,
+                channelStreamId = streamId
+            )
+        }.sortedBy { it.startMs }
     }
 
-    private fun ShortEpgListing.toProgram(): EpgProgram? {
-        val title = decodeMaybeBase64(title).ifBlank { "Program" }
-        val desc = description?.let { decodeMaybeBase64(it) }?.takeIf { it.isNotBlank() }
-        val start = startTimestamp?.times(1000) ?: parseEpgTime(start) ?: return null
-        val end = (stopTimestamp ?: endTimestamp)?.times(1000)
-            ?: parseEpgTime(end)
-            ?: (start + 30 * 60 * 1000L)
-        if (end <= start) return null
-        return EpgProgram(title = title, description = desc, startMs = start, endMs = end)
+    internal fun parseServerInfoZone(body: String): ZoneId? {
+        val root = runCatching { json.parseToJsonElement(body) }.getOrNull() as? JsonObject
+            ?: return null
+        val info = (root["server_info"] as? JsonObject) ?: root
+        val named = info["timezone"]?.jsonPrimitive?.contentOrNull
+            ?.let { EpgTime.zoneOrNull(it) }
+        if (named != null) return named
+        val timeNow = info["time_now"]?.jsonPrimitive?.contentOrNull
+        val tsNow = info["timestamp_now"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+        return EpgTime.inferProviderZone(timeNow, tsNow)
     }
 
     private fun decodeMaybeBase64(raw: String): String {
@@ -609,26 +673,6 @@ class XtreamApi(
             if (decoded.any { it.code in 1..8 }) t else decoded.ifBlank { t }
         }.getOrDefault(t)
     }
-
-    private fun parseEpgTime(raw: String?): Long? {
-        if (raw.isNullOrBlank()) return null
-        val patterns = listOf(
-            "yyyy-MM-dd HH:mm:ss",
-            "yyyy-MM-dd'T'HH:mm:ss",
-            "yyyyMMddHHmmss Z",
-            "yyyyMMddHHmmss"
-        )
-        for (p in patterns) {
-            runCatching {
-                val sdf = SimpleDateFormat(p, Locale.US)
-                sdf.timeZone = TimeZone.getDefault()
-                return sdf.parse(raw)?.time
-            }
-        }
-        raw.toLongOrNull()?.let { n -> return if (n < 10_000_000_000L) n * 1000 else n }
-        return null
-    }
-
 
     private fun JsonElement.asString(): String? = when (this) {
         is JsonPrimitive -> contentOrNull
