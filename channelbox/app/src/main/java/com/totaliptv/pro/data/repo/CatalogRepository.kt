@@ -19,9 +19,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,7 +65,8 @@ class CatalogRepository(
     private val posterCache = mutableMapOf<Int, String?>()
     /** Per-stream short/simple EPG cache so category switches reuse already-fetched programs. */
     private val epgCache = ConcurrentHashMap<Int, List<EpgProgram>>()
-    private val epgFetchSemaphore = Semaphore(6)
+    /** Matches [com.totaliptv.pro.ui.epg.GuideEpgLoad.PARALLEL]; do not storm get_short_epg. */
+    private val epgFetchSemaphore = Semaphore(10)
 
     private val repoJob = SupervisorJob()
     private val repoScope = CoroutineScope(repoJob + Dispatchers.IO)
@@ -715,34 +713,45 @@ class CatalogRepository(
         xtreamApi.nowNextFromPrograms(programs)
     }
 
+    /** Instant row from [epgCache] — no network. Used to paint Guide blocks immediately. */
+    fun peekCachedGuideRow(channel: MediaItem): EpgChannelRow? {
+        val sid = channel.xtreamStreamId ?: return null
+        val cached = epgCache[sid] ?: return null
+        val bound = LiveEpgBinding.bindForDisplay(channel, cached, liveSiblings())
+        return EpgChannelRow(
+            channel = channel,
+            programs = bound,
+            nowNext = xtreamApi.nowNextFromPrograms(bound)
+        )
+    }
+
+    /** One channel’s EPG (cached or fetch). Caller updates that row; do not awaitAll the category. */
+    suspend fun loadGuideRow(channel: MediaItem): EpgChannelRow = withContext(Dispatchers.IO) {
+        epgFetchSemaphore.withPermit {
+            val programs = loadPrograms(channel)
+            EpgChannelRow(
+                channel = channel,
+                programs = programs,
+                nowNext = xtreamApi.nowNextFromPrograms(programs)
+            )
+        }
+    }
+
+    /**
+     * Legacy batch helper. Prefer [loadGuideRow] + incremental UI updates.
+     * Still waits for the whole slice — do not use from Guide first-paint.
+     */
     suspend fun loadGuideRows(
         channels: List<MediaItem>,
         maxChannels: Int = Int.MAX_VALUE
     ): List<EpgChannelRow> = withContext(Dispatchers.IO) {
-        val creds = activeXtreamCreds
         val slice = if (maxChannels == Int.MAX_VALUE) channels else channels.take(maxChannels)
-        if (creds == null) {
+        if (activeXtreamCreds == null) {
             return@withContext slice.map {
                 EpgChannelRow(channel = it, programs = emptyList(), nowNext = EpgNowNext())
             }
         }
-        // Bound parallelism: category switches cancel in-flight work; unbounded async
-        // storms against get_short_epg often return empty lists (channels update, no blocks).
-        coroutineScope {
-            slice.map { ch ->
-                async {
-                    epgFetchSemaphore.withPermit {
-                        val programs = loadPrograms(ch)
-                        // Row channel MediaItem is the same instance used for play — never zip by index.
-                        EpgChannelRow(
-                            channel = ch,
-                            programs = programs,
-                            nowNext = xtreamApi.nowNextFromPrograms(programs)
-                        )
-                    }
-                }
-            }.awaitAll()
-        }
+        slice.map { loadGuideRow(it) }
     }
 
     private fun loadPrograms(item: MediaItem): List<EpgProgram> {

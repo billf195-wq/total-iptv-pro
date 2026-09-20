@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -34,6 +35,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicInteger
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
@@ -124,6 +131,7 @@ fun EpgGuideScreen(
     }
     val windowEnd = windowStart + WINDOW_HOURS * 60 * 60 * 1000L
     val scroll = rememberScrollState()
+    val listState = rememberLazyListState()
 
     val selectedCategoryName = remember(selectedCategoryId, liveCategories) {
         if (selectedCategoryId == GUIDE_ALL_ID) "ALL"
@@ -139,13 +147,12 @@ fun EpgGuideScreen(
         // Always rebind EPG for the visible channel set on category chip change.
         val myGen = guideLoadGen + 1
         guideLoadGen = myGen
-        loading = true
         status = "Loading guide… | $selectedCategoryName"
         scroll.scrollTo(0)
+        runCatching { listState.scrollToItem(0) }
         focusedChannelId = null
 
         val filterCategoryId = selectedCategoryId.takeUnless { it == GUIDE_ALL_ID }
-        // Same helper + category as Live TV — no take() cap (old GUIDE_CHANNEL_LIMIT / GUIDE_EPG_MAX).
         val channels = LiveChannelMapping.filterLiveChannels(repository.liveItems(), filterCategoryId)
         if (channels.isEmpty()) {
             rows = emptyList()
@@ -158,26 +165,79 @@ fun EpgGuideScreen(
             return@LaunchedEffect
         }
 
-        // Skeleton rows first so the grid recomposes for this category immediately.
-        rows = channels.map { EpgChannelRow(channel = it) }
-        // Allow play only for this generation's rows (blocks stale focused row from prior category).
-        if (guideLoadGen != myGen) return@LaunchedEffect
+        // Paint rows immediately (cache hits already have blocks). Play is allowed.
+        rows = channels.map { repository.peekCachedGuideRow(it) ?: EpgChannelRow(channel = it) }
         loading = false
+        if (guideLoadGen != myGen) return@LaunchedEffect
 
         if (!repository.hasXtreamEpg()) {
             status = "EPG requires an Xtream source. Showing channel list only. | $selectedCategoryName"
             return@LaunchedEffect
         }
 
-        status = "Loading programming… | $selectedCategoryName"
-        val filled = repository.loadGuideRows(channels)
+        val ids = channels.map { it.id }
+        val started = channels.mapNotNull { ch ->
+            ch.id.takeIf { repository.peekCachedGuideRow(ch) != null }
+        }.toMutableSet()
+        fun withDataCount() = rows.count { it.programs.isNotEmpty() || it.nowNext.now != null }
+        status = if (started.isNotEmpty()) {
+            "Timeline | ${withDataCount()} channels | $selectedCategoryName | loading…"
+        } else {
+            "Loading programming… | $selectedCategoryName"
+        }
+
+        val latest = Channel<EpgChannelRow>(Channel.UNLIMITED)
+        val inFlight = AtomicInteger(0)
+        coroutineScope {
+            launch {
+                for (filled in latest) {
+                    if (guideLoadGen != myGen) break
+                    rows = rows.map { if (it.channel.id == filled.channel.id) filled else it }
+                    val n = withDataCount()
+                    status = "Timeline | $n / ${channels.size} | $selectedCategoryName | ${timeFmt.format(Date())}"
+                }
+            }
+
+            fun launchSlots() {
+                val slots = GuideEpgLoad.PARALLEL - inFlight.get()
+                if (slots <= 0) return
+                val batchIdx = GuideEpgLoad.nextBatch(
+                    channelIds = ids,
+                    firstVisibleIndex = listState.firstVisibleItemIndex,
+                    focusedId = focusedChannelId,
+                    alreadyStarted = started,
+                    limit = slots
+                )
+                batchIdx.forEach { idx ->
+                    started += ids[idx]
+                    inFlight.incrementAndGet()
+                    launch(Dispatchers.IO) {
+                        try {
+                            val filled = runCatching { repository.loadGuideRow(channels[idx]) }
+                                .getOrElse { EpgChannelRow(channel = channels[idx]) }
+                            if (guideLoadGen == myGen) latest.send(filled)
+                        } finally {
+                            inFlight.decrementAndGet()
+                        }
+                    }
+                }
+            }
+
+            // Visible/focused first; each row paints as its EPG returns — no category awaitAll.
+            launchSlots()
+            while (guideLoadGen == myGen && (started.size < channels.size || inFlight.get() > 0)) {
+                delay(40)
+                launchSlots()
+            }
+            latest.close()
+        }
+
         if (guideLoadGen != myGen) return@LaunchedEffect
-        rows = filled
-        val withData = filled.count { it.programs.isNotEmpty() || it.nowNext.now != null }
-        status = if (withData == 0) {
+        val n = withDataCount()
+        status = if (n == 0) {
             "Server returned no EPG data. Showing channels only. | $selectedCategoryName"
         } else {
-            "Timeline | $withData channels | $selectedCategoryName | ${timeFmt.format(Date())}"
+            "Timeline | $n channels | $selectedCategoryName | ${timeFmt.format(Date())}"
         }
     }
 
@@ -277,6 +337,7 @@ fun EpgGuideScreen(
                 }
 
                 LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxSize()
