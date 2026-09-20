@@ -272,7 +272,7 @@ fun SeriesNextOverlayBody(
             if (AppPaths.isWindows) {
                 "${SeriesNextHotkeys.CTRL_RIGHT_HINT} or ${SeriesNextHotkeys.MEDIA_NEXT_HINT} — not VLC’s Next"
             } else {
-                "Linux: VLC Next also advances the remaining-episode playlist"
+                "Advances at end of episode · ${SeriesNextHotkeys.CTRL_RIGHT_HINT} when this app is focused — not VLC’s Next"
             },
             style = MaterialTheme.typography.bodyMedium,
             color = TipMuted

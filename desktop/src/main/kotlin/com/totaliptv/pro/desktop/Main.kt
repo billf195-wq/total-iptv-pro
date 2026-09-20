@@ -23,6 +23,7 @@ import com.totaliptv.pro.desktop.input.WindowsTopMost
 import com.totaliptv.pro.desktop.player.StreamPlayer
 import com.totaliptv.pro.desktop.ui.AppRoot
 import com.totaliptv.pro.desktop.ui.SeriesNextHost
+import com.totaliptv.pro.desktop.ui.SplashBranding
 import java.awt.Dimension
 
 fun main() = application(exitProcessOnExit = true) {
@@ -50,7 +51,7 @@ fun main() = application(exitProcessOnExit = true) {
     if (windowsOpen && !AppShutdown.isExiting()) {
         Window(
             onCloseRequest = { quit() },
-            title = "Total IPTV Pro",
+            title = SplashBranding.windowTitle(AppVersion.VERSION_NAME),
             state = state,
             icon = appIcon,
             onPreviewKeyEvent = { event ->

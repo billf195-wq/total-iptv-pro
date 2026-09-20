@@ -17,10 +17,10 @@ class SeriesLaunchTest {
         )
 
     @Test
-    fun windowsPlanUsesOnlyClickedEpisodeUrl() {
+    fun planUsesOnlyClickedEpisodeUrlOnLinuxAndWindows() {
         val eps = listOf(ep(1, 1), ep(1, 2), ep(2, 3))
         val item = eps[2].toMediaItem("Show", 44)
-        val plan = SeriesLaunch.plan(item, eps, "Show", 44, windowsSingleUrl = true)
+        val plan = SeriesLaunch.plan(item, eps, "Show", 44)
         assertEquals(listOf(eps[2].streamUrl), plan.urls)
         assertEquals("2-3", plan.currentEpisode?.id)
         assertNull(plan.nextEpisode)
@@ -28,13 +28,14 @@ class SeriesLaunchTest {
     }
 
     @Test
-    fun linuxPlanKeepsRemainingEpisodeUrls() {
+    fun linuxMidSeasonPlanDoesNotQueueRemainingUrls() {
         val eps = listOf(ep(1, 1), ep(1, 2), ep(2, 1))
         val item = eps[1].toMediaItem("Show", 7)
-        val plan = SeriesLaunch.plan(item, eps, "Show", 7, windowsSingleUrl = false)
-        assertEquals(listOf(eps[1].streamUrl, eps[2].streamUrl), plan.urls)
+        val plan = SeriesLaunch.plan(item, eps, "Show", 7)
+        assertEquals(listOf(eps[1].streamUrl), plan.urls)
         assertEquals("1-2", plan.currentEpisode?.id)
         assertEquals("2-1", plan.nextEpisode?.id)
+        assertTrue(plan.urls.none { it == eps[2].streamUrl })
     }
 
     @Test
@@ -52,12 +53,10 @@ class SeriesLaunchTest {
             season = null,
             episodeNum = null
         )
-        val windows = SeriesLaunch.plan(clicked, eps, "Show", 9, windowsSingleUrl = true)
-        assertEquals(listOf(eps[2].streamUrl), windows.urls)
-        assertEquals("2-1", windows.currentEpisode?.id)
-        val linux = SeriesLaunch.plan(clicked, eps, "Show", 9, windowsSingleUrl = false)
-        assertEquals(listOf(eps[2].streamUrl), linux.urls)
-        assertTrue(linux.urls.none { it == eps[0].streamUrl })
+        val plan = SeriesLaunch.plan(clicked, eps, "Show", 9)
+        assertEquals(listOf(eps[2].streamUrl), plan.urls)
+        assertEquals("2-1", plan.currentEpisode?.id)
+        assertTrue(plan.urls.none { it == eps[0].streamUrl })
     }
 
     @Test
@@ -73,7 +72,7 @@ class SeriesLaunchTest {
             parentSeriesId = 3,
             parentSeriesName = "Show"
         )
-        val plan = SeriesLaunch.plan(clicked, eps, "Show", 3, windowsSingleUrl = true)
+        val plan = SeriesLaunch.plan(clicked, eps, "Show", 3)
         assertEquals(listOf(clicked.streamUrl), plan.urls)
         assertNull(plan.currentEpisode)
     }
@@ -82,7 +81,7 @@ class SeriesLaunchTest {
     fun nextEpisodeFromCurrentIsSxxEPlusOne() {
         val eps = listOf(ep(1, 4), ep(1, 5), ep(1, 6))
         val item = eps[0].toMediaItem("Show", 1)
-        val plan = SeriesLaunch.plan(item, eps, "Show", 1, windowsSingleUrl = true)
+        val plan = SeriesLaunch.plan(item, eps, "Show", 1)
         assertEquals("1-5", plan.nextEpisode?.id)
         assertTrue(plan.nextEpisode!!.streamUrl != plan.start.streamUrl)
         assertEquals("http://cdn.example.test/series/user/pass/1-5.mp4", plan.nextEpisode!!.streamUrl)
@@ -101,7 +100,7 @@ class SeriesLaunchTest {
             parentSeriesId = 4,
             parentSeriesName = "Show"
         )
-        val plan = SeriesLaunch.plan(clicked, eps, "Show", 4, windowsSingleUrl = true)
+        val plan = SeriesLaunch.plan(clicked, eps, "Show", 4)
         assertEquals(listOf(eps[1].streamUrl), plan.urls)
         assertEquals("1-3", plan.nextEpisode?.id)
         assertTrue(plan.nextEpisode!!.streamUrl != plan.urls.first())

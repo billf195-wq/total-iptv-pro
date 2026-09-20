@@ -203,7 +203,7 @@ fun SettingsScreen(
                 if (AppPaths.isWindows) {
                     "Windows: both a floating always-on-top Next episode button and Ctrl+Right / Media Next skip to SxxE(n+1) while VLC is fullscreen. On the last episode the Next control is disabled and shows “Last episode of this series.” VLC’s own Next stays on the same episode (one URL). Debug: ${AppPaths.configDir.resolve("playback-debug.log")}"
                 } else {
-                    "Linux still launches the remaining-episode M3U so VLC Next / end-of-file advance inside the player. Ctrl+Right also skips when this window is focused."
+                    "Linux launches one episode URL (same as Windows) and auto-advances to SxxE(n+1) when VLC/mpv exits at end of episode. Skip with the always-on-top Next control, the in-app Next button, or Ctrl+Right / Media Next while this window is focused. Global hotkeys are not registered on Linux (they would need root). Fullscreen VLC often keeps keyboard focus — if Next keys do nothing, wait for the episode to finish or Alt+Tab back here. On the last episode Next is disabled and shows “Last episode of this series.” VLC’s own Next stays on the same episode. Debug: ${AppPaths.configDir.resolve("playback-debug.log")}"
                 },
                 style = MaterialTheme.typography.bodyMedium
             )

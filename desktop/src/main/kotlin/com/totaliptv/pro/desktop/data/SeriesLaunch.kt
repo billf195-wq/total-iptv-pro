@@ -3,9 +3,9 @@ package com.totaliptv.pro.desktop.data
 /**
  * How a series play should be handed to the external player.
  *
- * Windows: one episode URL. VLC’s playlist Next cannot advance a one-item list,
- * so in-app / hotkey Next is the supported path.
- * Linux: remaining episodes (M3U / argv queue) so VLC Next / EOF still work.
+ * Linux and Windows both launch **one** episode URL. VLC’s playlist Next cannot
+ * advance a one-item list, so AppRoot auto-advances on player exit and in-app /
+ * overlay / hotkey Next are the supported skip paths.
  */
 data class SeriesLaunchPlan(
     val start: MediaItem,
@@ -32,8 +32,7 @@ object SeriesLaunch {
         item: MediaItem,
         episodes: List<SeriesEpisode>,
         seriesName: String,
-        seriesId: Int?,
-        windowsSingleUrl: Boolean
+        seriesId: Int?
     ): SeriesLaunchPlan {
         val current = resolveCurrent(episodes, item)
         val start = current?.toMediaItem(seriesName, seriesId) ?: item
@@ -44,12 +43,7 @@ object SeriesLaunch {
             current?.id ?: start.id,
             start.streamUrl
         )
-        val urls = launchUrls(
-            start = start,
-            episodes = episodes,
-            current = current,
-            windowsSingleUrl = windowsSingleUrl
-        )
+        val urls = launchUrls(start)
         return SeriesLaunchPlan(
             start = start,
             urls = urls,
@@ -82,25 +76,8 @@ object SeriesLaunch {
         streamUrl = item.streamUrl
     )
 
-    fun launchUrls(
-        start: MediaItem,
-        episodes: List<SeriesEpisode>,
-        current: SeriesEpisode?,
-        windowsSingleUrl: Boolean
-    ): List<String> {
+    fun launchUrls(start: MediaItem): List<String> {
         val startUrl = start.streamUrl.trim()
-        if (windowsSingleUrl) {
-            return listOfNotNull(startUrl.takeIf { it.isNotBlank() })
-        }
-        if (current != null) {
-            val remaining = SeriesPlayback.remainingFrom(
-                episodes,
-                current.season,
-                current.episodeNum,
-                current.id
-            ).map { it.streamUrl.trim() }.filter { it.isNotBlank() }
-            if (remaining.isNotEmpty()) return remaining
-        }
         return listOfNotNull(startUrl.takeIf { it.isNotBlank() })
     }
 }

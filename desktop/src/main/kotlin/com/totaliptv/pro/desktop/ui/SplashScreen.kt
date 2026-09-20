@@ -58,7 +58,7 @@ fun SplashScreen(banner: ImageBitmap? = rememberSplashBanner()) {
             SplashBrandTitle(
                 versionName = AppVersion.VERSION_NAME,
                 titleSize = 28.sp,
-                versionSize = 16.sp,
+                versionSize = 22.sp,
                 modifier = Modifier.padding(horizontal = 24.dp)
             )
             Spacer(Modifier.height(28.dp))

@@ -46,13 +46,14 @@ Prefs are stored at `~/.config/total-iptv-pro/prefs.json` (plus `resume.json` / 
 
 Click a **movie** to open detail (plot, cast, Play / Favorite) before playback. Click a **channel** to play live. Open a **series** for episodes (also favoritable). Heart icons mark Favorites. Use **Stop player** to close playback.
 
-### Series next episode (Windows vs Linux)
+### Series next episode (Linux + Windows)
 
-- **Linux:** remaining episodes are a local M3U. VLC’s Next / end-of-file advances inside the player.
-- **Windows:** only the current episode URL is launched (`taskkill` leftover `vlc.exe`, `--ignore-config`, `--no-one-instance`). VLC goes fullscreen over the app, so **do not use VLC’s playlist Next** — it replays the same episode. Use:
-  - the always-on-top **Next SxEx** control, or
-  - **Ctrl+Right** / **Media Next** (registered as a Windows hotkey while a series is playing)
-- Each series launch appends one line to `%APPDATA%\\total-iptv-pro\\playback-debug.log` (episode id, SxxExx, URL host/path tail, player binary).
+Both platforms launch **one** episode URL. The app starts SxxE(n+1) when the player exits at end of episode. **Do not use VLC’s playlist Next** — it replays the same episode.
+
+- **Linux (GTR):** auto-advance at end of episode. Skip with the always-on-top **Next SxEx** control, the in-app Next button, or **Ctrl+Right** / **Media Next** while Total IPTV Pro is focused. Global hotkeys are not registered (they would need root). Fullscreen VLC often keeps keyboard focus — Alt+Tab back to this app, or wait for the episode to finish.
+- **Windows:** leftover `vlc.exe` is `taskkill`’d; `--ignore-config` / `--no-one-instance`. Skip with the always-on-top **Next SxEx** control or **Ctrl+Right** / **Media Next** (OS hotkeys while a series is playing).
+- On the last episode Next is disabled and shows “Last episode of this series.”
+- Each series launch appends one line to `playback-debug.log` (Linux: `~/.config/total-iptv-pro/`, Windows: `%APPDATA%\\total-iptv-pro\\`). Look for `playlist=false` and `reason=auto-advance` after an episode ends.
 
 ## Build
 
