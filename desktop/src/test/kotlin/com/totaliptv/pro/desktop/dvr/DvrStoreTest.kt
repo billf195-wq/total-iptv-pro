@@ -1,0 +1,115 @@
+package com.totaliptv.pro.desktop.dvr
+
+import kotlin.io.path.createTempDirectory
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+class DvrStoreTest {
+
+    private fun store(): DvrStore {
+        val dir = createTempDirectory("tip-dvr-")
+        return DvrStore(dir)
+    }
+
+    @Test
+    fun emptyWhenMissing() {
+        val s = store()
+        assertTrue(s.recordings().isEmpty())
+        assertTrue(s.schedules().isEmpty())
+    }
+
+    @Test
+    fun upsertAndReloadMetadata() {
+        val s = store()
+        val entry = RecordingEntry(
+            id = "r1",
+            channelName = "CNN",
+            title = "News Hour",
+            startMs = 1_700_000_000_000L,
+            durationMs = 3_600_000L,
+            filePath = "/tmp/cnn.ts",
+            streamUrl = "http://host/live/u/p/1.m3u8",
+            status = RecordingStatus.COMPLETED.name,
+            contentKind = DvrKind.LIVE
+        )
+        s.upsert(entry)
+        val loaded = s.recordings()
+        assertEquals(1, loaded.size)
+        assertEquals("CNN", loaded[0].channelName)
+        assertEquals("News Hour", loaded[0].title)
+        assertEquals("/tmp/cnn.ts", loaded[0].filePath)
+        assertEquals(3_600_000L, loaded[0].durationMs)
+        assertEquals(DvrKind.LIVE, loaded[0].contentKind)
+        assertTrue(loaded[0].playable())
+    }
+
+    @Test
+    fun movieAndSeriesKindsRoundTrip() {
+        val s = store()
+        s.upsert(
+            RecordingEntry(
+                id = "m1",
+                channelName = "Godfather",
+                title = "The Godfather",
+                startMs = 2L,
+                filePath = "/tmp/godfather.mp4",
+                streamUrl = "http://host/movie/u/p/9.mp4",
+                status = RecordingStatus.COMPLETED.name,
+                contentKind = DvrKind.VOD
+            )
+        )
+        s.upsert(
+            RecordingEntry(
+                id = "e1",
+                channelName = "Show",
+                title = "S1E1",
+                startMs = 3L,
+                filePath = "/tmp/ep.mp4",
+                streamUrl = "http://host/series/u/p/2.mp4",
+                status = RecordingStatus.COMPLETED.name,
+                contentKind = DvrKind.SERIES
+            )
+        )
+        val kinds = s.recordings().associate { it.id to it.contentKind }
+        assertEquals(DvrKind.VOD, kinds["m1"])
+        assertEquals(DvrKind.SERIES, kinds["e1"])
+        assertEquals("Movie", DvrKind.label(kinds.getValue("m1")))
+        assertEquals("Series", DvrKind.label(kinds.getValue("e1")))
+    }
+
+    @Test
+    fun replaceSameIdKeepsSingleRow() {
+        val s = store()
+        s.upsert(RecordingEntry(id = "r1", channelName = "A", title = "T", startMs = 1L, status = "RECORDING"))
+        s.upsert(RecordingEntry(id = "r1", channelName = "A", title = "T", startMs = 1L, status = "COMPLETED", filePath = "a.ts"))
+        assertEquals(1, s.recordings().size)
+        assertEquals(RecordingStatus.COMPLETED, s.recordings()[0].statusEnum())
+    }
+
+    @Test
+    fun scheduleRoundTripAndRemove() {
+        val s = store()
+        val sched = ScheduledRecording(
+            id = "s1",
+            channelName = "HBO",
+            title = "Movie",
+            streamUrl = "http://host/live/u/p/9.m3u8",
+            startMs = 2L,
+            endMs = 3L,
+            contentKind = DvrKind.LIVE
+        )
+        s.addSchedule(sched)
+        assertEquals(1, s.schedules().size)
+        s.removeSchedule("s1")
+        assertTrue(s.schedules().isEmpty())
+    }
+
+    @Test
+    fun corruptJsonYieldsEmpty() {
+        val dir = createTempDirectory("tip-dvr-bad-")
+        dir.resolve("recordings.json").toFile().writeText("{not-json")
+        val s = DvrStore(dir)
+        assertTrue(s.load().recordings.isEmpty())
+    }
+}

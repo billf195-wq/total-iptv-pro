@@ -42,6 +42,8 @@ import coil.compose.AsyncImage
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.R
 import com.totaliptv.pro.data.model.MediaItem
+import com.totaliptv.pro.dvr.DvrRecordUi
+import com.totaliptv.pro.ui.theme.LiveMarker
 import com.totaliptv.pro.ui.splash.SplashBranding
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -166,7 +168,9 @@ fun DesktopPosterCard(
 fun LiveRowItem(
     item: MediaItem,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRecord: (() -> Unit)? = null,
+    recordActive: Boolean = false
 ) {
     TipFocusable(onClick = onClick, modifier = modifier.fillMaxWidth()) { focused ->
         Row(
@@ -206,6 +210,31 @@ fun LiveRowItem(
             )
             item.groupTitle?.takeIf { it.isNotBlank() }?.let { group ->
                 Text(group, color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
+            }
+            if (onRecord != null) {
+                TipFocusable(onClick = onRecord) { recFocused ->
+                    Text(
+                        if (recordActive) DvrRecordUi.ACTIVE_LABEL else "REC",
+                        color = when {
+                            recordActive -> Color.White
+                            recFocused -> TipOnAmber
+                            else -> TipAccent
+                        },
+                        fontWeight = FontWeight.Bold,
+                        fontSize = TipDimens.LabelLargeSp,
+                        modifier = Modifier
+                            .padding(start = TipDimens.dp(8))
+                            .background(
+                                when {
+                                    recordActive -> LiveMarker
+                                    recFocused -> TipAmber
+                                    else -> TipSurfaceAlt
+                                },
+                                RoundedCornerShape(TipDimens.NavCorner)
+                            )
+                            .padding(horizontal = TipDimens.dp(8), vertical = TipDimens.dp(4))
+                    )
+                }
             }
         }
     }

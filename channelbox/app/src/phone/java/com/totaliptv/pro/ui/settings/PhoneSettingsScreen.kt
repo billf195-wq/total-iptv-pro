@@ -297,6 +297,21 @@ fun PhoneSettingsScreen(
         }
 
         Spacer(Modifier.height(24.dp))
+        Text("Personal DVR", style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            com.totaliptv.pro.dvr.DvrActions.recorder(context).recordingsDir().absolutePath,
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Record Live, or download a movie / series episode from detail or while playing. Library shows type. Files stay on this phone.",
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Spacer(Modifier.height(24.dp))
         Text("Player", style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {

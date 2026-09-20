@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.totaliptv.pro.desktop.AppShutdown
+import com.totaliptv.pro.desktop.data.LastEpisodeBanner
 import com.totaliptv.pro.desktop.data.SeriesEpisode
 import com.totaliptv.pro.desktop.data.SeriesPlayback
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
@@ -54,6 +55,13 @@ class SeriesNextHost {
         private set
     @Volatile var onNext: () -> Unit = {}
     @Volatile var onStop: () -> Unit = {}
+    @Volatile var onRecord: () -> Unit = {}
+    private var dismissedLastKey: String? = null
+    private var pendingDismissKey: String? = null
+    private var lastBriefKey: String? = null
+    private var lastBriefShownAtMs: Long? = null
+    private var dismissTimer: javax.swing.Timer? = null
+    private var recordingThisItem: Boolean = false
 
     @Volatile
     private var overlayWindow: ComposeWindow? = null
@@ -64,7 +72,10 @@ class SeriesNextHost {
         session: ActiveSeriesPlay?,
         darkTheme: Boolean,
         onNext: () -> Unit,
-        onStop: () -> Unit
+        onStop: () -> Unit,
+        onRecord: () -> Unit = {},
+        recordingThisItem: Boolean = false,
+        nowMs: Long = System.currentTimeMillis()
     ) {
         if (AppShutdown.isExiting()) {
             disposeOverlay()
@@ -72,21 +83,116 @@ class SeriesNextHost {
         }
         this.onNext = onNext
         this.onStop = onStop
+        this.onRecord = onRecord
         this.darkTheme = darkTheme
-        this.session = session
+        this.recordingThisItem = recordingThisItem
+        val key = session?.let { overlayKey(it) }
+        val mode = session?.let { overlayMode(it) } ?: LastEpisodeBanner.Mode.HIDDEN
         if (session == null) {
+            this.session = null
+            resetLastBrief()
             disposeWindow()
-        } else {
-            ensureWindow()
+            return
         }
+        this.session = session
+        if (mode == LastEpisodeBanner.Mode.HIDDEN) {
+            resetLastBrief()
+            disposeWindow()
+            return
+        }
+        if (mode == LastEpisodeBanner.Mode.NEXT) {
+            resetLastBrief()
+            ensureWindow()
+            return
+        }
+        if (lastBriefKey != key) {
+            lastBriefKey = key
+            lastBriefShownAtMs = nowMs
+            dismissedLastKey = null
+            cancelDismissTimer()
+        }
+        if (!LastEpisodeBanner.overlayStillVisible(mode, lastBriefShownAtMs, nowMs, dismissedLastKey, key)) {
+            if (key != null) dismissedLastKey = key
+            cancelDismissTimer()
+            disposeWindow()
+            return
+        }
+        ensureWindow()
+        if (key != null) {
+            scheduleLastEpisodeDismiss(key)
+        }
+    }
+
+    fun dismissLastIfMatching(key: String) {
+        if (session?.let { overlayKey(it) } == key) {
+            dismissedLastKey = key
+            cancelDismissTimer()
+            disposeWindow()
+        }
+    }
+
+    internal fun shouldKeepOverlay(
+        play: ActiveSeriesPlay,
+        nowMs: Long,
+        firstShownAtMs: Long?,
+        dismissedKey: String?
+    ): Boolean = LastEpisodeBanner.overlayStillVisible(
+        overlayMode(play),
+        firstShownAtMs,
+        nowMs,
+        dismissedKey,
+        overlayKey(play)
+    )
+
+    private fun resetLastBrief() {
+        dismissedLastKey = null
+        lastBriefKey = null
+        lastBriefShownAtMs = null
+        cancelDismissTimer()
     }
 
     fun clear() = disposeOverlay()
 
+    internal fun overlayKey(play: ActiveSeriesPlay): String =
+        "${play.seriesId}|${play.current.id}|${play.current.streamUrl}"
+
+    internal fun overlayMode(play: ActiveSeriesPlay): LastEpisodeBanner.Mode =
+        LastEpisodeBanner.overlayMode(
+            play.episodes,
+            play.current.season,
+            play.current.episodeNum,
+            play.current.id,
+            play.current.streamUrl
+        )
+
+    private fun scheduleLastEpisodeDismiss(key: String) {
+        if (pendingDismissKey == key) return
+        cancelDismissTimer()
+        pendingDismissKey = key
+        val timer = javax.swing.Timer(LastEpisodeBanner.AUTO_DISMISS_MS.toInt()) {
+            if (session?.let { overlayKey(it) } == key) {
+                dismissedLastKey = key
+                disposeWindowOnEdt()
+            }
+        }
+        timer.isRepeats = false
+        timer.start()
+        dismissTimer = timer
+    }
+
+    private fun cancelDismissTimer() {
+        pendingDismissKey = null
+        dismissTimer?.stop()
+        dismissTimer = null
+    }
+
     fun disposeOverlay() {
         onNext = {}
         onStop = {}
+        onRecord = {}
         session = null
+        resetLastBrief()
+        recordingThisItem = false
         if (overlayWindow == null && raisePump == null) return
         disposeWindow()
     }
@@ -128,8 +234,11 @@ class SeriesNextHost {
                         TipTheme(darkTheme = darkTheme) {
                             SeriesNextOverlayBody(
                                 session = current,
+                                mode = overlayMode(current),
                                 onNext = { onNext() },
-                                onStop = { onStop() }
+                                onStop = { onStop() },
+                                onRecord = { onRecord() },
+                                recordingThisItem = recordingThisItem
                             )
                         }
                     }
@@ -190,8 +299,17 @@ data class ActiveSeriesPlay(
 @Composable
 fun SeriesNextOverlayBody(
     session: ActiveSeriesPlay,
+    mode: LastEpisodeBanner.Mode = LastEpisodeBanner.overlayMode(
+        session.episodes,
+        session.current.season,
+        session.current.episodeNum,
+        session.current.id,
+        session.current.streamUrl
+    ),
     onNext: () -> Unit,
-    onStop: () -> Unit
+    onStop: () -> Unit,
+    onRecord: () -> Unit = {},
+    recordingThisItem: Boolean = false
 ) {
     val next = session.next
     Column(
@@ -202,7 +320,7 @@ fun SeriesNextOverlayBody(
             .padding(14.dp)
     ) {
         Text(
-            if (next != null) "NEXT EPISODE" else "LAST EPISODE",
+            if (mode == LastEpisodeBanner.Mode.LAST_BRIEF) "LAST EPISODE" else "NEXT EPISODE",
             color = TipBlue,
             fontWeight = FontWeight.Bold,
             fontSize = 13.sp
@@ -241,7 +359,7 @@ fun SeriesNextOverlayBody(
                         fontSize = 16.sp
                     )
                 }
-            } else {
+            } else if (mode == LastEpisodeBanner.Mode.LAST_BRIEF) {
                 Button(
                     onClick = {},
                     enabled = false,
@@ -258,6 +376,25 @@ fun SeriesNextOverlayBody(
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
+                }
+            }
+            if (recordingThisItem) {
+                Button(
+                    onClick = onRecord,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TipRecordActive,
+                        contentColor = TipOnRecordActive
+                    ),
+                    modifier = Modifier.height(48.dp)
+                ) {
+                    Text("Recording…", color = TipOnRecordActive, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                OutlinedButton(
+                    onClick = onRecord,
+                    modifier = Modifier.height(48.dp)
+                ) {
+                    Text("Record", color = TipOnBg)
                 }
             }
             OutlinedButton(

@@ -29,6 +29,13 @@ import com.totaliptv.pro.desktop.data.SeriesLaunch
 import com.totaliptv.pro.desktop.data.SeriesPlayback
 import com.totaliptv.pro.desktop.data.VodDetail
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
+import com.totaliptv.pro.desktop.data.LastEpisodeBanner
+import com.totaliptv.pro.desktop.dvr.DvrKind
+import com.totaliptv.pro.desktop.dvr.DvrRecordUi
+import com.totaliptv.pro.desktop.dvr.DvrRecorder
+import com.totaliptv.pro.desktop.dvr.DvrStartReason
+import com.totaliptv.pro.desktop.dvr.RecordingEntry
+import com.totaliptv.pro.desktop.dvr.ScheduledRecording
 import com.totaliptv.pro.desktop.player.PlaybackAdvance
 import com.totaliptv.pro.desktop.player.PlaybackDebugLog
 import com.totaliptv.pro.desktop.player.StreamPlayer
@@ -53,6 +60,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     var error by remember { mutableStateOf<String?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var playingTitle by remember { mutableStateOf<String?>(null) }
+    var playingItem by remember { mutableStateOf<MediaItem?>(null) }
     var showOnboarding by remember { mutableStateOf(!prefs.onboarded) }
 
     var seriesDetail by remember { mutableStateOf<SeriesDetail?>(null) }
@@ -75,6 +83,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     var lastSeriesId by remember { mutableStateOf<Int?>(null) }
     val seriesSessionRef = remember { AtomicReference<ActiveSeriesPlay?>(null) }
     var seriesSession by remember { mutableStateOf<ActiveSeriesPlay?>(null) }
+    var dvrTick by remember { mutableStateOf(0) }
+    val dvrSnapshot = remember(dvrTick, prefs.recordingsDir) { DvrRecorder.snapshot() }
 
     fun setSeriesSession(session: ActiveSeriesPlay?) {
         if (session != null && AppShutdown.isExiting()) return
@@ -90,6 +100,80 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     fun persist(p: SavedPrefs) {
         PreferencesStore.save(p)
         prefs = PreferencesStore.load()
+        dvrTick++
+    }
+
+    fun refreshDvr() {
+        dvrTick++
+        DvrRecorder.lastMessage?.let { statusMessage = it }
+    }
+
+    fun recordNow(item: MediaItem, title: String? = null, endMs: Long? = null) {
+        if (item.streamUrl.isBlank()) {
+            statusMessage = "No stream URL to record"
+            return
+        }
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    DvrRecorder.startNow(
+                        channelName = item.parentSeriesName?.takeIf { it.isNotBlank() } ?: item.name,
+                        title = title?.takeIf { it.isNotBlank() } ?: item.name,
+                        streamUrl = item.streamUrl,
+                        channelId = item.id,
+                        scheduledEndMs = endMs,
+                        contentKind = item.kind.name,
+                        reason = DvrStartReason.USER_RECORD
+                    )
+                }
+                refreshDvr()
+            } catch (t: Throwable) {
+                statusMessage = t.message ?: "Could not start recording"
+            }
+        }
+    }
+
+    fun stopRecording() {
+        scope.launch {
+            withContext(Dispatchers.IO) { DvrRecorder.stop() }
+            delay(400)
+            refreshDvr()
+        }
+    }
+
+    fun scheduleProgram(item: MediaItem, title: String, startMs: Long, endMs: Long) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    DvrRecorder.schedule(
+                        channelName = item.parentSeriesName?.takeIf { it.isNotBlank() } ?: item.name,
+                        title = title,
+                        streamUrl = item.streamUrl,
+                        startMs = startMs,
+                        endMs = endMs,
+                        channelId = item.id,
+                        contentKind = item.kind.name
+                    )
+                }
+                refreshDvr()
+            } catch (t: Throwable) {
+                statusMessage = t.message ?: "Could not schedule"
+            }
+        }
+    }
+
+    fun deleteRecording(entry: RecordingEntry) {
+        scope.launch {
+            withContext(Dispatchers.IO) { DvrRecorder.deleteRecording(entry.id) }
+            refreshDvr()
+        }
+    }
+
+    fun cancelSchedule(item: ScheduledRecording) {
+        scope.launch {
+            withContext(Dispatchers.IO) { DvrRecorder.cancelSchedule(item.id) }
+            refreshDvr()
+        }
     }
 
     fun loadCatalog(p: SavedPrefs, fromRefresh: Boolean = false) {
@@ -337,6 +421,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     reason = reason
                 )
                 playingTitle = startWithSeries.name
+                playingItem = startWithSeries
                 error = null
                 val playlist = StreamPlayer.lastLaunchWasPlaylist
                 launch(Dispatchers.IO) {
@@ -346,6 +431,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         withContext(Dispatchers.Main) {
                             if (seq == playSeq.get()) {
                                 playingTitle = null
+                                playingItem = null
                                 setSeriesSession(null)
                             }
                         }
@@ -362,6 +448,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                                 if (seq == playSeq.get()) {
                                     resumeEntries = recorded
                                     playingTitle = null
+                                    playingItem = null
                                     setSeriesSession(null)
                                 }
                             }
@@ -369,6 +456,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                             withContext(Dispatchers.Main) {
                                 if (seq == playSeq.get()) {
                                     playingTitle = null
+                                    playingItem = null
                                     setSeriesSession(null)
                                 }
                             }
@@ -398,6 +486,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         withContext(Dispatchers.Main) {
                             if (seq == playSeq.get()) {
                                 playingTitle = null
+                                playingItem = null
                             }
                         }
                         return@launch
@@ -441,6 +530,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                             withContext(Dispatchers.Main) {
                                 if (seq == playSeq.get()) {
                                     playingTitle = null
+                                    playingItem = null
                                     if (outcome.reason == PlaybackAdvance.REASON_SAME_URL ||
                                         outcome.reason == PlaybackAdvance.REASON_NO_NEXT
                                     ) {
@@ -454,6 +544,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
             } catch (t: Throwable) {
                 error = t.message
                 playingTitle = null
+                playingItem = null
                 setSeriesSession(null)
             }
         }
@@ -498,6 +589,12 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 )
                 if (outcome.reason == "skip-no-next") {
                     statusMessage = SeriesPlayback.LAST_EPISODE_MESSAGE
+                    scope.launch {
+                        delay(LastEpisodeBanner.AUTO_DISMISS_MS)
+                        if (statusMessage == SeriesPlayback.LAST_EPISODE_MESSAGE) {
+                            statusMessage = null
+                        }
+                    }
                 }
             }
         }
@@ -507,7 +604,28 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         playSeq.incrementAndGet()
         StreamPlayer.stop()
         playingTitle = null
+        playingItem = null
         setSeriesSession(null)
+    }
+
+    fun playRecording(entry: RecordingEntry) {
+        if (entry.filePath.isBlank()) {
+            statusMessage = "Recording file missing"
+            return
+        }
+        playItem(
+            MediaItem(
+                id = "rec-${entry.id}",
+                name = entry.title,
+                streamUrl = entry.filePath,
+                categoryId = null,
+                kind = when (DvrKind.normalize(entry.contentKind)) {
+                    DvrKind.SERIES -> ContentKind.SERIES
+                    else -> ContentKind.VOD
+                },
+                playable = true
+            )
+        )
     }
 
     fun resumeEntry(entry: ResumeStore.ResumeEntry, media: MediaItem?) {
@@ -590,6 +708,13 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
             loading = false
             showOnboarding = true
         }
+        DvrRecorder.ensureScheduler()
+        launch {
+            while (true) {
+                delay(3_000)
+                dvrTick++
+            }
+        }
         // Quiet update check so GTR / Bigboybill see a banner when a shelf package is ready.
         launch(Dispatchers.IO) {
             val shelf = PreferencesStore.load().updateShelfUrl
@@ -612,17 +737,41 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         }
     }
 
+    LaunchedEffect(seriesSession) {
+        val session = seriesSession ?: return@LaunchedEffect
+        val mode = LastEpisodeBanner.overlayMode(
+            session.episodes,
+            session.current.season,
+            session.current.episodeNum,
+            session.current.id,
+            session.current.streamUrl
+        )
+        if (mode != LastEpisodeBanner.Mode.LAST_BRIEF) return@LaunchedEffect
+        val key = "${session.seriesId}|${session.current.id}|${session.current.streamUrl}"
+        delay(LastEpisodeBanner.AUTO_DISMISS_MS)
+        seriesNextHost?.dismissLastIfMatching(key)
+    }
+
     SideEffect {
         val host = seriesNextHost ?: return@SideEffect
         if (AppShutdown.isExiting()) {
             host.disposeOverlay()
             return@SideEffect
         }
+        val play = playingItem
         host.sync(
             session = seriesSession,
             darkTheme = prefs.themeMode != "light",
             onNext = { skipToNextEpisode() },
-            onStop = { stopPlayback() }
+            onStop = { stopPlayback() },
+            onRecord = {
+                val item = playingItem
+                if (item != null && item.streamUrl.isNotBlank()) {
+                    recordNow(item, item.name, null)
+                }
+            },
+            recordingThisItem = DvrRecordUi.matches(dvrSnapshot.active, play?.id, play?.streamUrl),
+            nowMs = System.currentTimeMillis()
         )
     }
 
@@ -682,6 +831,9 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     catalog = catalog!!,
                     prefs = prefs,
                     playingTitle = playingTitle,
+                    playingItem = playingItem,
+                    recordingTitle = dvrSnapshot.active?.let { "REC ${it.channelName}" },
+                    dvrSnapshot = dvrSnapshot,
                     refreshing = refreshing || loading,
                     statusMessage = statusMessage ?: error,
                     seriesDetail = seriesDetail,
@@ -732,7 +884,13 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     },
                     onSavePrefs = { persist(it) },
                     onNeedEpg = { needEpg(it) },
-                    onResumeEntry = { entry, media -> resumeEntry(entry, media) }
+                    onResumeEntry = { entry, media -> resumeEntry(entry, media) },
+                    onRecordNow = { item, title, endMs -> recordNow(item, title, endMs) },
+                    onStopRecording = { stopRecording() },
+                    onScheduleProgram = { item, title, start, end -> scheduleProgram(item, title, start, end) },
+                    onPlayRecording = { playRecording(it) },
+                    onDeleteRecording = { deleteRecording(it) },
+                    onCancelSchedule = { cancelSchedule(it) }
                 )
             }
             else -> {

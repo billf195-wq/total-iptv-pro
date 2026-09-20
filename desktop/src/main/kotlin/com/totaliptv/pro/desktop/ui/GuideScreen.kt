@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
@@ -30,6 +31,8 @@ import com.totaliptv.pro.desktop.data.GuideTime
 import com.totaliptv.pro.desktop.data.LiveChannelMapping
 import com.totaliptv.pro.desktop.data.LiveEpgBinding
 import com.totaliptv.pro.desktop.data.MediaItem
+import com.totaliptv.pro.desktop.dvr.DvrRecordUi
+import com.totaliptv.pro.desktop.dvr.RecordingEntry
 
 /**
  * Live TV guide: category chips, channel list, and program timeline.
@@ -51,7 +54,12 @@ fun GuideScreen(
     onQueryChange: (String) -> Unit = {},
     onNeedEpg: (MediaItem) -> Unit,
     onPlayChannel: (MediaItem) -> Unit,
-    onStop: () -> Unit
+    onStop: () -> Unit,
+    recordingTitle: String? = null,
+    activeRecording: RecordingEntry? = null,
+    onRecordNow: (MediaItem, String?, Long?) -> Unit = { _, _, _ -> },
+    onScheduleProgram: (MediaItem, String, Long, Long) -> Unit = { _, _, _, _ -> },
+    onStopRecording: () -> Unit = {}
 ) {
     val classic = guideStyle.equals("classic", ignoreCase = true)
 
@@ -85,6 +93,11 @@ fun GuideScreen(
                 GuideTime.formatClock(liveNow),
                 style = MaterialTheme.typography.bodyMedium
             )
+            if (recordingTitle != null) {
+                Spacer(Modifier.width(12.dp))
+                Text(recordingTitle, color = TipAccent, style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = onStopRecording) { Text("Stop recording") }
+            }
             if (playingTitle != null) {
                 Spacer(Modifier.width(12.dp))
                 TextButton(onClick = onStop) { Text("Stop player") }
@@ -250,6 +263,17 @@ fun GuideScreen(
                             Spacer(Modifier.width(6.dp))
                             Text("Watch", color = TipOnAmber, fontWeight = FontWeight.Bold)
                         }
+                        Spacer(Modifier.width(8.dp))
+                        RecordControlButton(
+                            active = activeRecording,
+                            itemId = selected.id,
+                            streamUrl = selected.streamUrl,
+                            onClick = {
+                                val nowProg = programs.find { it.contains(liveNow) }
+                                onRecordNow(selected, nowProg?.title, nowProg?.endMs)
+                            },
+                            idleLabel = "Record now"
+                        )
                     }
 
                     Spacer(Modifier.height(12.dp))
@@ -370,7 +394,15 @@ fun GuideScreen(
                                     ProgramRow(
                                         program = prog,
                                         isNow = prog.contains(liveNow),
-                                        onClick = { onPlayChannel(selected) }
+                                        onClick = { onPlayChannel(selected) },
+                                        onRecord = {
+                                            if (prog.contains(liveNow)) onRecordNow(selected, prog.title, prog.endMs)
+                                            else if (prog.endMs > liveNow) onScheduleProgram(selected, prog.title, prog.startMs, prog.endMs)
+                                            else onRecordNow(selected, prog.title, null)
+                                        },
+                                        recordLabel = if (prog.contains(liveNow)) "Record" else if (prog.endMs > liveNow) "Schedule" else "Record",
+                                        recordActive = prog.contains(liveNow) &&
+                                            DvrRecordUi.matches(activeRecording, selected.id, selected.streamUrl)
                                     )
                                 }
                             }
@@ -552,7 +584,14 @@ private fun ClassicGuideGrid(
 }
 
 @Composable
-private fun ProgramRow(program: EpgProgram, isNow: Boolean, onClick: () -> Unit) {
+private fun ProgramRow(
+    program: EpgProgram,
+    isNow: Boolean,
+    onClick: () -> Unit,
+    onRecord: () -> Unit = {},
+    recordLabel: String = "Record",
+    recordActive: Boolean = false
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -580,6 +619,19 @@ private fun ProgramRow(program: EpgProgram, isNow: Boolean, onClick: () -> Unit)
         if (isNow) {
             Text("NOW", color = TipAccent, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(8.dp))
+        }
+        if (recordActive) {
+            Button(
+                onClick = onRecord,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = TipRecordActive,
+                    contentColor = TipOnRecordActive
+                )
+            ) {
+                Text(DvrRecordUi.ACTIVE_LABEL, color = TipOnRecordActive, fontWeight = FontWeight.Bold)
+            }
+        } else {
+            TextButton(onClick = onRecord) { Text(recordLabel) }
         }
         Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = TipAccent)
     }

@@ -30,7 +30,12 @@ data class SavedPrefs(
     /**
      * TV Guide layout: "current" (timeline + detail) or "classic" (channel list + schedule list).
      */
-    val guideStyle: String = "current"
+    val guideStyle: String = "current",
+    /**
+     * Optional recordings folder on **this** machine only. Blank = OS default
+     * (Windows %LOCALAPPDATA%\TotalIptvPro\Recordings, Linux ~/Videos/TotalIptvPro/Recordings).
+     */
+    val recordingsDir: String = ""
 )
 
 data class Category(

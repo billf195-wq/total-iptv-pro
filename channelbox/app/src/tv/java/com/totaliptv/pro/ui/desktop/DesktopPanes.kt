@@ -59,6 +59,7 @@ import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
+import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.data.update.AppUpdateChecker
 import com.totaliptv.pro.data.update.UpdateCheckResult
 import kotlinx.coroutines.Dispatchers
@@ -247,11 +248,16 @@ fun LivePane(
     categoryId: String?,
     onSearch: (String) -> Unit,
     onCategory: (String?) -> Unit,
-    onPlay: (MediaItem) -> Unit
+    onPlay: (MediaItem) -> Unit,
+    onRecord: (MediaItem) -> Unit = {}
 ) {
     val filtered = remember(items, search, categoryId) {
         LiveChannelMapping.filterLiveChannels(items, categoryId, search)
     }
+    val context = LocalContext.current
+    val dvrSnap by remember(context) {
+        (context.applicationContext as TotalIptvProApp).dvr.snapshot
+    }.collectAsState()
     Column(Modifier.fillMaxSize()) {
         FilterBar(
             search = search,
@@ -269,7 +275,12 @@ fun LivePane(
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
             items(filtered, key = { it.id }) { item ->
-                LiveRowItem(item, onClick = { onPlay(item) })
+                LiveRowItem(
+                    item,
+                    onClick = { onPlay(item) },
+                    onRecord = { onRecord(item) },
+                    recordActive = DvrRecordUi.matches(dvrSnap.active, item.id, item.streamUrl)
+                )
             }
         }
     }

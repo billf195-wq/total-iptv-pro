@@ -23,11 +23,13 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -48,6 +50,7 @@ import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.ContentKind
 import com.totaliptv.pro.desktop.data.LiveChannelMapping
+import com.totaliptv.pro.desktop.data.LastEpisodeBanner
 import com.totaliptv.pro.desktop.data.SeriesPlayback
 import com.totaliptv.pro.desktop.data.FavoritesStore
 import com.totaliptv.pro.desktop.data.MediaItem
@@ -55,9 +58,14 @@ import com.totaliptv.pro.desktop.data.SavedPrefs
 import com.totaliptv.pro.desktop.data.ResumeStore
 import com.totaliptv.pro.desktop.data.SeriesDetail
 import com.totaliptv.pro.desktop.data.VodDetail
+import com.totaliptv.pro.desktop.dvr.DvrRecordUi
+import kotlinx.coroutines.delay
+import com.totaliptv.pro.desktop.dvr.DvrRecorder
+import com.totaliptv.pro.desktop.dvr.RecordingEntry
+import com.totaliptv.pro.desktop.dvr.ScheduledRecording
 
 enum class MainNav {
-    HOME, LIVE, MOVIES, SERIES, GUIDE, FAVORITES, SETTINGS
+    HOME, LIVE, MOVIES, SERIES, GUIDE, FAVORITES, RECORDINGS, SETTINGS
 }
 
 /** Movies / Series browse sort (persisted as prefs.browseSort). */
@@ -77,6 +85,9 @@ fun BrowseScreen(
     catalog: Catalog,
     prefs: SavedPrefs,
     playingTitle: String?,
+    playingItem: MediaItem? = null,
+    recordingTitle: String? = null,
+    dvrSnapshot: DvrRecorder.Snapshot,
     refreshing: Boolean,
     statusMessage: String?,
     seriesDetail: SeriesDetail?,
@@ -106,7 +117,13 @@ fun BrowseScreen(
     playingSeason: Int? = null,
     playingEpisodeNum: Int? = null,
     playingEpisodeId: String? = null,
-    playingStreamUrl: String? = null
+    playingStreamUrl: String? = null,
+    onRecordNow: (MediaItem, String?, Long?) -> Unit = { _, _, _ -> },
+    onStopRecording: () -> Unit = {},
+    onScheduleProgram: (MediaItem, String, Long, Long) -> Unit = { _, _, _, _ -> },
+    onPlayRecording: (RecordingEntry) -> Unit = {},
+    onDeleteRecording: (RecordingEntry) -> Unit = {},
+    onCancelSchedule: (ScheduledRecording) -> Unit = {}
 ) {
     var nav by remember { mutableStateOf(MainNav.HOME) }
     var selectedCategoryId by remember { mutableStateOf<String?>(null) }
@@ -155,6 +172,8 @@ fun BrowseScreen(
                 playingStreamUrl = playingStreamUrl,
                 onToggleFavorite = { seriesMedia?.let(onToggleFavorite) },
                 onPlayEpisode = onPlay,
+                onRecordEpisode = { ep -> onRecordNow(ep, ep.name, null) },
+                activeRecording = dvrSnapshot.active,
                 onBack = onCloseSeries,
                 onStop = onStop,
                 modifier = Modifier.weight(1f).fillMaxWidth()
@@ -175,6 +194,8 @@ fun BrowseScreen(
                 isFavorite = vodMedia?.let { favoriteKeys.contains(it.id) } == true,
                 onToggleFavorite = { vodMedia?.let(onToggleFavorite) },
                 onPlay = { vodMedia?.let(onPlay) },
+                onRecord = { vodMedia?.let { onRecordNow(it, it.name, null) } },
+                activeRecording = dvrSnapshot.active,
                 onBack = onCloseVod,
                 onStop = onStop,
                 modifier = Modifier.weight(1f).fillMaxWidth()
@@ -241,13 +262,31 @@ fun BrowseScreen(
                     selectedCategoryId = null
                     query = ""
                 }
+                NavBtn("Recordings", Icons.Default.VideoLibrary, nav == MainNav.RECORDINGS) {
+                    nav = MainNav.RECORDINGS
+                }
                 NavBtn("Settings", Icons.Default.Settings, nav == MainNav.SETTINGS) {
                     nav = MainNav.SETTINGS
                 }
                 Spacer(Modifier.weight(1f))
+                if (recordingTitle != null) {
+                    Text("Recording", style = MaterialTheme.typography.bodyMedium, color = TipAccent)
+                    Text(recordingTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, color = TipAccent)
+                    TextButton(onClick = onStopRecording) { Text("Stop recording") }
+                }
                 if (playingTitle != null) {
                     Text("Playing", style = MaterialTheme.typography.bodyMedium)
                     Text(playingTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, color = TipAccent)
+                    if (playingItem != null && playingItem.streamUrl.isNotBlank()) {
+                        RecordControlButton(
+                            active = dvrSnapshot.active,
+                            itemId = playingItem.id,
+                            streamUrl = playingItem.streamUrl,
+                            onClick = { onRecordNow(playingItem, playingItem.name, null) },
+                            idleLabel = DvrRecordUi.idleLabelForKind(playingItem.kind.name),
+                            compact = true
+                        )
+                    }
                     TextButton(onClick = onStop) { Text("Stop player") }
                 }
                 TextButton(onClick = onQuit) {
@@ -306,8 +345,24 @@ fun BrowseScreen(
                         onQueryChange = { query = it },
                         onNeedEpg = onNeedEpg,
                         onPlayChannel = onPlay,
-                        onStop = onStop
+                        onStop = onStop,
+                        recordingTitle = recordingTitle,
+                        activeRecording = dvrSnapshot.active,
+                        onRecordNow = { ch, title, end -> onRecordNow(ch, title, end) },
+                        onScheduleProgram = onScheduleProgram,
+                        onStopRecording = onStopRecording
                     )
+                }
+                MainNav.RECORDINGS -> {
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        RecordingsScreen(
+                            snapshot = dvrSnapshot,
+                            onPlay = onPlayRecording,
+                            onDelete = onDeleteRecording,
+                            onStop = onStopRecording,
+                            onCancelSchedule = onCancelSchedule
+                        )
+                    }
                 }
                 MainNav.SETTINGS -> {
                     SettingsScreen(
@@ -351,7 +406,9 @@ fun BrowseScreen(
                         onPlay = onPlay,
                         onOpenSeries = onOpenSeries,
                         onOpenVod = onOpenVod,
-                        onToggleFavorite = onToggleFavorite
+                        onToggleFavorite = onToggleFavorite,
+                        onRecordNow = if (kind == ContentKind.LIVE) { item -> onRecordNow(item, null, null) } else null,
+                        activeRecording = dvrSnapshot.active
                     )
                 }
             }
@@ -413,7 +470,9 @@ private fun BrowseContentPane(
     onPlay: (MediaItem) -> Unit,
     onOpenSeries: (MediaItem) -> Unit,
     onOpenVod: (MediaItem) -> Unit,
-    onToggleFavorite: (MediaItem) -> Unit
+    onToggleFavorite: (MediaItem) -> Unit,
+    onRecordNow: ((MediaItem) -> Unit)? = null,
+    activeRecording: RecordingEntry? = null
 ) {
     val categories = when (kind) {
         ContentKind.LIVE -> catalog.liveCategories
@@ -555,7 +614,9 @@ private fun BrowseContentPane(
                         item = item,
                         isFavorite = favoriteKeys.contains(item.id),
                         onClick = { onPlay(item) },
-                        onToggleFavorite = { onToggleFavorite(item) }
+                        onToggleFavorite = { onToggleFavorite(item) },
+                        onRecord = onRecordNow?.let { rec -> { rec(item) } },
+                        activeRecording = activeRecording
                     )
                 }
             }
@@ -765,6 +826,8 @@ private fun VodDetailPane(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onPlay: () -> Unit,
+    onRecord: () -> Unit = {},
+    activeRecording: RecordingEntry? = null,
     onBack: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier
@@ -864,6 +927,13 @@ private fun VodDetailPane(
                                 Spacer(Modifier.width(6.dp))
                                 Text("Play", color = TipOnAmber, fontWeight = FontWeight.Bold)
                             }
+                            RecordControlButton(
+                                active = activeRecording,
+                                itemId = detail.catalogId.ifBlank { "vod-${detail.streamId}" },
+                                streamUrl = detail.streamUrl,
+                                onClick = onRecord,
+                                idleLabel = DvrRecordUi.IDLE_MOVIE_LABEL
+                            )
                             OutlinedButton(
                                 onClick = onToggleFavorite,
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = TipOnBg),
@@ -907,6 +977,8 @@ private fun SeriesDetailPane(
     playingStreamUrl: String? = null,
     onToggleFavorite: () -> Unit,
     onPlayEpisode: (MediaItem) -> Unit,
+    onRecordEpisode: (MediaItem) -> Unit = {},
+    activeRecording: RecordingEntry? = null,
     onBack: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier
@@ -1045,8 +1117,37 @@ private fun SeriesDetailPane(
                                 ) {
                                     Text("Next S${nextEp.season}E${nextEp.episodeNum}", color = TipOnBg)
                                 }
-                            } else if (hasResume || playingThisSeries) {
-                                    Text(
+                            }
+                            if (continueEp != null) {
+                                val continueMedia = continueEp.toMediaItem(detail.name, detail.seriesId)
+                                RecordControlButton(
+                                    active = activeRecording,
+                                    itemId = continueMedia.id,
+                                    streamUrl = continueEp.streamUrl,
+                                    onClick = { onRecordEpisode(continueMedia) },
+                                    idleLabel = "Record S${continueEp.season}E${continueEp.episodeNum}"
+                                )
+                            }
+                            val knownLast = LastEpisodeBanner.isKnownLastEpisode(
+                                detail.episodes,
+                                playingSeason ?: resumeSeason,
+                                playingEpisodeNum ?: resumeEpisodeNum,
+                                playingEpisodeId ?: resumeEpisodeId,
+                                playingStreamUrl
+                            )
+                            val lastBannerKey = "${detail.seriesId}|${playingEpisodeId}|${playingStreamUrl}"
+                            var showLastNote by remember(lastBannerKey) { mutableStateOf(true) }
+                            LaunchedEffect(knownLast, nextEp, lastBannerKey) {
+                                if (knownLast && nextEp == null) {
+                                    showLastNote = true
+                                    delay(LastEpisodeBanner.AUTO_DISMISS_MS)
+                                    showLastNote = false
+                                } else {
+                                    showLastNote = false
+                                }
+                            }
+                            if (knownLast && nextEp == null && showLastNote) {
+                                Text(
                                     SeriesPlayback.LAST_EPISODE_MESSAGE,
                                     color = TipMuted,
                                     style = MaterialTheme.typography.bodyMedium
@@ -1112,7 +1213,9 @@ private fun SeriesDetailPane(
                             isFavorite = false,
                             highlighted = highlighted,
                             onClick = { onPlayEpisode(media) },
-                            onToggleFavorite = null
+                            onToggleFavorite = null,
+                            onRecord = { onRecordEpisode(media) },
+                            activeRecording = activeRecording
                         )
                     }
                 }
@@ -1154,7 +1257,9 @@ private fun MediaRow(
     isFavorite: Boolean = false,
     highlighted: Boolean = false,
     onClick: () -> Unit,
-    onToggleFavorite: (() -> Unit)? = null
+    onToggleFavorite: (() -> Unit)? = null,
+    onRecord: (() -> Unit)? = null,
+    activeRecording: RecordingEntry? = null
 ) {
     val thumbSize = if (item.kind == ContentKind.LIVE) 44.dp else 56.dp
     Row(
@@ -1200,6 +1305,15 @@ private fun MediaRow(
                     tint = TipAccent
                 )
             }
+        }
+        if (onRecord != null) {
+            RecordControlButton(
+                active = activeRecording,
+                itemId = item.id,
+                streamUrl = item.streamUrl,
+                onClick = onRecord,
+                compact = true
+            )
         }
         IconButton(onClick = onClick) {
             Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = TipAccent)

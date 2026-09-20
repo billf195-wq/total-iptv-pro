@@ -49,7 +49,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.launch
 
-enum class DesktopNavSection { HOME, LIVE, MOVIES, SERIES, GUIDE, FAVORITES, SETTINGS }
+enum class DesktopNavSection { HOME, LIVE, MOVIES, SERIES, GUIDE, FAVORITES, RECORDINGS, SETTINGS }
 
 @Composable
 fun DesktopAppRoot(
@@ -334,7 +334,8 @@ fun DesktopAppRoot(
                                     categoryId = categoryId,
                                     onSearch = { search = it },
                                     onCategory = { categoryId = it },
-                                    onPlay = onPlay
+                                    onPlay = onPlay,
+                                    onRecord = { com.totaliptv.pro.dvr.DvrActions.recordNow(context, it) }
                                 )
                                 DesktopNavSection.MOVIES -> BrowseGridPane(
                                     title = "Movies",
@@ -395,6 +396,17 @@ fun DesktopAppRoot(
                                     },
                                     onPlayFavorite = onPlayFavorite
                                 )
+                                DesktopNavSection.RECORDINGS -> {
+                                    TotalIptvProTheme(
+                                        appearance = appearance,
+                                        accent = accent
+                                    ) {
+                                        com.totaliptv.pro.ui.dvr.RecordingsScreen(
+                                            onPlay = onPlay,
+                                            onBack = { section = DesktopNavSection.HOME }
+                                        )
+                                    }
+                                }
                                 DesktopNavSection.GUIDE -> {
                                     // Same Classic timeline guide (cats + channel col + program grid).
                                     // Keep Desktop amber chrome (banner/sidebar); Classic content inside.
@@ -494,6 +506,7 @@ private fun DesktopSidebar(
         DesktopNavSection.SERIES to "Series",
         DesktopNavSection.GUIDE to "TV Guide",
         DesktopNavSection.FAVORITES to "Favorites",
+        DesktopNavSection.RECORDINGS to "Recordings",
         DesktopNavSection.SETTINGS to "Settings"
     )
     Column(

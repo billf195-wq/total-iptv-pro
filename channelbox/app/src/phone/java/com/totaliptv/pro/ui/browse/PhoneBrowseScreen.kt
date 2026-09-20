@@ -50,6 +50,10 @@ import com.totaliptv.pro.ui.theme.CinemaSurface
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.tipScreenBrush
+import com.totaliptv.pro.dvr.DvrActions
+import com.totaliptv.pro.dvr.DvrRecordUi
+import com.totaliptv.pro.TotalIptvProApp
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -69,6 +73,10 @@ fun PhoneBrowseScreen(
     var items by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var detail by remember { mutableStateOf<MediaItem?>(null) }
 
+    val context = LocalContext.current
+    val dvrSnap by remember(context) {
+        (context.applicationContext as TotalIptvProApp).dvr.snapshot
+    }.collectAsState()
     val kind = when (section) {
         BrowseSection.Live -> ContentKind.LIVE
         BrowseSection.Movies -> ContentKind.VOD
@@ -202,7 +210,12 @@ fun PhoneBrowseScreen(
                             item = item,
                             onClick = {
                                 if (item.kind == ContentKind.LIVE) onPlay(item) else detail = item
-                            }
+                            },
+                            onRecord = if (item.kind == ContentKind.LIVE || item.streamUrl.isNotBlank()) {
+                                { DvrActions.recordNow(context, item) }
+                            } else null,
+                            recordActive = DvrRecordUi.matches(dvrSnap.active, item.id, item.streamUrl),
+                            recordLabel = DvrRecordUi.appearance(dvrSnap.active, item.id, item.streamUrl).label
                         )
                     }
                 }

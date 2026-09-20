@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.VideoLibrary
+import com.totaliptv.pro.ui.dvr.PhoneRecordingsScreen
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -134,6 +136,7 @@ private enum class PhoneTab(val label: String) {
     Movies("Movies"),
     Series("Series"),
     Search("Search"),
+    Recordings("Recordings"),
     Settings("Settings")
 }
 
@@ -200,6 +203,7 @@ private fun PhoneAppRoot(
                                     PhoneTab.Movies -> Icons.Default.Movie
                                     PhoneTab.Series -> Icons.Default.Tv
                                     PhoneTab.Search -> Icons.Default.Search
+                                    PhoneTab.Recordings -> Icons.Default.VideoLibrary
                                     PhoneTab.Settings -> Icons.Default.Settings
                                 },
                                 contentDescription = t.label
@@ -246,6 +250,10 @@ private fun PhoneAppRoot(
                 repository = repository,
                 onPlay = onPlay,
                 onPlayFromStart = onPlayFromStart,
+                contentPadding = padding
+            )
+            PhoneTab.Recordings -> PhoneRecordingsScreen(
+                onPlay = onPlay,
                 contentPadding = padding
             )
             PhoneTab.Settings -> PhoneSettingsScreen(

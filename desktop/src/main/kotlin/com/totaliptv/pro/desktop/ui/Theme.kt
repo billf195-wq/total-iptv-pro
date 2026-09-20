@@ -31,6 +31,9 @@ val TipGoldText = Color(0xFFFFE082)
 val TipGoldMuted = Color(0xFFC9A84C)
 /** Dark ink on solid amber filled buttons / selected chips (high contrast). */
 val TipOnAmber = Color(0xFF1A1200)
+/** Filled Record control while this item is recording / downloading. */
+val TipRecordActive = Color(0xFFE53935)
+val TipOnRecordActive = Color(0xFFFFFFFF)
 
 // Mutable palette driven by theme mode (defaults = dark + gold type)
 var TipBg = Color(0xFF0B0F14)

@@ -34,6 +34,7 @@ import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.CinemaSurfaceHigh
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
+import com.totaliptv.pro.ui.theme.LiveMarker
 
 @Composable
 fun PhonePosterCard(
@@ -119,7 +120,10 @@ fun PhonePosterCard(
 fun PhoneLiveRow(
     item: MediaItem,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRecord: (() -> Unit)? = null,
+    recordActive: Boolean = false,
+    recordLabel: String = "Record"
 ) {
     val surface = CinemaSurfaceHigh
     val muted = OnCinemaMuted
@@ -165,6 +169,23 @@ fun PhoneLiveRow(
             val group = item.groupTitle?.takeIf { it.isNotBlank() }
             if (group != null) {
                 Text(text = group, style = MaterialTheme.typography.bodySmall, color = muted)
+            }
+        }
+        if (onRecord != null) {
+            if (recordActive) {
+                androidx.compose.material3.Button(
+                    onClick = onRecord,
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = LiveMarker,
+                        contentColor = OnCinema
+                    )
+                ) {
+                    Text(recordLabel, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                androidx.compose.material3.TextButton(onClick = onRecord) {
+                    Text(recordLabel)
+                }
             }
         }
     }

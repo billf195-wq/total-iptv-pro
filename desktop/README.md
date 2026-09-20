@@ -38,13 +38,14 @@ Prefs are stored at `~/.config/total-iptv-pro/prefs.json` (plus `resume.json` / 
 ### UI layout
 
 - Top **banner** (`app_banner.png`) stays along the top of the window.
-- Sidebar: Home · Live TV · Movies · Series · **TV Guide** · **Favorites** · **Settings**, plus Update / Change source.
+- Sidebar: Home · Live TV · Movies · Series · **TV Guide** · **Favorites** · **Recordings** · **Settings**, plus Update / Change source.
+- **Personal DVR (1.2.14):** Record Live/Guide (ffmpeg/VLC/HLS capture + EPG schedule), download a **movie** from movie detail / while playing, and download a **series episode** from the episode list / while playing. Library shows type (Live / Movie / Series). Files stay on **this PC** (`%LOCALAPPDATA%\TotalIptvPro\Recordings` on Windows, `~/Videos/TotalIptvPro/Recordings` on Linux). Settings can pick another local folder. One recording at a time. Metadata: `recordings.json` next to prefs.
 - **Movies / Series**: poster grid **5 or 6 across** (set in Settings; default 6).
 - **Live TV**: list with logos (fits channels better).
 - **TV Guide**: category filter, channel list, EPG timeline + schedule; Watch / click a program plays that live stream (Xtream `get_short_epg` / `get_simple_data_table`).
 - **Settings**: preferred player, theme (dark/light), poster columns, source info, Change source. Does not force re-login.
 
-Click a **movie** to open detail (plot, cast, Play / Favorite) before playback. Click a **channel** to play live. Open a **series** for episodes (also favoritable). Heart icons mark Favorites. Use **Stop player** to close playback.
+Click a **movie** to open detail (plot, cast, Play / Record / Favorite) before playback. Click a **channel** to play live. Open a **series** for episodes (Play / Record per episode). Heart icons mark Favorites. Use **Stop player** to close playback. **Record** while something is playing saves that stream on this PC.
 
 ### Series next episode (Linux + Windows)
 

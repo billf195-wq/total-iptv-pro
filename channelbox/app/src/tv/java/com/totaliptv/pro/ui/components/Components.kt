@@ -64,6 +64,7 @@ import com.totaliptv.pro.ui.theme.Hairline
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.SoftOverlay
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
+import com.totaliptv.pro.ui.theme.LiveMarker
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -138,7 +139,8 @@ fun TopBarChip(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    emphasized: Boolean = false
+    emphasized: Boolean = false,
+    active: Boolean = false
 ) {
     var focused by remember { mutableStateOf(false) }
     val latestClick = rememberUpdatedState(onClick)
@@ -159,15 +161,19 @@ fun TopBarChip(
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (emphasized) BrandBlue.copy(alpha = 0.18f) else Color.Transparent,
-            focusedContainerColor = CinemaSurfaceHigh,
-            pressedContainerColor = BrandBlue.copy(alpha = 0.28f)
+            containerColor = when {
+                active -> LiveMarker
+                emphasized -> BrandBlue.copy(alpha = 0.18f)
+                else -> Color.Transparent
+            },
+            focusedContainerColor = if (active) LiveMarker else CinemaSurfaceHigh,
+            pressedContainerColor = if (active) LiveMarker.copy(alpha = 0.85f) else BrandBlue.copy(alpha = 0.28f)
         )
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,
-            color = if (focused || emphasized) OnCinema else OnCinemaMuted,
+            color = if (active || focused || emphasized) OnCinema else OnCinemaMuted,
             modifier = Modifier.padding(horizontal = ClassicDimens.ChipPadH, vertical = ClassicDimens.ChipPadV)
         )
     }
@@ -308,7 +314,8 @@ fun FocusableCard(
     subtitle: String? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    onLongClick: (() -> Unit)? = null
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
@@ -320,6 +327,7 @@ fun FocusableCard(
 
     Surface(
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = mod.then(
             if (focused) Modifier.border(2.dp, FocusBorder, shape) else Modifier
         ),
@@ -440,6 +448,9 @@ fun FeaturedNowPanel(
     comingUp: String?,
     onPlay: () -> Unit,
     onOpenGuide: (() -> Unit)?,
+    onRecord: (() -> Unit)? = null,
+    recordActive: Boolean = false,
+    recordLabel: String = "Record",
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -556,6 +567,15 @@ fun FeaturedNowPanel(
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 }
+            }
+            if (onRecord != null) {
+                Spacer(Modifier.width(8.dp))
+                TopBarChip(
+                    label = recordLabel,
+                    onClick = onRecord,
+                    emphasized = true,
+                    active = recordActive
+                )
             }
             if (onOpenGuide != null) {
                 Spacer(Modifier.width(8.dp))

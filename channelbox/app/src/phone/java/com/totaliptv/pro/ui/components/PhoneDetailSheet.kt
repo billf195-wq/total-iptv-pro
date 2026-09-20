@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -36,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -58,7 +60,9 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.xtream.XtreamApi
+import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.theme.CinemaSurfaceHigh
+import com.totaliptv.pro.ui.theme.LiveMarker
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.util.YoutubePreview
@@ -119,6 +123,15 @@ fun PhoneDetailSheet(
 
     val canResume = progress?.shouldResume() == true
     val seasonEpisodes = seriesInfo?.seasons?.firstOrNull { it.season == selectedSeason }?.episodes.orEmpty()
+    val dvrSnap by remember(context) {
+        (context.applicationContext as TotalIptvProApp).dvr.snapshot
+    }.collectAsState()
+    val recordLook = DvrRecordUi.appearance(
+        dvrSnap.active,
+        if (isSeriesPicker && selectedEpisodeId > 0) "series-ep-$selectedEpisodeId" else enriched.id,
+        enriched.streamUrl,
+        if (isSeriesPicker) DvrRecordUi.IDLE_EPISODE_LABEL else DvrRecordUi.IDLE_LABEL
+    )
 
     fun playSelected(startOver: Boolean) {
         if (isSeriesPicker && selectedEpisodeId > 0) {
@@ -306,6 +319,43 @@ fun PhoneDetailSheet(
                 }
             }
 
+            Spacer(Modifier.height(10.dp))
+            if (recordLook.selected) {
+                Button(
+                    onClick = {
+                        com.totaliptv.pro.dvr.DvrActions.stop(context)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = LiveMarker,
+                        contentColor = OnCinema
+                    )
+                ) {
+                    Text(recordLook.label, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                OutlinedButton(
+                    onClick = {
+                        if (isSeriesPicker && selectedEpisodeId > 0) {
+                            scope.launch {
+                                val ep = withContext(Dispatchers.IO) {
+                                    repository.resolveSeriesEpisodePlayable(enriched, selectedEpisodeId)
+                                }
+                                if (ep == null) {
+                                    Toast.makeText(context, "No playable episode", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    com.totaliptv.pro.dvr.DvrActions.recordNow(context, ep)
+                                }
+                            }
+                        } else {
+                            com.totaliptv.pro.dvr.DvrActions.recordNow(context, enriched)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(recordLook.label)
+                }
+            }
             Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
