@@ -20,8 +20,9 @@ package com.totaliptv.pro.desktop
  * 1.2.12: Personal DVR — Live/Guide capture, movie + series download, library on this PC.
  * 1.2.13: DVR opt-in only; series Record controls; last-episode banner auto-dismiss.
  * 1.2.14: Record stays lit for the active item; last-episode banner 4s dismiss on Windows+Linux.
+ * 1.2.15: Prefer English audio on VLC/mpv when a stream has multiple tracks.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 26
-    const val VERSION_NAME: String = "1.2.14"
+    const val VERSION_CODE: Int = 27
+    const val VERSION_NAME: String = "1.2.15"
 }

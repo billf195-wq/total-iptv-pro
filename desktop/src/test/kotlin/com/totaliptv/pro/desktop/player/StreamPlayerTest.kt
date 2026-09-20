@@ -13,6 +13,7 @@ class StreamPlayerTest {
         assertEquals("/usr/bin/vlc", cmd.first())
         assertTrue(cmd.contains("--no-one-instance"))
         assertTrue(cmd.contains("--play-and-exit"))
+        assertTrue(cmd.contains("--audio-language=eng,en,english"))
         assertTrue(cmd.contains("--no-playlist-enqueue"))
         assertTrue(cmd.contains("--no-repeat"))
         assertTrue(cmd.contains("--no-loop"))
@@ -39,6 +40,7 @@ class StreamPlayerTest {
         assertEquals("--ignore-config", cmd[1])
         assertTrue(cmd.contains("--no-one-instance"))
         assertTrue(cmd.contains("--play-and-exit"))
+        assertTrue(cmd.contains("--audio-language=eng,en,english"))
         assertTrue(cmd.contains("--no-playlist-enqueue"))
         assertTrue(cmd.contains("--no-one-instance-when-started-from-file"))
         assertTrue(cmd.contains("--no-started-from-file"))
@@ -103,12 +105,14 @@ class StreamPlayerTest {
         assertTrue(win.contains("--loop-file=no"))
         assertTrue(win.contains("--loop-playlist=no"))
         assertTrue(win.contains("--keep-open=no"))
+        assertTrue(win.contains("--alang=eng,en,english"))
         assertEquals(urls[0], win.last())
         assertFalse(win.contains(urls[1]))
         val linux = StreamPlayer.mpvCommand("mpv", urls, windows = false)
         assertTrue(linux.contains("--loop-file=no"))
         assertTrue(linux.contains("--loop-playlist=no"))
         assertTrue(linux.contains("--keep-open=no"))
+        assertTrue(linux.contains("--alang=eng,en,english"))
         assertEquals(urls[0], linux.last())
         assertFalse(linux.contains(urls[1]))
     }
@@ -142,9 +146,11 @@ class StreamPlayerTest {
         assertTrue(live.contains("--live-caching=3000"), live.toString())
         assertTrue(live.contains("--http-reconnect"), live.toString())
         assertTrue(live.contains("--ignore-config"))
+        assertTrue(live.contains("--audio-language=eng,en,english"), live.toString())
         assertEquals(liveUrl, live.last())
         val vod = StreamPlayer.vlcCommand(vlc, listOf(vodUrl), windows = true, live = false)
         assertTrue(vod.contains("--play-and-exit"), vod.toString())
+        assertTrue(vod.contains("--audio-language=eng,en,english"), vod.toString())
         assertFalse(vod.contains("--http-reconnect"))
         assertEquals(vodUrl, vod.last())
     }
@@ -159,6 +165,7 @@ class StreamPlayerTest {
         )
         assertFalse(live.contains("--play-and-exit"))
         assertTrue(live.contains("--fullscreen"))
+        assertTrue(live.contains("--audio-language=eng,en,english"))
         val vod = StreamPlayer.vlcCommand(
             "/usr/bin/vlc",
             listOf("http://hudv.net/series/u/p/1.mkv"),
@@ -166,6 +173,7 @@ class StreamPlayerTest {
             live = false
         )
         assertTrue(vod.contains("--play-and-exit"))
+        assertTrue(vod.contains("--audio-language=eng,en,english"))
     }
 
     @Test
@@ -174,11 +182,48 @@ class StreamPlayerTest {
         val mpv = StreamPlayer.mpvCommand("mpv.exe", listOf(liveUrl), windows = true, live = true)
         assertTrue(mpv.contains("--keep-open=yes"))
         assertFalse(mpv.contains("--keep-open=no"))
+        assertTrue(mpv.contains("--alang=eng,en,english"))
         val vod = StreamPlayer.mpvCommand("mpv", listOf("http://ex.test/a.mp4"), windows = false, live = false)
         assertTrue(vod.contains("--keep-open=no"))
+        assertTrue(vod.contains("--alang=eng,en,english"))
         val ffLive = StreamPlayer.ffplayCommand("ffplay", liveUrl, live = true)
         assertFalse(ffLive.contains("-autoexit"))
         val ffVod = StreamPlayer.ffplayCommand("ffplay", "http://ex.test/a.mp4", live = false)
         assertTrue(ffVod.contains("-autoexit"))
+    }
+
+    @Test
+    fun vlcAndMpvPreferEnglishAudioOnLiveAndVod() {
+        val liveUrl = "http://hudv.net/live/u/p/84.m3u8"
+        val vodUrl = "http://hudv.net/series/u/p/1.mkv"
+        val vlcWin = """C:\Program Files\VideoLAN\VLC\vlc.exe"""
+
+        val vlcLiveWin = StreamPlayer.vlcCommand(vlcWin, listOf(liveUrl), windows = true, live = true)
+        val vlcVodWin = StreamPlayer.vlcCommand(vlcWin, listOf(vodUrl), windows = true, live = false)
+        val vlcLiveLin = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf(liveUrl), windows = false, live = true)
+        val vlcVodLin = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf(vodUrl), windows = false, live = false)
+        for (cmd in listOf(vlcLiveWin, vlcVodWin, vlcLiveLin, vlcVodLin)) {
+            assertTrue(cmd.contains(StreamPlayer.VLC_AUDIO_LANGUAGE), cmd.toString())
+        }
+        assertEquals("--ignore-config", vlcLiveWin[1])
+        assertEquals("--ignore-config", vlcVodWin[1])
+        assertFalse(vlcLiveLin.contains("--ignore-config"))
+        assertFalse(vlcVodLin.contains("--ignore-config"))
+        assertFalse(vlcLiveWin.contains("--play-and-exit"))
+        assertTrue(vlcVodWin.contains("--play-and-exit"))
+        assertFalse(vlcLiveLin.contains("--play-and-exit"))
+        assertTrue(vlcVodLin.contains("--play-and-exit"))
+
+        val mpvLiveWin = StreamPlayer.mpvCommand("mpv.exe", listOf(liveUrl), windows = true, live = true)
+        val mpvVodWin = StreamPlayer.mpvCommand("mpv.exe", listOf(vodUrl), windows = true, live = false)
+        val mpvLiveLin = StreamPlayer.mpvCommand("mpv", listOf(liveUrl), windows = false, live = true)
+        val mpvVodLin = StreamPlayer.mpvCommand("mpv", listOf(vodUrl), windows = false, live = false)
+        for (cmd in listOf(mpvLiveWin, mpvVodWin, mpvLiveLin, mpvVodLin)) {
+            assertTrue(cmd.contains(StreamPlayer.MPV_AUDIO_LANGUAGE), cmd.toString())
+        }
+        assertTrue(mpvLiveWin.contains("--keep-open=yes"))
+        assertTrue(mpvVodWin.contains("--keep-open=no"))
+        assertTrue(mpvLiveLin.contains("--keep-open=yes"))
+        assertTrue(mpvVodLin.contains("--keep-open=no"))
     }
 }
