@@ -6,8 +6,9 @@ package com.totaliptv.pro.desktop
  * 1.2.0: next-episode playlist, series resume highlight, 15s logo splash.
  * 1.2.1: Windows VLC multi-URL argv (did not fix Next on Bigboybill).
  * 1.2.2: Windows kills leftover VLC and plays one episode URL; app sequential-next.
+ * 1.2.3: In-app Next SxEx shown whenever a following episode exists (not only after resume).
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 14
-    const val VERSION_NAME: String = "1.2.2"
+    const val VERSION_CODE: Int = 15
+    const val VERSION_NAME: String = "1.2.3"
 }

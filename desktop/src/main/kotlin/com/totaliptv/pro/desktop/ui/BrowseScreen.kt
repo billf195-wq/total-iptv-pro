@@ -967,7 +967,7 @@ private fun SeriesDetailPane(
                         val continueEp = SeriesPlayback.continueEpisode(
                             detail.episodes, resumeSeason, resumeEpisodeNum, resumeEpisodeId
                         )
-                        val nextEp = SeriesPlayback.nextEpisode(
+                        val nextEp = SeriesPlayback.nextActionEpisode(
                             detail.episodes, resumeSeason, resumeEpisodeNum, resumeEpisodeId
                         )
                         val hasResume = resumeSeason != null || resumeEpisodeNum != null || !resumeEpisodeId.isNullOrBlank()
@@ -993,7 +993,7 @@ private fun SeriesDetailPane(
                                     )
                                 }
                             }
-                            if (nextEp != null && hasResume) {
+                            if (nextEp != null) {
                                 OutlinedButton(
                                     onClick = {
                                         onPlayEpisode(nextEp.toMediaItem(detail.name, detail.seriesId))
