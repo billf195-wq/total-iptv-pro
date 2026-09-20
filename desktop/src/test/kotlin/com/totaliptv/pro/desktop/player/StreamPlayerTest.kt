@@ -14,25 +14,22 @@ class StreamPlayerTest {
         assertTrue(cmd.contains("--no-one-instance"))
         assertTrue(cmd.contains("--play-and-exit"))
         assertTrue(cmd.contains("--no-playlist-enqueue"))
+        assertTrue(cmd.contains("--no-repeat"))
+        assertTrue(cmd.contains("--no-loop"))
         assertTrue(cmd.contains("http://example.test/ep1.mp4"))
         assertFalse(cmd.contains("--ignore-config"))
         assertFalse(cmd.contains("--no-one-instance-when-started-from-file"))
-        assertFalse(cmd.contains("--no-repeat"))
+        assertEquals("http://example.test/ep1.mp4", cmd.last())
     }
 
     @Test
-    fun linuxVlcPlaylistWritesM3uInsteadOfSingleUrl() {
+    fun linuxVlcLaunchesOnlyTheFirstEpisodeUrl() {
         val urls = listOf("http://example.test/a.mp4", "http://example.test/b.mp4")
         val cmd = StreamPlayer.vlcCommand("/usr/bin/vlc", urls, windows = false)
-        assertTrue(cmd.last().endsWith("series-next.m3u"))
-        val body = java.io.File(cmd.last()).readText()
-        assertTrue(body.contains("#EXTM3U"))
-        assertTrue(body.contains("#EXTINF:-1,Total IPTV Pro"))
-        assertTrue(body.contains(urls[0]))
-        assertTrue(body.contains(urls[1]))
-        assertFalse(cmd.contains(urls[0]))
-        assertFalse(cmd.contains("--ignore-config"))
-        assertTrue(StreamPlayer.treatsLaunchAsPlaylist("vlc", urls.size, windows = false))
+        assertEquals(urls[0], cmd.last())
+        assertFalse(cmd.contains(urls[1]))
+        assertFalse(cmd.any { it.contains(".m3u") })
+        assertFalse(StreamPlayer.treatsLaunchAsPlaylist("vlc", urls.size, windows = false))
     }
 
     @Test
@@ -54,12 +51,13 @@ class StreamPlayerTest {
     }
 
     @Test
-    fun windowsLaunchIsNeverAPlaylistSoAppSequentialNextRuns() {
+    fun launchIsNeverAPlaylistSoAppSequentialNextRuns() {
         assertFalse(StreamPlayer.treatsLaunchAsPlaylist("vlc", 12, windows = true))
         assertFalse(StreamPlayer.treatsLaunchAsPlaylist("mpv", 12, windows = true))
         assertFalse(StreamPlayer.treatsLaunchAsPlaylist("ffplay", 12, windows = false))
-        assertTrue(StreamPlayer.treatsLaunchAsPlaylist("vlc", 2, windows = false))
-        assertTrue(StreamPlayer.treatsLaunchAsPlaylist("mpv", 2, windows = false))
+        assertFalse(StreamPlayer.treatsLaunchAsPlaylist("vlc", 2, windows = false))
+        assertFalse(StreamPlayer.treatsLaunchAsPlaylist("mpv", 2, windows = false))
+        assertFalse(StreamPlayer.treatsLaunchAsPlaylist("vlc", 39, windows = false))
     }
 
     @Test
@@ -75,7 +73,7 @@ class StreamPlayerTest {
     }
 
     @Test
-    fun windowsMpvLaunchesOnlyFirstUrlAndDisablesLoop() {
+    fun mpvLaunchesOnlyFirstUrlAndDisablesLoopOnLinuxAndWindows() {
         val urls = listOf("http://example.test/a.mp4", "http://example.test/b.mp4")
         val win = StreamPlayer.mpvCommand("mpv.exe", urls, windows = true)
         assertTrue(win.contains("--loop-file=no"))
@@ -84,14 +82,11 @@ class StreamPlayerTest {
         assertEquals(urls[0], win.last())
         assertFalse(win.contains(urls[1]))
         val linux = StreamPlayer.mpvCommand("mpv", urls, windows = false)
-        assertEquals(listOf("mpv", "--fullscreen", "--force-window=yes", "--title=Total IPTV Pro") + urls, linux)
-    }
-
-    @Test
-    fun mpvReceivesFullQueueOnLinux() {
-        val urls = listOf("http://example.test/a.mp4", "http://example.test/b.mp4")
-        val cmd = StreamPlayer.mpvCommand("mpv", urls, windows = false)
-        assertEquals(listOf("mpv", "--fullscreen", "--force-window=yes", "--title=Total IPTV Pro") + urls, cmd)
+        assertTrue(linux.contains("--loop-file=no"))
+        assertTrue(linux.contains("--loop-playlist=no"))
+        assertTrue(linux.contains("--keep-open=no"))
+        assertEquals(urls[0], linux.last())
+        assertFalse(linux.contains(urls[1]))
     }
 
     @Test

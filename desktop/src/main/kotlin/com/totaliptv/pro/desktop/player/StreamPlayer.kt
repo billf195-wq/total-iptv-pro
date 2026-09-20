@@ -2,23 +2,20 @@ package com.totaliptv.pro.desktop.player
 
 import com.totaliptv.pro.desktop.util.AppPaths
 import java.io.File
-import java.nio.file.Files
 
 /**
  * Plays streams via an external player (Linux / Windows).
  * Prefers configured player, else VLC → mpv → ffplay.
  *
- * Linux VLC: remaining episodes as a local M3U (working reference). Next / EOF
- * advance inside VLC.
+ * Series (1.2.8, Linux + Windows): always start **one** episode URL. AppRoot
+ * sequential-plays SxxE(n+1) when that process exits. VLC’s own playlist Next
+ * will not advance (one-item playlist by design).
  *
- * Windows VLC (1.2.2): do **not** pass a playlist. 1.2.0 M3U and 1.2.1 multi-URL
- * argv both left a single playlist item (one-instance / Qt collapse), so Next
- * replayed the same episode. Strategy:
- *  1. `taskkill /F /T /IM vlc.exe` so a leftover one-instance VLC cannot steal the launch
- *  2. Start **one** episode URL with `--ignore-config --no-one-instance --play-and-exit`
- *  3. AppRoot sequential-plays SxxE(n+1) when that process exits (same as ffplay)
- * Supported Next (Windows): in-app Next, always-on-top Next, Ctrl+Right / Media Next.
- * VLC’s own playlist Next will not advance (one-item playlist by design).
+ * Windows VLC extra (1.2.2): `taskkill` leftover `vlc.exe` and `--ignore-config`
+ * so installer vlcrc one-instance cannot steal the launch.
+ *
+ * Supported Next: in-app Next, always-on-top Next, Ctrl+Right / Media Next
+ * (OS-wide on Windows; when this app is focused on Linux). Auto-advance at EOF.
  */
 object StreamPlayer {
     /** Brief pause after taskkill so Windows releases VLC's one-instance mutex. */
@@ -37,8 +34,8 @@ object StreamPlayer {
         playQueue(listOf(url), preferredPlayer)
 
     /**
-     * Play one or more URLs. Linux VLC/mpv receive the full queue. Windows always
-     * launches a single URL (sequential next lives in AppRoot). ffplay is one file.
+     * Play one or more URLs. VLC/mpv always launch a **single** URL (sequential
+     * next lives in AppRoot). ffplay is one file.
      */
     fun playQueue(urls: List<String>, preferredPlayer: String = "auto"): String {
         val clean = urls.map { it.trim() }.filter { it.isNotBlank() }
@@ -155,19 +152,17 @@ object StreamPlayer {
     }
 
     /**
-     * Windows never hands VLC/mpv a queue — AppRoot starts SxxE(n+1) after exit.
-     * Linux VLC/mpv still get the remaining-episode playlist.
+     * Never a playlist: AppRoot starts SxxE(n+1) after a natural player exit on
+     * both Linux and Windows. Kept as a function so tests lock the contract.
      */
-    internal fun treatsLaunchAsPlaylist(player: String, urlCount: Int, windows: Boolean): Boolean {
-        if (windows) return false
-        if (player == "ffplay") return false
-        return urlCount > 1
-    }
+    @Suppress("UNUSED_PARAMETER")
+    internal fun treatsLaunchAsPlaylist(player: String, urlCount: Int, windows: Boolean): Boolean = false
 
     /**
-     * Linux: remaining episodes as `series-next.m3u` (1.2.0 reference that works).
-     * Windows: **first URL only**. `--ignore-config` so installer vlcrc one-instance
-     * cannot override `--no-one-instance` (1.2.1 still replayed the same episode).
+     * **First URL only** on Linux and Windows. `--play-and-exit` + `--no-repeat`
+     * so the process ends at EOF and AppRoot can auto-advance.
+     * Windows also uses `--ignore-config` so installer vlcrc one-instance cannot
+     * override `--no-one-instance` (1.2.1 still replayed the same episode).
      */
     internal fun vlcCommand(
         binary: String,
@@ -182,55 +177,33 @@ object StreamPlayer {
         args += "--play-and-exit"
         args += "--no-one-instance"
         args += "--no-playlist-enqueue"
+        args += "--no-repeat"
+        args += "--no-loop"
         if (windows) {
             args += "--no-one-instance-when-started-from-file"
             args += "--no-started-from-file"
-            args += "--no-repeat"
-            args += "--no-loop"
         }
         args += "--meta-title=Total IPTV Pro"
-        args += if (windows) listOf(urls.first()) else linuxVlcInputs(urls)
+        args += urls.first()
         return args
     }
 
+    @Suppress("UNUSED_PARAMETER")
     internal fun mpvCommand(
         binary: String,
         urls: List<String>,
         windows: Boolean = AppPaths.isWindows
     ): List<String> {
         val args = mutableListOf(binary, "--fullscreen", "--force-window=yes", "--title=Total IPTV Pro")
-        if (windows) {
-            args += "--loop-file=no"
-            args += "--loop-playlist=no"
-            args += "--keep-open=no"
-            args += urls.first()
-        } else {
-            args += urls
-        }
+        args += "--loop-file=no"
+        args += "--loop-playlist=no"
+        args += "--keep-open=no"
+        args += urls.first()
         return args
     }
 
     internal fun ffplayCommand(binary: String, url: String): List<String> =
         listOf(binary, "-fs", "-autoexit", "-window_title", "Total IPTV Pro", url)
-
-    private fun linuxVlcInputs(urls: List<String>): List<String> =
-        if (urls.size == 1) listOf(urls.first())
-        else listOf(writeM3u(urls).absolutePath)
-
-    internal fun writeM3u(urls: List<String>): File {
-        val dir = AppPaths.configDir.toFile()
-        if (!dir.exists()) dir.mkdirs()
-        val file = File(dir, "series-next.m3u")
-        val body = buildString {
-            appendLine("#EXTM3U")
-            urls.forEach { url ->
-                appendLine("#EXTINF:-1,Total IPTV Pro")
-                appendLine(url)
-            }
-        }
-        Files.writeString(file.toPath(), body)
-        return file
-    }
 
     internal fun windowsKillImageNames(binary: String): List<String> {
         val raw = File(binary).name.ifBlank { binary }

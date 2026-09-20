@@ -271,8 +271,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         item = item,
                         episodes = ctx.all,
                         seriesName = ctx.name,
-                        seriesId = ctx.id,
-                        windowsSingleUrl = windows
+                        seriesId = ctx.id
                     )
                 } else {
                     SeriesLaunch.single(item)
@@ -336,7 +335,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         }
                         return@launch
                     }
-                    // Linux VLC/mpv playlist already walked the remaining queue.
+                    // Playlist launches (legacy Linux M3U) already walked the remaining queue.
+                    // 1.2.8+ Linux matches Windows: one URL, so this branch should not run.
                     if (playlist) {
                         val lastEp = plan.allEpisodes.lastOrNull()
                         val last = lastEp?.toMediaItem(plan.seriesName, plan.seriesId)
@@ -359,7 +359,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         }
                         return@launch
                     }
-                    // Windows VLC and ffplay: one URL per process — start SxxE(n+1) ourselves.
+                    // One URL per process (Linux + Windows VLC/mpv, and ffplay) — start SxxE(n+1).
                     val next = plan.nextEpisode?.toMediaItem(plan.seriesName, plan.seriesId)
                         ?: SeriesPlayback.nextAfterPlaying(
                             ctx?.all.orEmpty(),

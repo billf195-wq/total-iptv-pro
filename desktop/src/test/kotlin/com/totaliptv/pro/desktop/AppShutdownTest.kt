@@ -137,10 +137,18 @@ class AppShutdownTest {
     }
 
     @Test
-    fun splashAppendsDesktopVersionInSmallerSuffix() {
-        assertEquals("1.2.7", AppVersion.VERSION_NAME)
-        assertEquals(19, AppVersion.VERSION_CODE)
+    fun splashAndWindowTitleShowDesktopVersion() {
+        assertEquals("1.2.8", AppVersion.VERSION_NAME)
+        assertEquals(20, AppVersion.VERSION_CODE)
         assertEquals("Total IPTV Pro", SplashBranding.APP_TITLE)
-        assertEquals("1.2.7", SplashBranding.versionLabel(AppVersion.VERSION_NAME))
+        assertEquals("1.2.8", SplashBranding.versionLabel(AppVersion.VERSION_NAME))
+        assertEquals("Total IPTV Pro 1.2.8", SplashBranding.windowTitle(AppVersion.VERSION_NAME))
+        val main = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/Main.kt")
+        assertTrue(main.isFile, "Main.kt should be readable from desktop/ test cwd")
+        val text = main.readText()
+        assertTrue(
+            text.contains("SplashBranding.windowTitle(AppVersion.VERSION_NAME)"),
+            "main window title must include the desktop version"
+        )
     }
 }

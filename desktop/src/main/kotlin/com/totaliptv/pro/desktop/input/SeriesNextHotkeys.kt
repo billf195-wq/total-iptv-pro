@@ -15,8 +15,9 @@ import java.util.concurrent.atomic.AtomicLong
  * Series skip while an external player owns the screen.
  *
  * Windows registers **Ctrl+Right** and **Media Next** as OS hotkeys (they fire
- * even when VLC is fullscreen). Linux keeps VLC’s own Next (M3U queue) and
- * only handles the same keys when this app’s window is focused.
+ * even when VLC is fullscreen). Linux cannot grab those keys globally without
+ * root / compositor support, so the same keys skip only when this app’s window
+ * is focused. End-of-episode auto-advance does not need focus.
  */
 object SeriesNextHotkeys {
     const val CTRL_RIGHT_HINT = "Ctrl+Right"

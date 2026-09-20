@@ -369,7 +369,7 @@ private fun rememberBannerBitmap(): ImageBitmap? = remember {
 @Composable
 private fun TopBanner(banner: ImageBitmap?) {
     if (banner == null) return
-    // Logo sits top-left; version is appended in a smaller font after the title.
+    // Logo sits top-left; version is a high-contrast chip after the title.
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -391,7 +391,7 @@ private fun TopBanner(banner: ImageBitmap?) {
         SplashBrandTitle(
             versionName = AppVersion.VERSION_NAME,
             titleSize = 22.sp,
-            versionSize = 14.sp,
+            versionSize = 16.sp,
             modifier = Modifier.padding(bottom = 10.dp)
         )
     }

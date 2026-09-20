@@ -11,8 +11,9 @@ package com.totaliptv.pro.desktop
  * 1.2.5: Last-episode UX — overlay/hotkey say "Last episode of this series" instead of looking broken.
  * 1.2.6: Real quit (no overlay restart loop), unfreeze leaving VLC fullscreen, splash version.
  * 1.2.7: Overlay is not a Compose application Window; quit disposes it then halt-exits.
+ * 1.2.8: Version in window title + splash chip; Linux series uses one URL and auto-advances.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 19
-    const val VERSION_NAME: String = "1.2.7"
+    const val VERSION_CODE: Int = 20
+    const val VERSION_NAME: String = "1.2.8"
 }
