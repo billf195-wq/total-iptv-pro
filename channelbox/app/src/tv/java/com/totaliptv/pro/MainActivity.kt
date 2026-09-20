@@ -38,6 +38,7 @@ import com.totaliptv.pro.ui.onboarding.OnboardingScreen
 import com.totaliptv.pro.ui.player.PlayerActivity
 import com.totaliptv.pro.ui.search.SearchScreen
 import com.totaliptv.pro.ui.settings.SettingsScreen
+import com.totaliptv.pro.ui.dvr.RecordingsScreen
 import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.theme.AppearanceMode
 import com.totaliptv.pro.ui.theme.TotalIptvProTheme
@@ -260,6 +261,7 @@ private sealed interface Screen {
     data object Settings : Screen
     data object Guide : Screen
     data object Search : Screen
+    data object Recordings : Screen
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -319,6 +321,7 @@ private fun AppRoot(
                 onAddSource = { screen = Screen.Onboarding },
                 onOpenGuide = { screen = Screen.Guide },
                 onOpenSearch = { screen = Screen.Search },
+                onOpenRecordings = { screen = Screen.Recordings },
                 onPlayItem = onPlay,
                 onPlayFromStart = onPlayFromStart
             )
@@ -345,6 +348,10 @@ private fun AppRoot(
                 repository = repository,
                 onPlay = onPlay,
                 onPlayFromStart = onPlayFromStart,
+                onBack = { screen = Screen.Home }
+            )
+            Screen.Recordings -> RecordingsScreen(
+                onPlay = onPlay,
                 onBack = { screen = Screen.Home }
             )
         }

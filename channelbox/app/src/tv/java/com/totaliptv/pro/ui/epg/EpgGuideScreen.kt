@@ -98,7 +98,9 @@ fun EpgGuideScreen(
     onPlay: (MediaItem) -> Unit,
     onBack: () -> Unit,
     initialCategoryId: String? = null,
-    onCategoryChange: (String?) -> Unit = {}
+    onCategoryChange: (String?) -> Unit = {},
+    onRecordNow: ((MediaItem) -> Unit)? = null,
+    onSchedule: ((MediaItem, EpgProgram) -> Unit)? = null
 ) {
     BackHandler { onBack() }
 
@@ -257,6 +259,47 @@ fun EpgGuideScreen(
                     )
                 }
             }
+            TopBarChip(
+                label = "Record",
+                onClick = {
+                    val ch = rows.find { it.channel.id == focusedChannelId }?.channel
+                    if (ch != null) {
+                        val nowProg = rows.find { it.channel.id == ch.id }?.let { row ->
+                            row.nowNext.now ?: row.programs.find { p -> p.contains(System.currentTimeMillis()) }
+                        }
+                        if (onRecordNow != null) onRecordNow(ch)
+                        else com.totaliptv.pro.dvr.DvrActions.recordNow(
+                            context,
+                            ch,
+                            nowProg?.title,
+                            nowProg?.endMs
+                        )
+                    } else {
+                        Toast.makeText(context, "Focus a channel, then Record", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                emphasized = true
+            )
+            Spacer(Modifier.width(8.dp))
+            TopBarChip(
+                label = "Schedule",
+                onClick = {
+                    val row = rows.find { it.channel.id == focusedChannelId }
+                    val ch = row?.channel
+                    val next = row?.nowNext?.next ?: row?.programs?.firstOrNull {
+                        it.startMs > System.currentTimeMillis()
+                    }
+                    if (ch != null && next != null) {
+                        if (onSchedule != null) onSchedule(ch, next)
+                        else com.totaliptv.pro.dvr.DvrActions.schedule(
+                            context, ch, next.title, next.startMs, next.endMs
+                        )
+                    } else {
+                        Toast.makeText(context, "Focus a channel with upcoming EPG to schedule", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+            Spacer(Modifier.width(8.dp))
             Text(
                 text = "${WINDOW_HOURS}h window",
                 style = MaterialTheme.typography.labelLarge,

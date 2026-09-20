@@ -17,8 +17,9 @@ package com.totaliptv.pro.desktop
  * 1.2.10: Windows live HLS stays up (no --play-and-exit); guide follows OS timezone.
  * 1.2.11: EPG now-line vs blocks — naive times use OS/provider zone (Android);
  *         Windows tzutil so Central is Chicago when the JRE reports UTC.
+ * 1.2.12: Personal DVR — Record now / schedule / library on this PC only.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 23
-    const val VERSION_NAME: String = "1.2.11"
+    const val VERSION_CODE: Int = 24
+    const val VERSION_NAME: String = "1.2.12"
 }

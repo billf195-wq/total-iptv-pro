@@ -308,7 +308,8 @@ fun FocusableCard(
     subtitle: String? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    onLongClick: (() -> Unit)? = null
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
@@ -320,6 +321,7 @@ fun FocusableCard(
 
     Surface(
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = mod.then(
             if (focused) Modifier.border(2.dp, FocusBorder, shape) else Modifier
         ),
@@ -440,6 +442,7 @@ fun FeaturedNowPanel(
     comingUp: String?,
     onPlay: () -> Unit,
     onOpenGuide: (() -> Unit)?,
+    onRecord: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -556,6 +559,10 @@ fun FeaturedNowPanel(
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 }
+            }
+            if (onRecord != null) {
+                Spacer(Modifier.width(8.dp))
+                TopBarChip(label = "Record", onClick = onRecord, emphasized = true)
             }
             if (onOpenGuide != null) {
                 Spacer(Modifier.width(8.dp))

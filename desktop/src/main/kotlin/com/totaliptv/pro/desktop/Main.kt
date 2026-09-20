@@ -39,7 +39,10 @@ fun main() = application(exitProcessOnExit = true) {
         AppShutdown.requestQuit(
             disposeOverlay = { seriesNextHost.disposeOverlay() },
             stopHotkeys = { SeriesNextHotkeys.shutdown() },
-            stopPlayer = { StreamPlayer.stop() },
+            stopPlayer = {
+                StreamPlayer.stop()
+                com.totaliptv.pro.desktop.dvr.DvrRecorder.shutdown()
+            },
             stopTopMost = { WindowsTopMost.shutdown() },
             exitApplication = { exitApplication() }
         )

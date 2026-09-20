@@ -29,6 +29,9 @@ import com.totaliptv.pro.desktop.data.SeriesLaunch
 import com.totaliptv.pro.desktop.data.SeriesPlayback
 import com.totaliptv.pro.desktop.data.VodDetail
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
+import com.totaliptv.pro.desktop.dvr.DvrRecorder
+import com.totaliptv.pro.desktop.dvr.RecordingEntry
+import com.totaliptv.pro.desktop.dvr.ScheduledRecording
 import com.totaliptv.pro.desktop.player.PlaybackAdvance
 import com.totaliptv.pro.desktop.player.PlaybackDebugLog
 import com.totaliptv.pro.desktop.player.StreamPlayer
@@ -75,6 +78,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     var lastSeriesId by remember { mutableStateOf<Int?>(null) }
     val seriesSessionRef = remember { AtomicReference<ActiveSeriesPlay?>(null) }
     var seriesSession by remember { mutableStateOf<ActiveSeriesPlay?>(null) }
+    var dvrTick by remember { mutableStateOf(0) }
+    val dvrSnapshot = remember(dvrTick, prefs.recordingsDir) { DvrRecorder.snapshot() }
 
     fun setSeriesSession(session: ActiveSeriesPlay?) {
         if (session != null && AppShutdown.isExiting()) return
@@ -90,6 +95,77 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     fun persist(p: SavedPrefs) {
         PreferencesStore.save(p)
         prefs = PreferencesStore.load()
+        dvrTick++
+    }
+
+    fun refreshDvr() {
+        dvrTick++
+        DvrRecorder.lastMessage?.let { statusMessage = it }
+    }
+
+    fun recordNow(item: MediaItem, title: String? = null, endMs: Long? = null) {
+        if (item.streamUrl.isBlank()) {
+            statusMessage = "No live URL to record"
+            return
+        }
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    DvrRecorder.startNow(
+                        channelName = item.name,
+                        title = title?.takeIf { it.isNotBlank() } ?: item.name,
+                        streamUrl = item.streamUrl,
+                        channelId = item.id,
+                        scheduledEndMs = endMs
+                    )
+                }
+                refreshDvr()
+            } catch (t: Throwable) {
+                statusMessage = t.message ?: "Could not start recording"
+            }
+        }
+    }
+
+    fun stopRecording() {
+        scope.launch {
+            withContext(Dispatchers.IO) { DvrRecorder.stop() }
+            delay(400)
+            refreshDvr()
+        }
+    }
+
+    fun scheduleProgram(item: MediaItem, title: String, startMs: Long, endMs: Long) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    DvrRecorder.schedule(
+                        channelName = item.name,
+                        title = title,
+                        streamUrl = item.streamUrl,
+                        startMs = startMs,
+                        endMs = endMs,
+                        channelId = item.id
+                    )
+                }
+                refreshDvr()
+            } catch (t: Throwable) {
+                statusMessage = t.message ?: "Could not schedule"
+            }
+        }
+    }
+
+    fun deleteRecording(entry: RecordingEntry) {
+        scope.launch {
+            withContext(Dispatchers.IO) { DvrRecorder.deleteRecording(entry.id) }
+            refreshDvr()
+        }
+    }
+
+    fun cancelSchedule(item: ScheduledRecording) {
+        scope.launch {
+            withContext(Dispatchers.IO) { DvrRecorder.cancelSchedule(item.id) }
+            refreshDvr()
+        }
     }
 
     fun loadCatalog(p: SavedPrefs, fromRefresh: Boolean = false) {
@@ -510,6 +586,23 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         setSeriesSession(null)
     }
 
+    fun playRecording(entry: RecordingEntry) {
+        if (entry.filePath.isBlank()) {
+            statusMessage = "Recording file missing"
+            return
+        }
+        playItem(
+            MediaItem(
+                id = "rec-${entry.id}",
+                name = entry.title,
+                streamUrl = entry.filePath,
+                categoryId = null,
+                kind = ContentKind.VOD,
+                playable = true
+            )
+        )
+    }
+
     fun resumeEntry(entry: ResumeStore.ResumeEntry, media: MediaItem?) {
         when (entry.kind) {
             ContentKind.VOD.name -> {
@@ -589,6 +682,13 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         } else {
             loading = false
             showOnboarding = true
+        }
+        DvrRecorder.ensureScheduler()
+        launch {
+            while (true) {
+                delay(3_000)
+                dvrTick++
+            }
         }
         // Quiet update check so GTR / Bigboybill see a banner when a shelf package is ready.
         launch(Dispatchers.IO) {
@@ -682,6 +782,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     catalog = catalog!!,
                     prefs = prefs,
                     playingTitle = playingTitle,
+                    recordingTitle = dvrSnapshot.active?.let { "REC ${it.channelName}" },
+                    dvrSnapshot = dvrSnapshot,
                     refreshing = refreshing || loading,
                     statusMessage = statusMessage ?: error,
                     seriesDetail = seriesDetail,
@@ -732,7 +834,13 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     },
                     onSavePrefs = { persist(it) },
                     onNeedEpg = { needEpg(it) },
-                    onResumeEntry = { entry, media -> resumeEntry(entry, media) }
+                    onResumeEntry = { entry, media -> resumeEntry(entry, media) },
+                    onRecordNow = { item, title, endMs -> recordNow(item, title, endMs) },
+                    onStopRecording = { stopRecording() },
+                    onScheduleProgram = { item, title, start, end -> scheduleProgram(item, title, start, end) },
+                    onPlayRecording = { playRecording(it) },
+                    onDeleteRecording = { deleteRecording(it) },
+                    onCancelSchedule = { cancelSchedule(it) }
                 )
             }
             else -> {

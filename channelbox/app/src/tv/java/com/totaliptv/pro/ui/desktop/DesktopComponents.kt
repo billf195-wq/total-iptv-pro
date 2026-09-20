@@ -166,7 +166,8 @@ fun DesktopPosterCard(
 fun LiveRowItem(
     item: MediaItem,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRecord: (() -> Unit)? = null
 ) {
     TipFocusable(onClick = onClick, modifier = modifier.fillMaxWidth()) { focused ->
         Row(
@@ -206,6 +207,20 @@ fun LiveRowItem(
             )
             item.groupTitle?.takeIf { it.isNotBlank() }?.let { group ->
                 Text(group, color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
+            }
+            if (onRecord != null) {
+                TipFocusable(onClick = onRecord) { recFocused ->
+                    Text(
+                        "REC",
+                        color = if (recFocused) TipOnAmber else TipAccent,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = TipDimens.LabelLargeSp,
+                        modifier = Modifier
+                            .padding(start = TipDimens.dp(8))
+                            .background(if (recFocused) TipAmber else TipSurfaceAlt, RoundedCornerShape(TipDimens.NavCorner))
+                            .padding(horizontal = TipDimens.dp(8), vertical = TipDimens.dp(4))
+                    )
+                }
             }
         }
     }

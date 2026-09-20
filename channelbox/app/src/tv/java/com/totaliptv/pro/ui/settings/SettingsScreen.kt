@@ -388,6 +388,26 @@ fun SettingsScreen(
                 }
             }
 
+            item { SectionTitle("Personal DVR") }
+            item {
+                val dvr = com.totaliptv.pro.dvr.DvrActions.recorder(context)
+                val snap by dvr.snapshot.collectAsState()
+                FocusableCard(
+                    title = if (snap.active != null) "Recording now — tap to stop" else "Recordings on this TV",
+                    subtitle = snap.active?.let { "${it.channelName} · ${it.title}" }
+                        ?: snap.recordingsDir,
+                    onClick = {
+                        if (snap.active != null) com.totaliptv.pro.dvr.DvrActions.stop(context)
+                    }
+                )
+            }
+            item {
+                Text(
+                    "Record now from Live, Guide, or the player overlay. Files stay on this Shield/TV — not a shared NAS. HLS/.ts download (no ffmpeg-kit).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                )
+            }
             item { SectionTitle("Player") }
             item {
                 FocusableCard(

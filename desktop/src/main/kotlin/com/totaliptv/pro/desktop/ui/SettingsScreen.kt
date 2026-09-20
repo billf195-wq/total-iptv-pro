@@ -10,8 +10,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SystemUpdate
+import com.totaliptv.pro.desktop.dvr.DvrFolderPicker
+import com.totaliptv.pro.desktop.dvr.DvrPaths
+import com.totaliptv.pro.desktop.dvr.DvrRecorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -72,7 +76,8 @@ fun SettingsScreen(
         nextTheme: String = theme,
         nextColumns: Int = columns,
         nextShelf: String = shelfUrl,
-        nextGuide: String = guideStyle
+        nextGuide: String = guideStyle,
+        nextRecordingsDir: String = prefs.recordingsDir
     ) {
         player = nextPlayer
         theme = nextTheme
@@ -85,7 +90,8 @@ fun SettingsScreen(
                 themeMode = nextTheme,
                 posterColumns = nextColumns,
                 updateShelfUrl = AppUpdateManager.normalizeShelf(nextShelf),
-                guideStyle = guideStyle
+                guideStyle = guideStyle,
+                recordingsDir = nextRecordingsDir
             )
         )
     }
@@ -207,6 +213,47 @@ fun SettingsScreen(
                 },
                 style = MaterialTheme.typography.bodyMedium
             )
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        SettingsCard(title = "Personal DVR") {
+            val defaultDir = DvrPaths.resolveRecordingsDir(
+                override = null,
+                windows = AppPaths.isWindows,
+                userHome = System.getProperty("user.home").orEmpty(),
+                localAppData = System.getenv("LOCALAPPDATA"),
+                videosDir = java.nio.file.Path.of(System.getProperty("user.home").orEmpty(), "Videos").toString()
+            ).toString()
+            val activeDir = prefs.recordingsDir.trim().ifBlank { defaultDir }
+            Text("Recordings folder (this computer only)", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
+            Text(
+                "Windows default is %LOCALAPPDATA%\\TotalIptvPro\\Recordings. Linux default is ~/Videos/TotalIptvPro/Recordings. Kitchen and GTR each keep their own files — nothing is forced to Bigboybill or a NAS.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(activeDir, style = MaterialTheme.typography.bodyMedium, color = TipAccent)
+            Spacer(Modifier.height(8.dp))
+            Text(DvrRecorder.snapshot().engineHint, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val picked = DvrFolderPicker.pick(activeDir)
+                        if (!picked.isNullOrBlank()) persist(nextRecordingsDir = picked)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = TipBlue, contentColor = TipOnAmber)
+                ) {
+                    Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp), tint = TipOnAmber)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Choose folder…", color = TipOnAmber, fontWeight = FontWeight.Bold)
+                }
+                if (prefs.recordingsDir.isNotBlank()) {
+                    TextButton(onClick = { persist(nextRecordingsDir = "") }) {
+                        Text("Reset to default")
+                    }
+                }
+            }
         }
 
         Spacer(Modifier.height(12.dp))

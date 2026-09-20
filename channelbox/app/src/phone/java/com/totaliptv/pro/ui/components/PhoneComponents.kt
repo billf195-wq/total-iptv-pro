@@ -119,7 +119,8 @@ fun PhonePosterCard(
 fun PhoneLiveRow(
     item: MediaItem,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRecord: (() -> Unit)? = null
 ) {
     val surface = CinemaSurfaceHigh
     val muted = OnCinemaMuted
@@ -165,6 +166,11 @@ fun PhoneLiveRow(
             val group = item.groupTitle?.takeIf { it.isNotBlank() }
             if (group != null) {
                 Text(text = group, style = MaterialTheme.typography.bodySmall, color = muted)
+            }
+        }
+        if (onRecord != null && item.kind == com.totaliptv.pro.data.model.ContentKind.LIVE) {
+            androidx.compose.material3.TextButton(onClick = onRecord) {
+                Text("Record")
             }
         }
     }

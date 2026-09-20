@@ -248,6 +248,25 @@ class PlayerActivity : ComponentActivity() {
         controls.addView(controlBtn("Retry") { retryPlayback() })
         controls.addView(controlBtn("Play with VLC") { openInVlc() })
         controls.addView(controlBtn("Favorite") { toggleFavorite() })
+        if (isLivePlayback()) {
+            controls.addView(controlBtn("Record") {
+                val app = application as TotalIptvProApp
+                val item = com.totaliptv.pro.data.model.MediaItem(
+                    id = mediaId,
+                    name = mediaTitle,
+                    streamUrl = streamUrl,
+                    categoryId = null,
+                    kind = ContentKind.LIVE
+                )
+                if (app.dvr.isRecording()) {
+                    com.totaliptv.pro.dvr.DvrActions.stop(this)
+                    statusView?.text = "Stopping recording…"
+                } else {
+                    com.totaliptv.pro.dvr.DvrActions.recordNow(this, item)
+                    statusView?.text = "Recording on this device…"
+                }
+            })
+        }
         playNextButton = controlBtn("Play next") {
             val next = cachedNextEpisode
             if (next != null && next.streamUrl.isNotBlank()) {
@@ -368,7 +387,12 @@ class PlayerActivity : ComponentActivity() {
 
     /** Build MediaItem; apply live target offset only for LIVE IPTV. */
     private fun buildMediaItem(url: String = playbackUrl.ifBlank { streamUrl }): MediaItem {
-        val builder = MediaItem.Builder().setUri(url)
+        val uri = if (url.startsWith("/") || url.startsWith("\\")) {
+            android.net.Uri.fromFile(java.io.File(url))
+        } else {
+            android.net.Uri.parse(url)
+        }
+        val builder = MediaItem.Builder().setUri(uri)
         PlayerStream.mimeForUrl(url)?.let { builder.setMimeType(it) }
         // Do not force a live target offset. Xtream HLS windows are ~5–12s;
         // a 6–35s target sat behind live and never reached READY (VOD is .mp4).

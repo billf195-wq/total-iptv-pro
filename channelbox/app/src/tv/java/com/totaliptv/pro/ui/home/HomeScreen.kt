@@ -67,6 +67,7 @@ import com.totaliptv.pro.data.model.PlaylistSource
 import com.totaliptv.pro.data.model.SourceType
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.repo.CatalogSort
+import com.totaliptv.pro.dvr.DvrActions
 import com.totaliptv.pro.ui.browse.BrowseSection
 import com.totaliptv.pro.ui.components.AppTopNav
 import com.totaliptv.pro.ui.components.CategoryRailItem
@@ -103,6 +104,7 @@ fun HomeScreen(
     onAddSource: () -> Unit,
     onOpenGuide: () -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenRecordings: () -> Unit = {},
     onPlayItem: (MediaItem) -> Unit,
     onPlayFromStart: (MediaItem) -> Unit = onPlayItem
 ) {
@@ -602,6 +604,11 @@ fun HomeScreen(
                                     onClick = onOpenGuide
                                 )
                                 CategoryRailItem(
+                                    title = "Recordings",
+                                    selected = false,
+                                    onClick = onOpenRecordings
+                                )
+                                CategoryRailItem(
                                     title = "Refresh data",
                                     selected = false,
                                     onClick = { triggerRefreshData() }
@@ -661,7 +668,8 @@ fun HomeScreen(
                                     timeFmt = timeFmt,
                                     onFocusChannel = { focusedChannel = it },
                                     onPlay = { playMedia(it) },
-                                    onOpenGuide = onOpenGuide
+                                    onOpenGuide = onOpenGuide,
+                                    onRecordNow = { DvrActions.recordNow(context, it) }
                                 )
                                 HubTab.Movies, HubTab.Series -> VodMainPane(
                                     isSeries = hubTab == HubTab.Series,
@@ -1019,7 +1027,8 @@ private fun LiveMainPane(
     timeFmt: SimpleDateFormat,
     onFocusChannel: (MediaItem) -> Unit,
     onPlay: (MediaItem) -> Unit,
-    onOpenGuide: () -> Unit
+    onOpenGuide: () -> Unit,
+    onRecordNow: (MediaItem) -> Unit = {}
 ) {
     val ch = focusedChannel
     val now = featuredEpg.now
@@ -1044,6 +1053,7 @@ private fun LiveMainPane(
             ch?.let { focused -> onPlay(focused) }
         },
         onOpenGuide = onOpenGuide,
+        onRecord = ch?.let { focused -> { onRecordNow(focused) } },
         modifier = Modifier.padding(bottom = 6.dp)
     )
 

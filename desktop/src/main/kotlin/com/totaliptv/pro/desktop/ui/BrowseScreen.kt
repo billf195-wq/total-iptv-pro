@@ -23,11 +23,13 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,9 +57,12 @@ import com.totaliptv.pro.desktop.data.SavedPrefs
 import com.totaliptv.pro.desktop.data.ResumeStore
 import com.totaliptv.pro.desktop.data.SeriesDetail
 import com.totaliptv.pro.desktop.data.VodDetail
+import com.totaliptv.pro.desktop.dvr.DvrRecorder
+import com.totaliptv.pro.desktop.dvr.RecordingEntry
+import com.totaliptv.pro.desktop.dvr.ScheduledRecording
 
 enum class MainNav {
-    HOME, LIVE, MOVIES, SERIES, GUIDE, FAVORITES, SETTINGS
+    HOME, LIVE, MOVIES, SERIES, GUIDE, FAVORITES, RECORDINGS, SETTINGS
 }
 
 /** Movies / Series browse sort (persisted as prefs.browseSort). */
@@ -77,6 +82,8 @@ fun BrowseScreen(
     catalog: Catalog,
     prefs: SavedPrefs,
     playingTitle: String?,
+    recordingTitle: String? = null,
+    dvrSnapshot: DvrRecorder.Snapshot,
     refreshing: Boolean,
     statusMessage: String?,
     seriesDetail: SeriesDetail?,
@@ -106,7 +113,13 @@ fun BrowseScreen(
     playingSeason: Int? = null,
     playingEpisodeNum: Int? = null,
     playingEpisodeId: String? = null,
-    playingStreamUrl: String? = null
+    playingStreamUrl: String? = null,
+    onRecordNow: (MediaItem, String?, Long?) -> Unit = { _, _, _ -> },
+    onStopRecording: () -> Unit = {},
+    onScheduleProgram: (MediaItem, String, Long, Long) -> Unit = { _, _, _, _ -> },
+    onPlayRecording: (RecordingEntry) -> Unit = {},
+    onDeleteRecording: (RecordingEntry) -> Unit = {},
+    onCancelSchedule: (ScheduledRecording) -> Unit = {}
 ) {
     var nav by remember { mutableStateOf(MainNav.HOME) }
     var selectedCategoryId by remember { mutableStateOf<String?>(null) }
@@ -241,10 +254,18 @@ fun BrowseScreen(
                     selectedCategoryId = null
                     query = ""
                 }
+                NavBtn("Recordings", Icons.Default.VideoLibrary, nav == MainNav.RECORDINGS) {
+                    nav = MainNav.RECORDINGS
+                }
                 NavBtn("Settings", Icons.Default.Settings, nav == MainNav.SETTINGS) {
                     nav = MainNav.SETTINGS
                 }
                 Spacer(Modifier.weight(1f))
+                if (recordingTitle != null) {
+                    Text("Recording", style = MaterialTheme.typography.bodyMedium, color = TipAccent)
+                    Text(recordingTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, color = TipAccent)
+                    TextButton(onClick = onStopRecording) { Text("Stop recording") }
+                }
                 if (playingTitle != null) {
                     Text("Playing", style = MaterialTheme.typography.bodyMedium)
                     Text(playingTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, color = TipAccent)
@@ -306,8 +327,23 @@ fun BrowseScreen(
                         onQueryChange = { query = it },
                         onNeedEpg = onNeedEpg,
                         onPlayChannel = onPlay,
-                        onStop = onStop
+                        onStop = onStop,
+                        recordingTitle = recordingTitle,
+                        onRecordNow = { ch, title, end -> onRecordNow(ch, title, end) },
+                        onScheduleProgram = onScheduleProgram,
+                        onStopRecording = onStopRecording
                     )
+                }
+                MainNav.RECORDINGS -> {
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        RecordingsScreen(
+                            snapshot = dvrSnapshot,
+                            onPlay = onPlayRecording,
+                            onDelete = onDeleteRecording,
+                            onStop = onStopRecording,
+                            onCancelSchedule = onCancelSchedule
+                        )
+                    }
                 }
                 MainNav.SETTINGS -> {
                     SettingsScreen(
@@ -351,7 +387,9 @@ fun BrowseScreen(
                         onPlay = onPlay,
                         onOpenSeries = onOpenSeries,
                         onOpenVod = onOpenVod,
-                        onToggleFavorite = onToggleFavorite
+                        onToggleFavorite = onToggleFavorite,
+                        onRecordNow = if (kind == ContentKind.LIVE) { item -> onRecordNow(item, null, null) } else null,
+                        recording = recordingTitle != null
                     )
                 }
             }
@@ -413,7 +451,9 @@ private fun BrowseContentPane(
     onPlay: (MediaItem) -> Unit,
     onOpenSeries: (MediaItem) -> Unit,
     onOpenVod: (MediaItem) -> Unit,
-    onToggleFavorite: (MediaItem) -> Unit
+    onToggleFavorite: (MediaItem) -> Unit,
+    onRecordNow: ((MediaItem) -> Unit)? = null,
+    recording: Boolean = false
 ) {
     val categories = when (kind) {
         ContentKind.LIVE -> catalog.liveCategories
@@ -555,7 +595,9 @@ private fun BrowseContentPane(
                         item = item,
                         isFavorite = favoriteKeys.contains(item.id),
                         onClick = { onPlay(item) },
-                        onToggleFavorite = { onToggleFavorite(item) }
+                        onToggleFavorite = { onToggleFavorite(item) },
+                        onRecord = onRecordNow?.let { rec -> { rec(item) } },
+                        recordingBusy = recording
                     )
                 }
             }
@@ -1154,7 +1196,9 @@ private fun MediaRow(
     isFavorite: Boolean = false,
     highlighted: Boolean = false,
     onClick: () -> Unit,
-    onToggleFavorite: (() -> Unit)? = null
+    onToggleFavorite: (() -> Unit)? = null,
+    onRecord: (() -> Unit)? = null,
+    recordingBusy: Boolean = false
 ) {
     val thumbSize = if (item.kind == ContentKind.LIVE) 44.dp else 56.dp
     Row(
@@ -1198,6 +1242,15 @@ private fun MediaRow(
                     if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = if (isFavorite) "Unfavorite" else "Favorite",
                     tint = TipAccent
+                )
+            }
+        }
+        if (onRecord != null) {
+            IconButton(onClick = onRecord, enabled = !recordingBusy) {
+                Icon(
+                    Icons.Default.FiberManualRecord,
+                    contentDescription = "Record now",
+                    tint = if (recordingBusy) TipMuted else TipAccent
                 )
             }
         }

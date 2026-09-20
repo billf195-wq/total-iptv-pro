@@ -67,6 +67,7 @@ class AppPreferences(private val context: Context) {
     private val accentKey = stringPreferencesKey("accent_preset")
     private val appLayoutKey = stringPreferencesKey("app_layout_mode")
     private val posterColumnsKey = intPreferencesKey("poster_columns")
+    private val recordingsDirKey = stringPreferencesKey("recordings_dir")
 
     companion object {
         /** Flavor-specific: TV root shelf vs phone /phone/ channel. */
@@ -115,6 +116,11 @@ class AppPreferences(private val context: Context) {
     /** Posters/banners per row on classic + desktop browse grids. Allowed: 5, 6, 8, 11. */
     val posterColumns: Flow<Int> = context.dataStore.data.map { prefs ->
         normalizePosterColumns(prefs[posterColumnsKey])
+    }
+
+    /** Optional recordings folder on this device. Blank = app Movies/TotalIptvPro/Recordings. */
+    val recordingsDir: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[recordingsDirKey]?.trim().orEmpty()
     }
 
     suspend fun getSources(): List<PlaylistSource> = sources.first()
@@ -176,6 +182,16 @@ class AppPreferences(private val context: Context) {
     suspend fun setPosterColumns(columns: Int) {
         context.dataStore.edit { prefs ->
             prefs[posterColumnsKey] = normalizePosterColumns(columns)
+        }
+    }
+
+    suspend fun getRecordingsDir(): String =
+        context.dataStore.data.first()[recordingsDirKey]?.trim().orEmpty()
+
+    suspend fun setRecordingsDir(path: String) {
+        context.dataStore.edit { prefs ->
+            val cleaned = path.trim()
+            if (cleaned.isBlank()) prefs.remove(recordingsDirKey) else prefs[recordingsDirKey] = cleaned
         }
     }
 

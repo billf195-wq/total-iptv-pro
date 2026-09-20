@@ -247,7 +247,8 @@ fun LivePane(
     categoryId: String?,
     onSearch: (String) -> Unit,
     onCategory: (String?) -> Unit,
-    onPlay: (MediaItem) -> Unit
+    onPlay: (MediaItem) -> Unit,
+    onRecord: (MediaItem) -> Unit = {}
 ) {
     val filtered = remember(items, search, categoryId) {
         LiveChannelMapping.filterLiveChannels(items, categoryId, search)
@@ -269,7 +270,7 @@ fun LivePane(
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
             items(filtered, key = { it.id }) { item ->
-                LiveRowItem(item, onClick = { onPlay(item) })
+                LiveRowItem(item, onClick = { onPlay(item) }, onRecord = { onRecord(item) })
             }
         }
     }
