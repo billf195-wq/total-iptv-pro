@@ -42,8 +42,8 @@ import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.theme.AppearanceMode
 import com.totaliptv.pro.ui.theme.TotalIptvProTheme
 import com.totaliptv.pro.ui.desktop.DesktopAppRoot
-import com.totaliptv.pro.ui.LogoBannerSplash
-import com.totaliptv.pro.ui.StartupSplashGate
+import com.totaliptv.pro.ui.splash.LogoBannerSplash
+import com.totaliptv.pro.ui.splash.StartupSplashGate
 import com.totaliptv.pro.data.local.AppLayoutMode
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers

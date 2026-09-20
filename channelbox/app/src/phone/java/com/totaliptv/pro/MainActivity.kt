@@ -38,8 +38,8 @@ import com.totaliptv.pro.ui.browse.PhoneBrowseScreen
 import com.totaliptv.pro.ui.home.PhoneHomeScreen
 import com.totaliptv.pro.ui.onboarding.OnboardingScreen
 import com.totaliptv.pro.ui.player.PlayerActivity
-import com.totaliptv.pro.ui.LogoBannerSplash
-import com.totaliptv.pro.ui.StartupSplashGate
+import com.totaliptv.pro.ui.splash.LogoBannerSplash
+import com.totaliptv.pro.ui.splash.StartupSplashGate
 import com.totaliptv.pro.ui.search.PhoneSearchScreen
 import com.totaliptv.pro.ui.settings.PhoneSettingsScreen
 import com.totaliptv.pro.ui.theme.AccentPreset

@@ -1,4 +1,4 @@
-package com.totaliptv.pro.ui
+package com.totaliptv.pro.ui.splash
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -34,10 +34,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Cold-start logo banner: stays up for [SplashTiming.DURATION_MS], then until
- * [ready] or [SplashTiming.MAX_CATALOG_HOLD_MS]. Named distinctly so it cannot
- * clash with an old `StartupSplash` left in the TV source set.
+ * Single splash module for TV + phone.
+ *
+ * Lives in [com.totaliptv.pro.ui.splash] so leftover copies of
+ * `com.totaliptv.pro.ui.StartupSplash` / `SplashTiming` / `StartupSplashGate`
+ * (main or tv source set) cannot redeclare these types.
+ *
+ * 15s is the logo banner; 30s is a separate catalog-hold cap.
  */
+object SplashTiming {
+    const val DURATION_MS: Long = 15_000L
+    const val MAX_CATALOG_HOLD_MS: Long = 30_000L
+}
+
+object StartupSplashGate {
+    @Volatile var shownThisProcess: Boolean = false
+}
+
 @Composable
 fun LogoBannerSplash(
     ready: Boolean = true,
