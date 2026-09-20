@@ -291,7 +291,7 @@ fun AppRoot() {
                         }
                         return@launch
                     }
-                    // VLC/mpv already advanced through the remaining queue.
+                    // Linux VLC/mpv playlist already walked the remaining queue.
                     if (playlist) {
                         val last = queueItems.lastOrNull()
                         if (last != null && last.kind == ContentKind.SERIES && last.parentSeriesId != null) {
@@ -309,7 +309,7 @@ fun AppRoot() {
                         }
                         return@launch
                     }
-                    // ffplay (single file): start the next episode ourselves.
+                    // Windows VLC and ffplay: one URL per process — start SxxE(n+1) ourselves.
                     val next = if (ctx != null) {
                         SeriesPlayback.nextEpisode(
                             ctx.all,
