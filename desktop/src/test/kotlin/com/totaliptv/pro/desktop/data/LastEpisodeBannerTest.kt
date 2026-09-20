@@ -49,4 +49,48 @@ class LastEpisodeBannerTest {
             LastEpisodeBanner.overlayMode(eps, 1, 1, "1-1", eps[0].streamUrl)
         )
     }
+
+    @Test
+    fun lastBannerAutoDismissesOnSharedClockWindowsAndLinux() {
+        val shown = 1_000L
+        assertTrue(LastEpisodeBanner.overlayStillVisible(LastEpisodeBanner.Mode.LAST_BRIEF, shown, shown + 3_999))
+        assertFalse(LastEpisodeBanner.overlayStillVisible(LastEpisodeBanner.Mode.LAST_BRIEF, shown, shown + 4_000))
+        assertFalse(
+            LastEpisodeBanner.overlayStillVisible(
+                LastEpisodeBanner.Mode.LAST_BRIEF,
+                shown,
+                shown + 1,
+                dismissedKey = "s|1|u",
+                key = "s|1|u"
+            )
+        )
+        assertTrue(
+            LastEpisodeBanner.overlayStillVisible(LastEpisodeBanner.Mode.NEXT, shown, shown + 60_000)
+        )
+        assertFalse(
+            LastEpisodeBanner.overlayStillVisible(LastEpisodeBanner.Mode.HIDDEN, shown, shown)
+        )
+    }
+
+    @Test
+    fun windowsHostUsesTheSameDismissPredicate() {
+        val host = com.totaliptv.pro.desktop.ui.SeriesNextHost()
+        val play = com.totaliptv.pro.desktop.ui.ActiveSeriesPlay(
+            episodes = listOf(ep(1, 1), ep(1, 2)),
+            seriesName = "GTR",
+            seriesId = 9,
+            current = ep(1, 2)
+        )
+        assertTrue(host.shouldKeepOverlay(play, nowMs = 100, firstShownAtMs = 100, dismissedKey = null))
+        assertFalse(host.shouldKeepOverlay(play, nowMs = 100 + 4_000, firstShownAtMs = 100, dismissedKey = null))
+        val overlay = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/ui/SeriesNextOverlay.kt").readText()
+        val root = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/ui/AppRoot.kt").readText()
+        assertTrue(overlay.contains("LastEpisodeBanner.overlayStillVisible"))
+        assertTrue(overlay.contains("nowMs: Long"))
+        val dismissBlock = overlay.substringAfter("fun sync(").substringBefore("fun dismissLastIfMatching")
+        assertFalse(dismissBlock.contains("AppPaths.isWindows"), "Windows must not fork dismiss logic")
+        assertTrue(root.contains("dismissLastIfMatching"))
+        assertTrue(root.contains("LastEpisodeBanner.AUTO_DISMISS_MS"))
+        host.clear()
+    }
 }

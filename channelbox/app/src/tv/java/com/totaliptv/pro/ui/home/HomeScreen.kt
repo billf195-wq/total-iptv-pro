@@ -68,6 +68,7 @@ import com.totaliptv.pro.data.model.SourceType
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.repo.CatalogSort
 import com.totaliptv.pro.dvr.DvrActions
+import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.browse.BrowseSection
 import com.totaliptv.pro.ui.components.AppTopNav
 import com.totaliptv.pro.ui.components.CategoryRailItem
@@ -1031,6 +1032,11 @@ private fun LiveMainPane(
     onRecordNow: (MediaItem) -> Unit = {}
 ) {
     val ch = focusedChannel
+    val context = LocalContext.current
+    val dvrSnap by remember(context) {
+        (context.applicationContext as TotalIptvProApp).dvr.snapshot
+    }.collectAsState()
+    val recordLook = DvrRecordUi.appearance(dvrSnap.active, ch?.id, ch?.streamUrl)
     val now = featuredEpg.now
     val next = featuredEpg.next
     val progress = if (now != null) {
@@ -1054,6 +1060,8 @@ private fun LiveMainPane(
         },
         onOpenGuide = onOpenGuide,
         onRecord = ch?.let { focused -> { onRecordNow(focused) } },
+        recordActive = recordLook.selected,
+        recordLabel = recordLook.label,
         modifier = Modifier.padding(bottom = 6.dp)
     )
 

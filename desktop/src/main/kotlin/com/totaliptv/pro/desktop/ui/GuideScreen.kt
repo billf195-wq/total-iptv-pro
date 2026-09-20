@@ -31,6 +31,8 @@ import com.totaliptv.pro.desktop.data.GuideTime
 import com.totaliptv.pro.desktop.data.LiveChannelMapping
 import com.totaliptv.pro.desktop.data.LiveEpgBinding
 import com.totaliptv.pro.desktop.data.MediaItem
+import com.totaliptv.pro.desktop.dvr.DvrRecordUi
+import com.totaliptv.pro.desktop.dvr.RecordingEntry
 
 /**
  * Live TV guide: category chips, channel list, and program timeline.
@@ -54,6 +56,7 @@ fun GuideScreen(
     onPlayChannel: (MediaItem) -> Unit,
     onStop: () -> Unit,
     recordingTitle: String? = null,
+    activeRecording: RecordingEntry? = null,
     onRecordNow: (MediaItem, String?, Long?) -> Unit = { _, _, _ -> },
     onScheduleProgram: (MediaItem, String, Long, Long) -> Unit = { _, _, _, _ -> },
     onStopRecording: () -> Unit = {}
@@ -261,17 +264,16 @@ fun GuideScreen(
                             Text("Watch", color = TipOnAmber, fontWeight = FontWeight.Bold)
                         }
                         Spacer(Modifier.width(8.dp))
-                        OutlinedButton(
+                        RecordControlButton(
+                            active = activeRecording,
+                            itemId = selected.id,
+                            streamUrl = selected.streamUrl,
                             onClick = {
                                 val nowProg = programs.find { it.contains(liveNow) }
                                 onRecordNow(selected, nowProg?.title, nowProg?.endMs)
                             },
-                            enabled = recordingTitle == null
-                        ) {
-                            Icon(Icons.Default.FiberManualRecord, null, tint = TipAccent)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Record now")
-                        }
+                            idleLabel = "Record now"
+                        )
                     }
 
                     Spacer(Modifier.height(12.dp))
@@ -398,7 +400,9 @@ fun GuideScreen(
                                             else if (prog.endMs > liveNow) onScheduleProgram(selected, prog.title, prog.startMs, prog.endMs)
                                             else onRecordNow(selected, prog.title, null)
                                         },
-                                        recordLabel = if (prog.contains(liveNow)) "Record" else if (prog.endMs > liveNow) "Schedule" else "Record"
+                                        recordLabel = if (prog.contains(liveNow)) "Record" else if (prog.endMs > liveNow) "Schedule" else "Record",
+                                        recordActive = prog.contains(liveNow) &&
+                                            DvrRecordUi.matches(activeRecording, selected.id, selected.streamUrl)
                                     )
                                 }
                             }
@@ -585,7 +589,8 @@ private fun ProgramRow(
     isNow: Boolean,
     onClick: () -> Unit,
     onRecord: () -> Unit = {},
-    recordLabel: String = "Record"
+    recordLabel: String = "Record",
+    recordActive: Boolean = false
 ) {
     Row(
         Modifier
@@ -615,7 +620,19 @@ private fun ProgramRow(
             Text("NOW", color = TipAccent, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(8.dp))
         }
-        TextButton(onClick = onRecord) { Text(recordLabel) }
+        if (recordActive) {
+            Button(
+                onClick = onRecord,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = TipRecordActive,
+                    contentColor = TipOnRecordActive
+                )
+            ) {
+                Text(DvrRecordUi.ACTIVE_LABEL, color = TipOnRecordActive, fontWeight = FontWeight.Bold)
+            }
+        } else {
+            TextButton(onClick = onRecord) { Text(recordLabel) }
+        }
         Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = TipAccent)
     }
 }

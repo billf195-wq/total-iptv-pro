@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +55,7 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.xtream.XtreamApi
+import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.CinemaBgElevated
 import com.totaliptv.pro.ui.theme.FocusBorder
@@ -149,6 +151,15 @@ fun MovieDetailSheet(
     val pct = progress?.let { (it.fraction() * 100).toInt().coerceIn(1, 99) }
     val seasonEpisodes = seriesInfo?.seasons?.firstOrNull { it.season == selectedSeason }?.episodes.orEmpty()
     val isSeriesPicker = enriched.kind == ContentKind.SERIES && !enriched.id.startsWith("series-ep-")
+    val dvrSnap by remember(context) {
+        (context.applicationContext as TotalIptvProApp).dvr.snapshot
+    }.collectAsState()
+    val recordLook = DvrRecordUi.appearance(
+        dvrSnap.active,
+        if (isSeriesPicker && selectedEpisodeId > 0) "series-ep-$selectedEpisodeId" else enriched.id,
+        enriched.streamUrl,
+        if (isSeriesPicker) DvrRecordUi.IDLE_EPISODE_LABEL else DvrRecordUi.IDLE_LABEL
+    )
 
     fun playResolved(startOver: Boolean) {
         if (isSeriesPicker && selectedEpisodeId > 0) {
@@ -380,7 +391,7 @@ fun MovieDetailSheet(
                         )
                     }
                     TopBarChip(
-                        label = if (isSeriesPicker) "Record episode" else "Record",
+                        label = recordLook.label,
                         onClick = {
                             if (isSeriesPicker && selectedEpisodeId > 0) {
                                 scope.launch {
@@ -399,7 +410,8 @@ fun MovieDetailSheet(
                                 com.totaliptv.pro.dvr.DvrActions.recordNow(context, enriched)
                             }
                         },
-                        emphasized = false
+                        emphasized = recordLook.selected,
+                        active = recordLook.selected
                     )
                 }
                 Row(

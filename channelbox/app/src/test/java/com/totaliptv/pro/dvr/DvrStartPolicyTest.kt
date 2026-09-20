@@ -27,7 +27,7 @@ class DvrStartPolicyTest {
     fun seriesDetailExposesRecordEpisode() {
         val tv = File("src/tv/java/com/totaliptv/pro/ui/components/MovieDetailSheet.kt").readText()
         val phone = File("src/phone/java/com/totaliptv/pro/ui/components/PhoneDetailSheet.kt").readText()
-        assertTrue(tv.contains("Record episode"))
-        assertTrue(phone.contains("Record episode"))
+        assertTrue(tv.contains("IDLE_EPISODE_LABEL") || tv.contains("Record episode"))
+        assertTrue(phone.contains("IDLE_EPISODE_LABEL") || phone.contains("Record episode"))
     }
 }

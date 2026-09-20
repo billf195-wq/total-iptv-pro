@@ -55,4 +55,26 @@ object LastEpisodeBanner {
     }
 
     enum class Mode { NEXT, LAST_BRIEF, HIDDEN }
+
+    /**
+     * Clock-based dismiss used by Windows and Linux (same Compose host).
+     * A Swing timer alone can miss a beat under Windows VLC fullscreen;
+     * every overlay sync consults this so the banner cannot sit for the show.
+     */
+    fun isAutoDismissed(shownAtMs: Long, nowMs: Long, dismissMs: Long = AUTO_DISMISS_MS): Boolean =
+        nowMs - shownAtMs >= dismissMs
+
+    fun overlayStillVisible(
+        mode: Mode,
+        firstShownAtMs: Long?,
+        nowMs: Long,
+        dismissedKey: String? = null,
+        key: String? = null
+    ): Boolean {
+        if (mode == Mode.HIDDEN) return false
+        if (mode == Mode.NEXT) return true
+        if (key != null && dismissedKey == key) return false
+        val shown = firstShownAtMs ?: return true
+        return !isAutoDismissed(shown, nowMs)
+    }
 }

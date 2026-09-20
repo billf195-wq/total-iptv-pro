@@ -58,7 +58,10 @@ class SeriesNextHost {
     @Volatile var onRecord: () -> Unit = {}
     private var dismissedLastKey: String? = null
     private var pendingDismissKey: String? = null
+    private var lastBriefKey: String? = null
+    private var lastBriefShownAtMs: Long? = null
     private var dismissTimer: javax.swing.Timer? = null
+    private var recordingThisItem: Boolean = false
 
     @Volatile
     private var overlayWindow: ComposeWindow? = null
@@ -70,7 +73,9 @@ class SeriesNextHost {
         darkTheme: Boolean,
         onNext: () -> Unit,
         onStop: () -> Unit,
-        onRecord: () -> Unit = {}
+        onRecord: () -> Unit = {},
+        recordingThisItem: Boolean = false,
+        nowMs: Long = System.currentTimeMillis()
     ) {
         if (AppShutdown.isExiting()) {
             disposeOverlay()
@@ -80,33 +85,70 @@ class SeriesNextHost {
         this.onStop = onStop
         this.onRecord = onRecord
         this.darkTheme = darkTheme
+        this.recordingThisItem = recordingThisItem
         val key = session?.let { overlayKey(it) }
         val mode = session?.let { overlayMode(it) } ?: LastEpisodeBanner.Mode.HIDDEN
         if (session == null) {
             this.session = null
-            dismissedLastKey = null
-            cancelDismissTimer()
+            resetLastBrief()
             disposeWindow()
             return
         }
         this.session = session
         if (mode == LastEpisodeBanner.Mode.HIDDEN) {
-            cancelDismissTimer()
+            resetLastBrief()
             disposeWindow()
             return
         }
-        if (mode == LastEpisodeBanner.Mode.LAST_BRIEF && dismissedLastKey == key) {
-            disposeWindow()
+        if (mode == LastEpisodeBanner.Mode.NEXT) {
+            resetLastBrief()
+            ensureWindow()
             return
         }
-        if (mode != LastEpisodeBanner.Mode.LAST_BRIEF) {
+        if (lastBriefKey != key) {
+            lastBriefKey = key
+            lastBriefShownAtMs = nowMs
             dismissedLastKey = null
             cancelDismissTimer()
         }
+        if (!LastEpisodeBanner.overlayStillVisible(mode, lastBriefShownAtMs, nowMs, dismissedLastKey, key)) {
+            if (key != null) dismissedLastKey = key
+            cancelDismissTimer()
+            disposeWindow()
+            return
+        }
         ensureWindow()
-        if (mode == LastEpisodeBanner.Mode.LAST_BRIEF && key != null) {
+        if (key != null) {
             scheduleLastEpisodeDismiss(key)
         }
+    }
+
+    fun dismissLastIfMatching(key: String) {
+        if (session?.let { overlayKey(it) } == key) {
+            dismissedLastKey = key
+            cancelDismissTimer()
+            disposeWindow()
+        }
+    }
+
+    internal fun shouldKeepOverlay(
+        play: ActiveSeriesPlay,
+        nowMs: Long,
+        firstShownAtMs: Long?,
+        dismissedKey: String?
+    ): Boolean = LastEpisodeBanner.overlayStillVisible(
+        overlayMode(play),
+        firstShownAtMs,
+        nowMs,
+        dismissedKey,
+        overlayKey(play)
+    )
+
+    private fun resetLastBrief() {
+        dismissedLastKey = null
+        lastBriefKey = null
+        lastBriefShownAtMs = null
+        cancelDismissTimer()
     }
 
     fun clear() = disposeOverlay()
@@ -149,8 +191,8 @@ class SeriesNextHost {
         onStop = {}
         onRecord = {}
         session = null
-        dismissedLastKey = null
-        cancelDismissTimer()
+        resetLastBrief()
+        recordingThisItem = false
         if (overlayWindow == null && raisePump == null) return
         disposeWindow()
     }
@@ -195,7 +237,8 @@ class SeriesNextHost {
                                 mode = overlayMode(current),
                                 onNext = { onNext() },
                                 onStop = { onStop() },
-                                onRecord = { onRecord() }
+                                onRecord = { onRecord() },
+                                recordingThisItem = recordingThisItem
                             )
                         }
                     }
@@ -265,7 +308,8 @@ fun SeriesNextOverlayBody(
     ),
     onNext: () -> Unit,
     onStop: () -> Unit,
-    onRecord: () -> Unit = {}
+    onRecord: () -> Unit = {},
+    recordingThisItem: Boolean = false
 ) {
     val next = session.next
     Column(
@@ -334,11 +378,24 @@ fun SeriesNextOverlayBody(
                     )
                 }
             }
-            OutlinedButton(
-                onClick = onRecord,
-                modifier = Modifier.height(48.dp)
-            ) {
-                Text("Record", color = TipOnBg)
+            if (recordingThisItem) {
+                Button(
+                    onClick = onRecord,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TipRecordActive,
+                        contentColor = TipOnRecordActive
+                    ),
+                    modifier = Modifier.height(48.dp)
+                ) {
+                    Text("Recording…", color = TipOnRecordActive, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                OutlinedButton(
+                    onClick = onRecord,
+                    modifier = Modifier.height(48.dp)
+                ) {
+                    Text("Record", color = TipOnBg)
+                }
             }
             OutlinedButton(
                 onClick = onStop,

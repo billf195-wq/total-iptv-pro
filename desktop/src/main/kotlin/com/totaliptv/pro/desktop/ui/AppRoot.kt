@@ -31,6 +31,7 @@ import com.totaliptv.pro.desktop.data.VodDetail
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
 import com.totaliptv.pro.desktop.data.LastEpisodeBanner
 import com.totaliptv.pro.desktop.dvr.DvrKind
+import com.totaliptv.pro.desktop.dvr.DvrRecordUi
 import com.totaliptv.pro.desktop.dvr.DvrRecorder
 import com.totaliptv.pro.desktop.dvr.DvrStartReason
 import com.totaliptv.pro.desktop.dvr.RecordingEntry
@@ -736,12 +737,28 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         }
     }
 
+    LaunchedEffect(seriesSession) {
+        val session = seriesSession ?: return@LaunchedEffect
+        val mode = LastEpisodeBanner.overlayMode(
+            session.episodes,
+            session.current.season,
+            session.current.episodeNum,
+            session.current.id,
+            session.current.streamUrl
+        )
+        if (mode != LastEpisodeBanner.Mode.LAST_BRIEF) return@LaunchedEffect
+        val key = "${session.seriesId}|${session.current.id}|${session.current.streamUrl}"
+        delay(LastEpisodeBanner.AUTO_DISMISS_MS)
+        seriesNextHost?.dismissLastIfMatching(key)
+    }
+
     SideEffect {
         val host = seriesNextHost ?: return@SideEffect
         if (AppShutdown.isExiting()) {
             host.disposeOverlay()
             return@SideEffect
         }
+        val play = playingItem
         host.sync(
             session = seriesSession,
             darkTheme = prefs.themeMode != "light",
@@ -752,7 +769,9 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 if (item != null && item.streamUrl.isNotBlank()) {
                     recordNow(item, item.name, null)
                 }
-            }
+            },
+            recordingThisItem = DvrRecordUi.matches(dvrSnapshot.active, play?.id, play?.streamUrl),
+            nowMs = System.currentTimeMillis()
         )
     }
 

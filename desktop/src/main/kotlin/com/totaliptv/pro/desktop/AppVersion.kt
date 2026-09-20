@@ -19,8 +19,9 @@ package com.totaliptv.pro.desktop
  *         Windows tzutil so Central is Chicago when the JRE reports UTC.
  * 1.2.12: Personal DVR — Live/Guide capture, movie + series download, library on this PC.
  * 1.2.13: DVR opt-in only; series Record controls; last-episode banner auto-dismiss.
+ * 1.2.14: Record stays lit for the active item; last-episode banner 4s dismiss on Windows+Linux.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 25
-    const val VERSION_NAME: String = "1.2.13"
+    const val VERSION_CODE: Int = 26
+    const val VERSION_NAME: String = "1.2.14"
 }

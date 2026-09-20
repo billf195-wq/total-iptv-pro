@@ -99,6 +99,7 @@ class PlayerActivity : ComponentActivity() {
     private var audioLabelView: TextView? = null
     private var overlay: LinearLayout? = null
     private var playNextButton: Button? = null
+    private var recordButton: Button? = null
     private var cachedNextEpisode: com.totaliptv.pro.data.model.MediaItem? = null
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private var streamUrl: String = ""
@@ -248,7 +249,7 @@ class PlayerActivity : ComponentActivity() {
         controls.addView(controlBtn("Retry") { retryPlayback() })
         controls.addView(controlBtn("Play with VLC") { openInVlc() })
         controls.addView(controlBtn("Favorite") { toggleFavorite() })
-        controls.addView(controlBtn(if (mediaKind == ContentKind.SERIES) "Record episode" else "Record") {
+        recordButton = controlBtn(if (mediaKind == ContentKind.SERIES) "Record episode" else "Record") {
             val app = application as TotalIptvProApp
             val item = com.totaliptv.pro.data.model.MediaItem(
                 id = mediaId,
@@ -257,7 +258,12 @@ class PlayerActivity : ComponentActivity() {
                 categoryId = null,
                 kind = mediaKind
             )
-            if (app.dvr.isRecording()) {
+            val thisItem = com.totaliptv.pro.dvr.DvrRecordUi.matches(
+                app.dvr.snapshot.value.active,
+                mediaId,
+                streamUrl
+            )
+            if (thisItem) {
                 com.totaliptv.pro.dvr.DvrActions.stop(this)
                 statusView?.text = "Stopping recording…"
             } else {
@@ -268,7 +274,9 @@ class PlayerActivity : ComponentActivity() {
                     "Downloading on this device…"
                 }
             }
-        })
+            refreshRecordButton()
+        }.also { controls.addView(it) }
+        refreshRecordButton()
         playNextButton = controlBtn("Play next") {
             val next = cachedNextEpisode
             if (next != null && next.streamUrl.isNotBlank()) {
@@ -304,10 +312,36 @@ class PlayerActivity : ComponentActivity() {
             loadEpgOverlay()
             showOverlayTemporarily()
         }
+        scope.launch {
+            (application as TotalIptvProApp).dvr.snapshot.collect { refreshRecordButton() }
+        }
+    }
+
+    private fun refreshRecordButton() {
+        val btn = recordButton ?: return
+        val app = application as? TotalIptvProApp ?: return
+        val idle = if (mediaKind == ContentKind.SERIES) "Record episode" else "Record"
+        val look = com.totaliptv.pro.dvr.DvrRecordUi.appearance(
+            app.dvr.snapshot.value.active,
+            mediaId,
+            streamUrl,
+            idle
+        )
+        btn.text = look.label
+        if (look.selected) {
+            btn.setBackgroundColor(0xFFE53935.toInt())
+            btn.setTextColor(Color.WHITE)
+            btn.setTypeface(btn.typeface, Typeface.BOLD)
+        } else {
+            btn.backgroundTintList = null
+            btn.setTextColor(0xFFD0D7DE.toInt())
+            btn.setTypeface(null, Typeface.NORMAL)
+        }
     }
 
     private fun showOverlayTemporarily(ms: Long = 4500) {
         refreshPlayNextButton()
+        refreshRecordButton()
         overlay?.isVisible = true
         hideOverlayJob?.cancel()
         hideOverlayJob = scope.launch {

@@ -30,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +68,8 @@ import com.totaliptv.pro.data.model.EpgChannelRow
 import com.totaliptv.pro.data.model.EpgProgram
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.repo.CatalogRepository
+import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.components.NetworkImage
 import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
@@ -142,6 +145,11 @@ fun EpgGuideScreen(
 
     val latestOnPlay by rememberUpdatedState(onPlay)
     val context = LocalContext.current
+    val dvrSnap by remember(context) {
+        (context.applicationContext as TotalIptvProApp).dvr.snapshot
+    }.collectAsState()
+    val focusedChannel = rows.find { it.channel.id == focusedChannelId }?.channel
+    val recordLook = DvrRecordUi.appearance(dvrSnap.active, focusedChannel?.id, focusedChannel?.streamUrl)
     // Bumps on every category load so a stale click from a prior category cannot play.
     var guideLoadGen by remember { mutableStateOf(0) }
 
@@ -260,7 +268,9 @@ fun EpgGuideScreen(
                 }
             }
             TopBarChip(
-                label = "Record",
+                label = recordLook.label,
+                active = recordLook.selected,
+                emphasized = true,
                 onClick = {
                     val ch = rows.find { it.channel.id == focusedChannelId }?.channel
                     if (ch != null) {
@@ -277,8 +287,7 @@ fun EpgGuideScreen(
                     } else {
                         Toast.makeText(context, "Focus a channel, then Record", Toast.LENGTH_SHORT).show()
                     }
-                },
-                emphasized = true
+                }
             )
             Spacer(Modifier.width(8.dp))
             TopBarChip(
