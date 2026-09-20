@@ -17,10 +17,18 @@ import java.io.File
  * Windows VLC extra (1.2.2): `taskkill` leftover `vlc.exe` and `--ignore-config`
  * so installer vlcrc one-instance cannot steal the launch.
  *
+ * Audio (1.2.15): VLC `--audio-language=eng,en,english` and mpv
+ * `--alang=eng,en,english` prefer English when the stream has several tracks.
+ * ffplay has no reliable CLI language pick without extra probing — leave as-is.
+ *
  * Supported Next: in-app Next, always-on-top Next, Ctrl+Right / Media Next
  * (OS-wide on Windows; when this app is focused on Linux). Auto-advance at EOF.
  */
 object StreamPlayer {
+    /** VLC language preference order when multiple audio tracks exist. */
+    internal const val VLC_AUDIO_LANGUAGE = "--audio-language=eng,en,english"
+    /** mpv language preference order when multiple audio tracks exist. */
+    internal const val MPV_AUDIO_LANGUAGE = "--alang=eng,en,english"
     /** Brief pause after taskkill so Windows releases VLC's one-instance mutex. */
     internal const val WINDOWS_KILL_SETTLE_MS = 200
     @Volatile
@@ -233,6 +241,7 @@ object StreamPlayer {
             args += "--ignore-config"
         }
         args += "--fullscreen"
+        args += VLC_AUDIO_LANGUAGE
         if (!live) {
             args += "--play-and-exit"
         }
@@ -262,6 +271,7 @@ object StreamPlayer {
         live: Boolean = false
     ): List<String> {
         val args = mutableListOf(binary, "--fullscreen", "--force-window=yes", "--title=Total IPTV Pro")
+        args += MPV_AUDIO_LANGUAGE
         args += "--loop-file=no"
         args += "--loop-playlist=no"
         if (live) {
@@ -273,6 +283,11 @@ object StreamPlayer {
         return args
     }
 
+    /**
+     * ffplay has no stable `-ast` / language preference that works across
+     * HLS + VOD without probing tracks first. Leave the argv unchanged so
+     * live/VOD play-and-exit behavior stays intact.
+     */
     internal fun ffplayCommand(binary: String, url: String, live: Boolean = false): List<String> {
         val args = mutableListOf(binary, "-fs")
         if (!live) args += "-autoexit"
