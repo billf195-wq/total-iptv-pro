@@ -8,19 +8,24 @@ import java.nio.file.Files
  * Plays streams via an external player (Linux / Windows).
  * Prefers configured player, else VLC → mpv → ffplay.
  *
- * Series next-episode depends on handing the player a queue (not a single URL)
- * and disabling VLC's default one-instance mode so Linux/Windows actually
- * wait for / advance the playlist we launched.
+ * Linux VLC: remaining episodes as a local M3U (working reference). Next / EOF
+ * advance inside VLC.
  *
- * Linux VLC: remaining episodes as a local M3U (working reference).
- * Windows VLC: remaining episodes as separate CLI streams so Next advances;
- * M3U is only the CreateProcess-length fallback.
+ * Windows VLC (1.2.2): do **not** pass a playlist. 1.2.0 M3U and 1.2.1 multi-URL
+ * argv both left a single playlist item (one-instance / Qt collapse), so Next
+ * replayed the same episode. Strategy:
+ *  1. `taskkill /F /T /IM vlc.exe` so a leftover one-instance VLC cannot steal the launch
+ *  2. Start **one** episode URL with `--ignore-config --no-one-instance --play-and-exit`
+ *  3. AppRoot sequential-plays SxxE(n+1) when that process exits (same as ffplay)
+ * In-app **Next SxEx** also kills VLC and starts only that next URL.
  */
 object StreamPlayer {
-    /** Stay under Windows CreateProcess 32,767-char limit with headroom for quoting. */
-    internal const val WINDOWS_CMDLINE_SOFT_LIMIT = 24_000
+    /** Brief pause after taskkill so Windows releases VLC's one-instance mutex. */
+    internal const val WINDOWS_KILL_SETTLE_MS = 200
     @Volatile
     private var current: Process? = null
+    @Volatile
+    private var lastBinary: String? = null
     @Volatile
     private var stoppedByUser: Boolean = false
     @Volatile
@@ -31,8 +36,8 @@ object StreamPlayer {
         playQueue(listOf(url), preferredPlayer)
 
     /**
-     * Play one or more URLs. VLC/mpv receive the full queue so Next / end-of-file
-     * advance inside the player. ffplay only supports one file (caller may sequential-play).
+     * Play one or more URLs. Linux VLC/mpv receive the full queue. Windows always
+     * launches a single URL (sequential next lives in AppRoot). ffplay is one file.
      */
     fun playQueue(urls: List<String>, preferredPlayer: String = "auto"): String {
         val clean = urls.map { it.trim() }.filter { it.isNotBlank() }
@@ -48,6 +53,10 @@ object StreamPlayer {
                 }
             )
         lastLaunchWasPlaylist = resolved.playlist
+        lastBinary = resolved.command.first()
+        if (AppPaths.isWindows) {
+            killLeftoverWindowsPlayers(resolved.command.first())
+        }
         current = ProcessBuilder(resolved.command)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
@@ -58,12 +67,18 @@ object StreamPlayer {
     fun stop() {
         stoppedByUser = true
         stopProcessOnly()
+        if (AppPaths.isWindows) {
+            val bin = currentBinaryHint()
+            if (bin != null) killLeftoverWindowsPlayers(bin)
+        }
     }
 
     private fun stopProcessOnly() {
         current?.destroyForcibly()
         current = null
     }
+
+    private fun currentBinaryHint(): String? = lastBinary
 
     fun isPlaying(): Boolean = current?.isAlive == true
 
@@ -110,19 +125,28 @@ object StreamPlayer {
         return null
     }
 
-    internal fun commandFor(name: String, urls: List<String>): ResolvedCommand? {
+    internal fun commandFor(
+        name: String,
+        urls: List<String>,
+        windows: Boolean = AppPaths.isWindows
+    ): ResolvedCommand? {
         return when (name) {
             "vlc" -> {
                 val vlc = resolveVlcBinary() ?: return null
-                ResolvedCommand(vlcCommand(vlc, urls), playlist = urls.size > 1)
+                ResolvedCommand(
+                    vlcCommand(vlc, urls, windows),
+                    playlist = treatsLaunchAsPlaylist("vlc", urls.size, windows)
+                )
             }
             "mpv" -> {
                 val bin = resolveOnPath("mpv") ?: return null
-                ResolvedCommand(mpvCommand(bin, urls), playlist = urls.size > 1)
+                ResolvedCommand(
+                    mpvCommand(bin, urls, windows),
+                    playlist = treatsLaunchAsPlaylist("mpv", urls.size, windows)
+                )
             }
             "ffplay" -> {
                 val bin = resolveOnPath("ffplay") ?: return null
-                // ffplay plays a single file; remaining episodes are sequential in AppRoot.
                 ResolvedCommand(ffplayCommand(bin, urls.first()), playlist = false)
             }
             else -> null
@@ -130,39 +154,41 @@ object StreamPlayer {
     }
 
     /**
-     * Linux keeps the 1.2.0 argv (M3U path for queues) — that path is the working reference.
-     *
-     * Windows VLC differs: installer/vlcrc often enables one-instance + enqueue, and
-     * `--one-instance-when-started-from-file` defaults to *enabled*. Passing a local
-     * `series-next.m3u` looks like a file-association launch, so the Qt instance may
-     * keep the playlist file as a single item (recursive=collapse). Next then restarts
-     * that item instead of the next episode.
-     *
-     * Windows therefore prefers the documented multi-stream argv form
-     * (`vlc [options] [stream] ...` — streams are enqueued) and only writes an M3U
-     * when the Windows CreateProcess limit would be exceeded.
+     * Windows never hands VLC/mpv a queue — AppRoot starts SxxE(n+1) after exit.
+     * Linux VLC/mpv still get the remaining-episode playlist.
+     */
+    internal fun treatsLaunchAsPlaylist(player: String, urlCount: Int, windows: Boolean): Boolean {
+        if (windows) return false
+        if (player == "ffplay") return false
+        return urlCount > 1
+    }
+
+    /**
+     * Linux: remaining episodes as `series-next.m3u` (1.2.0 reference that works).
+     * Windows: **first URL only**. `--ignore-config` so installer vlcrc one-instance
+     * cannot override `--no-one-instance` (1.2.1 still replayed the same episode).
      */
     internal fun vlcCommand(
         binary: String,
         urls: List<String>,
         windows: Boolean = AppPaths.isWindows
     ): List<String> {
-        val args = mutableListOf(
-            binary,
-            "--fullscreen",
-            "--play-and-exit",
-            "--no-one-instance",
-            "--no-playlist-enqueue"
-        )
+        val args = mutableListOf(binary)
+        if (windows) {
+            args += "--ignore-config"
+        }
+        args += "--fullscreen"
+        args += "--play-and-exit"
+        args += "--no-one-instance"
+        args += "--no-playlist-enqueue"
         if (windows) {
             args += "--no-one-instance-when-started-from-file"
             args += "--no-started-from-file"
             args += "--no-repeat"
             args += "--no-loop"
-            args += "--recursive=expand"
         }
         args += "--meta-title=Total IPTV Pro"
-        args += if (windows) windowsVlcInputs(args, urls) else linuxVlcInputs(urls)
+        args += if (windows) listOf(urls.first()) else linuxVlcInputs(urls)
         return args
     }
 
@@ -175,8 +201,11 @@ object StreamPlayer {
         if (windows) {
             args += "--loop-file=no"
             args += "--loop-playlist=no"
+            args += "--keep-open=no"
+            args += urls.first()
+        } else {
+            args += urls
         }
-        args += urls
         return args
     }
 
@@ -185,80 +214,49 @@ object StreamPlayer {
 
     private fun linuxVlcInputs(urls: List<String>): List<String> =
         if (urls.size == 1) listOf(urls.first())
-        else listOf(writeM3u(urls, windows = false).absolutePath)
+        else listOf(writeM3u(urls).absolutePath)
 
-    /**
-     * ProcessBuilder argv (not cmd.exe) so `&` / `?` in Xtream URLs stay intact.
-     * Soft-cap well under the 32,767-char Windows CreateProcess limit.
-     */
-    internal fun windowsVlcInputs(argsSoFar: List<String>, urls: List<String>): List<String> {
-        if (urls.isEmpty()) return emptyList()
-        if (urls.size == 1) return listOf(urls.first())
-        val trial = argsSoFar + urls
-        return if (estimateWindowsCmdlineLength(trial) < WINDOWS_CMDLINE_SOFT_LIMIT) {
-            urls
-        } else {
-            listOf(fileToVlcMrl(writeM3u(urls, windows = true)))
-        }
-    }
-
-    internal fun writeM3u(urls: List<String>, windows: Boolean = AppPaths.isWindows): File {
-        val file = if (windows) {
-            val dir = File(System.getProperty("java.io.tmpdir") ?: ".")
-            if (!dir.exists()) dir.mkdirs()
-            File(dir, "total-iptv-pro-series-next.m3u")
-        } else {
-            val dir = AppPaths.configDir.toFile()
-            if (!dir.exists()) dir.mkdirs()
-            File(dir, "series-next.m3u")
-        }
-        val body = if (windows) {
-            // CRLF + EXTINF:0 (not -1/live) + distinct titles so Windows demuxers
-            // treat entries as separate VOD items. Linux M3U format is unchanged.
-            buildString {
-                append("#EXTM3U\r\n")
-                urls.forEachIndexed { i, url ->
-                    append("#EXTINF:0,Episode ${i + 1}\r\n")
-                    append(url)
-                    append("\r\n")
-                }
-            }
-        } else {
-            buildString {
-                appendLine("#EXTM3U")
-                urls.forEach { url ->
-                    appendLine("#EXTINF:-1,Total IPTV Pro")
-                    appendLine(url)
-                }
+    internal fun writeM3u(urls: List<String>): File {
+        val dir = AppPaths.configDir.toFile()
+        if (!dir.exists()) dir.mkdirs()
+        val file = File(dir, "series-next.m3u")
+        val body = buildString {
+            appendLine("#EXTM3U")
+            urls.forEach { url ->
+                appendLine("#EXTINF:-1,Total IPTV Pro")
+                appendLine(url)
             }
         }
         Files.writeString(file.toPath(), body)
         return file
     }
 
-    /**
-     * VLC MRLs use `/` and `file:///`; a raw `C:\...` path can be misread (`:` starts
-     * an input option). Java's `file:/C:/...` is normalized to `file:///C:/...`.
-     */
-    internal fun fileToVlcMrl(file: File): String {
-        val raw = file.absoluteFile.toURI().toString()
-        return if (raw.startsWith("file:/") && !raw.startsWith("file://")) {
-            "file://" + raw.removePrefix("file:")
-        } else {
-            raw
+    internal fun windowsKillImageNames(binary: String): List<String> {
+        val raw = File(binary).name.ifBlank { binary }
+        val base = raw.removeSuffix(".exe").removeSuffix(".EXE").lowercase()
+        return when {
+            base.contains("vlc") -> listOf("vlc.exe")
+            base.contains("mpv") -> listOf("mpv.exe")
+            base.contains("ffplay") -> listOf("ffplay.exe")
+            raw.endsWith(".exe", ignoreCase = true) -> listOf(raw)
+            else -> listOf("$raw.exe")
         }
     }
 
-    internal fun estimateWindowsCmdlineLength(args: List<String>): Int {
-        if (args.isEmpty()) return 0
-        return args.sumOf { estimateWindowsArgLength(it) + 1 } - 1
-    }
+    internal fun windowsKillCommand(imageName: String): List<String> =
+        listOf("taskkill.exe", "/F", "/T", "/IM", imageName)
 
-    private fun estimateWindowsArgLength(arg: String): Int {
-        val needsQuotes = arg.any { it <= ' ' || it == '"' }
-        var n = arg.length + arg.count { it == '"' }
-        if (needsQuotes) n += 2
-        return n
+    private fun killLeftoverWindowsPlayers(binary: String) {
+        for (image in windowsKillImageNames(binary)) {
+            runCatching {
+                ProcessBuilder(windowsKillCommand(image))
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .start()
+                    .waitFor()
+            }
+        }
+        runCatching { Thread.sleep(WINDOWS_KILL_SETTLE_MS.toLong()) }
     }
 
     private fun resolveVlcBinary(): String? {
