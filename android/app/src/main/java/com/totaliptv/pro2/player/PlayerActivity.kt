@@ -76,7 +76,12 @@ class PlayerActivity : ComponentActivity() {
             .setKeepPostFor302Redirects(true)
         val dataSourceFactory = DefaultDataSource.Factory(this, httpFactory)
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15_000, 50_000, 1_500, 3_000)
+            .setBufferDurationsMs(
+                PlayerStream.LIVE_MIN_BUFFER_MS,
+                PlayerStream.LIVE_MAX_BUFFER_MS,
+                PlayerStream.LIVE_PLAYBACK_BUFFER_MS,
+                PlayerStream.LIVE_REBUFFER_MS
+            )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -107,11 +112,11 @@ class PlayerActivity : ComponentActivity() {
                                 error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
                                 error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
                                 error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED
-                        val tsAlt = PlayerStream.tsFallbackUrl(playbackUrl)
-                        if (httpFail && !triedTsFallback && !tsAlt.isNullOrBlank()) {
+                        val alt = PlayerStream.alternateLiveUrl(playbackUrl, urls.getOrElse(index) { playbackUrl })
+                        if (httpFail && !triedTsFallback && !alt.isNullOrBlank()) {
                             triedTsFallback = true
-                            playbackUrl = tsAlt
-                            exo.setMediaItem(buildMediaItem(tsAlt))
+                            playbackUrl = alt
+                            exo.setMediaItem(buildMediaItem(alt))
                             exo.prepare()
                             exo.play()
                             return
@@ -135,15 +140,6 @@ class PlayerActivity : ComponentActivity() {
     private fun buildMediaItem(url: String): MediaItem {
         val builder = MediaItem.Builder().setUri(url)
         PlayerStream.mimeForUrl(url)?.let { builder.setMimeType(it) }
-        if (PlayerStream.isHlsUrl(url)) {
-            builder.setLiveConfiguration(
-                MediaItem.LiveConfiguration.Builder()
-                    .setTargetOffsetMs(PlayerStream.LIVE_TARGET_OFFSET_MS)
-                    .setMinOffsetMs(PlayerStream.LIVE_MIN_OFFSET_MS)
-                    .setMaxOffsetMs(PlayerStream.LIVE_MAX_OFFSET_MS)
-                    .build()
-            )
-        }
         return builder.build()
     }
 
@@ -151,7 +147,7 @@ class PlayerActivity : ComponentActivity() {
         if (i !in urls.indices) return
         index = i
         val title = titles.getOrElse(i) { "" }
-        playbackUrl = urls[i]
+        playbackUrl = PlayerStream.preferredExoUrl(urls[i], live = PlayerStream.isLivePath(urls[i]))
         triedTsFallback = false
         exo.setMediaItem(buildMediaItem(playbackUrl))
         exo.prepare()
