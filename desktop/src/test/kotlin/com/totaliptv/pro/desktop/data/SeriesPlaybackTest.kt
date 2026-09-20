@@ -2,6 +2,7 @@ package com.totaliptv.pro.desktop.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -66,6 +67,17 @@ class SeriesPlaybackTest {
         assertEquals("2-1", SeriesPlayback.nextActionEpisode(eps, 1, 2)?.id)
         assertNull(SeriesPlayback.nextActionEpisode(eps, 2, 1))
         assertNull(SeriesPlayback.nextActionEpisode(listOf(ep(1, 1)), null, null, null))
+    }
+
+    @Test
+    fun nextAfterPlayingS1e1IsS1e2WithDifferentStreamUrl() {
+        val e1 = ep(1, 1)
+        val e2 = ep(1, 2)
+        val next = SeriesPlayback.nextAfterPlaying(listOf(e1, e2), 1, 1, e1.id, e1.streamUrl)
+        assertEquals("1-2", next?.id)
+        assertEquals(e2.streamUrl, next?.streamUrl)
+        assertTrue(next!!.streamUrl != e1.streamUrl)
+        assertFalse(SeriesPlayback.isSameEpisode(e1, next))
     }
 
     @Test

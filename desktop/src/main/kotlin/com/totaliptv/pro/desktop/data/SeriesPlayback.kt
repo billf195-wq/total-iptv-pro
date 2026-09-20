@@ -137,7 +137,24 @@ object SeriesPlayback {
         val url = streamUrl?.trim().orEmpty()
         if (url.isBlank()) return null
         val byUrl = sorted.indexOfFirst { it.streamUrl.trim() == url }
-        return if (byUrl >= 0) sorted.getOrNull(byUrl + 1) else null
+        val next = if (byUrl >= 0) sorted.getOrNull(byUrl + 1) else null
+        return next.takeUnless { candidate ->
+            candidate != null && isSameLaunch(episodeId, streamUrl, candidate)
+        }
+    }
+
+    /** True when [candidate] is the same episode id or stream URL as the playing item. */
+    fun isSameLaunch(episodeId: String?, streamUrl: String?, candidate: SeriesEpisode): Boolean {
+        val wantId = normalizeEpisodeId(episodeId)
+        val haveId = normalizeEpisodeId(candidate.id)
+        if (!wantId.isNullOrBlank() && wantId == haveId) return true
+        val url = streamUrl?.trim().orEmpty()
+        return url.isNotBlank() && url == candidate.streamUrl.trim()
+    }
+
+    fun isSameEpisode(current: SeriesEpisode?, next: SeriesEpisode?): Boolean {
+        if (current == null || next == null) return false
+        return isSameLaunch(current.id, current.streamUrl, next)
     }
 
     /**

@@ -78,6 +78,19 @@ class SeriesLaunchTest {
     }
 
     @Test
+    fun s1e1PlanNextEpisodeIsS1e2WithDifferentStreamUrl() {
+        val e1 = ep(1, 1)
+        val e2 = ep(1, 2)
+        val plan = SeriesLaunch.plan(e1.toMediaItem("Show", 11), listOf(e1, e2), "Show", 11)
+        assertEquals("1-1", plan.currentEpisode?.id)
+        assertEquals("1-2", plan.nextEpisode?.id)
+        assertEquals(e2.streamUrl, plan.nextEpisode?.streamUrl)
+        assertTrue(plan.nextEpisode!!.streamUrl != e1.streamUrl)
+        assertTrue(plan.nextEpisode!!.streamUrl != plan.start.streamUrl)
+        assertEquals(listOf(e1.streamUrl), plan.urls)
+    }
+
+    @Test
     fun nextEpisodeFromCurrentIsSxxEPlusOne() {
         val eps = listOf(ep(1, 4), ep(1, 5), ep(1, 6))
         val item = eps[0].toMediaItem("Show", 1)

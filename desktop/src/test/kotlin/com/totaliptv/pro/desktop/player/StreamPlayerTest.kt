@@ -61,6 +61,30 @@ class StreamPlayerTest {
     }
 
     @Test
+    fun windowsQuitKillsVlcMpvAndFfplayTrees() {
+        val names = StreamPlayer.windowsQuitImageNames("""C:\Program Files\VideoLAN\VLC\vlc.exe""")
+        assertTrue(names.contains("vlc.exe"))
+        assertTrue(names.contains("mpv.exe"))
+        assertTrue(names.contains("ffplay.exe"))
+        assertEquals(
+            listOf("taskkill.exe", "/F", "/T", "/IM", "vlc.exe"),
+            StreamPlayer.windowsKillCommand("vlc.exe")
+        )
+    }
+
+    @Test
+    fun waitForExitRecordsDurationAndExitCode() {
+        StreamPlayer.markLaunch(nowMs = 1_000L)
+        StreamPlayer.markExit(exitCode = 0, nowMs = 9_500L)
+        assertEquals(0, StreamPlayer.lastExitCode)
+        assertEquals(8_500L, StreamPlayer.lastPlaybackDurationMs)
+        StreamPlayer.markLaunch(nowMs = 20_000L)
+        StreamPlayer.markExit(exitCode = 1, nowMs = 21_200L)
+        assertEquals(1, StreamPlayer.lastExitCode)
+        assertEquals(1_200L, StreamPlayer.lastPlaybackDurationMs)
+    }
+
+    @Test
     fun windowsKillTargetsVlcImageEvenFromProgramFilesPath() {
         val names = StreamPlayer.windowsKillImageNames("""C:\Program Files\VideoLAN\VLC\vlc.exe""")
         assertEquals(listOf("vlc.exe"), names)

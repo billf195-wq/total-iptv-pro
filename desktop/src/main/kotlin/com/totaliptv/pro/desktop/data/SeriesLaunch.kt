@@ -42,7 +42,10 @@ object SeriesLaunch {
             current?.episodeNum ?: start.episodeNum,
             current?.id ?: start.id,
             start.streamUrl
-        )
+        )?.takeUnless { candidate ->
+            SeriesPlayback.isSameEpisode(current, candidate) ||
+                SeriesPlayback.isSameLaunch(start.id, start.streamUrl, candidate)
+        }
         val urls = launchUrls(start)
         return SeriesLaunchPlan(
             start = start,

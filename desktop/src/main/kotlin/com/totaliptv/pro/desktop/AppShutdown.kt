@@ -13,14 +13,15 @@ import java.util.concurrent.atomic.AtomicReference
  * TotalIptvPro entries (main + "Next episode") for those two windows.
  *
  * Quit therefore:
- *  1. Disposes the overlay AWT window first (not a Compose application Window)
- *  2. Unregisters hotkeys / stops topmost pumps (without blocking the EDT)
- *  3. Stops VLC
+ *  1. Stops the player (`taskkill /F /T` the VLC/mpv/ffplay tree on Windows)
+ *  2. Disposes the overlay AWT window (not a Compose application Window)
+ *  3. Unregisters hotkeys / stops topmost pumps (without blocking the EDT)
  *  4. Calls Compose `exitApplication()`, then [exitProcess] shortly after
- *  5. [Runtime.halt] as last resort if AWT/Compose shutdown hooks deadlock
+ *  5. [Runtime.halt] quickly if AWT/Compose shutdown hooks deadlock
  *
- * A second Quit while exiting (or within [haltDelayMs]) force-halts so a
- * stuck System.exit cannot loop. Two windows must never keep this process alive.
+ * A second Quit or window-close while exiting force-halts immediately so a
+ * stuck System.exit cannot loop. The Series Next host must not re-show the
+ * main frame after [begin].
  */
 object AppShutdown {
     private val exiting = AtomicBoolean(false)
@@ -42,10 +43,10 @@ object AppShutdown {
     var haltExit: () -> Unit = { Runtime.getRuntime().halt(0) }
 
     @Volatile
-    var forceExitDelayMs: Long = 400L
+    var forceExitDelayMs: Long = 200L
 
     @Volatile
-    var haltDelayMs: Long = 2_000L
+    var haltDelayMs: Long = 600L
 
     fun isExiting(): Boolean = exiting.get()
 
@@ -67,8 +68,8 @@ object AppShutdown {
         firstQuitAtMs.set(0L)
         forceExit = { kotlin.system.exitProcess(0) }
         haltExit = { Runtime.getRuntime().halt(0) }
-        forceExitDelayMs = 400L
-        haltDelayMs = 2_000L
+        forceExitDelayMs = 200L
+        haltDelayMs = 600L
     }
 
     fun requestQuit(
@@ -79,10 +80,11 @@ object AppShutdown {
         exitApplication: () -> Unit
     ) {
         val first = begin()
-        // Overlay first so it cannot re-show the main frame or keep AWT alive.
+        // Player first so leftover VLC cannot outlive the JVM; overlay next so
+        // it cannot re-show the main frame or keep AWT alive.
+        runCatching { stopPlayer() }
         runCatching { disposeOverlay() }
         runCatching { stopHotkeys() }
-        runCatching { stopPlayer() }
         runCatching { stopTopMost() }
         if (!first) {
             haltExit()

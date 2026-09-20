@@ -40,6 +40,25 @@ class PlaybackDebugLogTest {
     }
 
     @Test
+    fun formatLineIncludesShortPlayDurationMs() {
+        val line = PlaybackDebugLog.formatLine(
+            episodeId = "555",
+            season = 2,
+            episodeNum = 3,
+            streamUrl = "http://host.test/series/u/p/555.mp4",
+            playerBinary = "vlc",
+            windows = true,
+            playlist = false,
+            reason = "auto-advance-skipped-short-play",
+            durationMs = 8400,
+            exitCode = 0
+        )
+        assertTrue(line.contains("reason=auto-advance-skipped-short-play"), line)
+        assertTrue(line.contains("durationMs=8400"), line)
+        assertTrue(line.contains("exitCode=0"), line)
+    }
+
+    @Test
     fun formatLineIncludesEpisodeCountAndIndexOnSkipNoNext() {
         val line = PlaybackDebugLog.formatLine(
             episodeId = "909664",

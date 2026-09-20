@@ -48,7 +48,7 @@ Click a **movie** to open detail (plot, cast, Play / Favorite) before playback. 
 
 ### Series next episode (Linux + Windows)
 
-Both platforms launch **one** episode URL. The app starts SxxE(n+1) when the player exits at end of episode. **Do not use VLC’s playlist Next** — it replays the same episode.
+Both platforms launch **one** episode URL. The app starts SxxE(n+1) when the player exits at end of episode after a real play (about 20 seconds; failed/short VLC exits do not auto-advance). **Do not use VLC’s playlist Next** — it replays the same episode. Next never relaunches the same episode id/URL.
 
 - **Linux (GTR):** auto-advance at end of episode. Skip with the always-on-top **Next SxEx** control, the in-app Next button, or **Ctrl+Right** / **Media Next** while Total IPTV Pro is focused. Global hotkeys are not registered (they would need root). Fullscreen VLC often keeps keyboard focus — Alt+Tab back to this app, or wait for the episode to finish.
 - **Windows:** leftover `vlc.exe` is `taskkill`’d; `--ignore-config` / `--no-one-instance`. Skip with the always-on-top **Next SxEx** control or **Ctrl+Right** / **Media Next** (OS hotkeys while a series is playing).
