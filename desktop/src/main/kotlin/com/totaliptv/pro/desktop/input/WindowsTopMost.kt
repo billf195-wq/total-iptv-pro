@@ -114,7 +114,8 @@ internal object WindowsTopMost {
         override fun close() {
             running.set(false)
             thread.interrupt()
-            runCatching { thread.join(500) }
+            // Never join on the EDT during Quit — a blocked close left the
+            // raise loop running and made the main window look like it restarted.
         }
     }
 }

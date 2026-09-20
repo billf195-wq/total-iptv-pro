@@ -10,8 +10,9 @@ package com.totaliptv.pro.desktop
  * 1.2.4: Windows fullscreen Next via Ctrl+Right / Media Next + always-on-top control.
  * 1.2.5: Last-episode UX — overlay/hotkey say "Last episode of this series" instead of looking broken.
  * 1.2.6: Real quit (no overlay restart loop), unfreeze leaving VLC fullscreen, splash version.
+ * 1.2.7: Overlay is not a Compose application Window; quit disposes it then halt-exits.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 18
-    const val VERSION_NAME: String = "1.2.6"
+    const val VERSION_CODE: Int = 19
+    const val VERSION_NAME: String = "1.2.7"
 }
