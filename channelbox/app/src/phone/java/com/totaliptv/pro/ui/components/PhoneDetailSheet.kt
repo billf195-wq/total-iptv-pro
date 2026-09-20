@@ -307,6 +307,28 @@ fun PhoneDetailSheet(
             }
 
             Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = {
+                    if (isSeriesPicker && selectedEpisodeId > 0) {
+                        scope.launch {
+                            val ep = withContext(Dispatchers.IO) {
+                                repository.resolveSeriesEpisodePlayable(enriched, selectedEpisodeId)
+                            }
+                            if (ep == null) {
+                                Toast.makeText(context, "No playable episode", Toast.LENGTH_SHORT).show()
+                            } else {
+                                com.totaliptv.pro.dvr.DvrActions.recordNow(context, ep)
+                            }
+                        }
+                    } else {
+                        com.totaliptv.pro.dvr.DvrActions.recordNow(context, enriched)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (isSeriesPicker) "Record episode" else "Record")
+            }
+            Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)

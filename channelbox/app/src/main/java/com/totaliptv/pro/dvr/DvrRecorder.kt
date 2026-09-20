@@ -6,7 +6,6 @@ import com.totaliptv.pro.TotalIptvProApp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
-import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -21,7 +20,7 @@ class DvrRecorder(
         val recordingsDir: String
     )
 
-    private val store = DvrStore(Path.of(DvrPaths.metadataDir(appContext.filesDir.absolutePath)))
+    private val store = DvrStore(File(DvrPaths.metadataDir(appContext.filesDir.absolutePath)))
     private val activeRef = AtomicReference<Active?>(null)
     private val schedulerStarted = AtomicBoolean(false)
     private val _snapshot = MutableStateFlow(readSnapshot())
@@ -59,13 +58,17 @@ class DvrRecorder(
         title: String,
         streamUrl: String,
         channelId: String? = null,
-        scheduledEndMs: Long? = null
+        scheduledEndMs: Long? = null,
+        contentKind: String = DvrKind.LIVE
     ): RecordingEntry {
         if (streamUrl.isBlank()) error("No stream URL to record")
         if (activeRef.get() != null) error("Already recording on this device — stop it first")
         val now = System.currentTimeMillis()
         val dir = recordingsDir()
-        val file = File(dir, DvrPaths.recordingFileName(channelName, title, now))
+        val kind = DvrKind.normalize(contentKind)
+        val finite = DvrKind.isFiniteDownload(kind, streamUrl)
+        val ext = DvrKind.extensionForUrl(streamUrl, kind)
+        val file = File(dir, DvrPaths.recordingFileName(channelName, title, now, ext))
         val stop = AtomicBoolean(false)
         val entry = RecordingEntry(
             id = UUID.randomUUID().toString(),
@@ -77,7 +80,8 @@ class DvrRecorder(
             channelId = channelId,
             status = RecordingStatus.RECORDING.name,
             scheduledEndMs = scheduledEndMs,
-            captureEngine = "hls"
+            captureEngine = if (finite) "download" else "hls",
+            contentKind = kind
         )
         store.upsert(entry)
         val thread = Thread({
@@ -91,7 +95,11 @@ class DvrRecorder(
             start()
         }
         activeRef.set(Active(entry, stop, thread))
-        lastMessage = "Recording ${entry.title} on this device"
+        lastMessage = if (finite) {
+            "Downloading ${entry.title} on this device"
+        } else {
+            "Recording ${entry.title} on this device"
+        }
         publish()
         DvrRecordingService.start(appContext, entry.title)
         ensureScheduler()
@@ -112,7 +120,8 @@ class DvrRecorder(
         streamUrl: String,
         startMs: Long,
         endMs: Long,
-        channelId: String? = null
+        channelId: String? = null,
+        contentKind: String = DvrKind.LIVE
     ): ScheduledRecording {
         if (streamUrl.isBlank()) error("No stream URL to schedule")
         if (endMs <= startMs) error("Schedule needs a later end time")
@@ -123,7 +132,8 @@ class DvrRecorder(
             streamUrl = streamUrl,
             startMs = startMs,
             endMs = endMs,
-            channelId = channelId
+            channelId = channelId,
+            contentKind = DvrKind.normalize(contentKind)
         )
         store.addSchedule(item)
         lastMessage = "Scheduled ${item.title}"
@@ -175,7 +185,14 @@ class DvrRecorder(
         if (due != null) {
             store.removeSchedule(due.id)
             runCatching {
-                startNow(due.channelName, due.title, due.streamUrl, due.channelId, due.endMs)
+                startNow(
+                    due.channelName,
+                    due.title,
+                    due.streamUrl,
+                    due.channelId,
+                    due.endMs,
+                    due.contentKind
+                )
             }.onFailure { lastMessage = it.message }
             publish()
             return

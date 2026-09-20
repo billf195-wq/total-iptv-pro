@@ -21,6 +21,7 @@ import androidx.tv.material3.Text
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.dvr.DvrActions
+import com.totaliptv.pro.dvr.DvrKind
 import com.totaliptv.pro.dvr.RecordingEntry
 import com.totaliptv.pro.ui.components.FocusableCard
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
@@ -55,7 +56,7 @@ fun RecordingsScreen(
         snapshot.active?.let { active ->
             FocusableCard(
                 title = "Recording now: ${active.title}",
-                subtitle = "${active.channelName} — tap to stop",
+                subtitle = "${DvrKind.label(active.contentKind)} · ${active.channelName} — tap to stop",
                 onClick = { DvrActions.stop(context) }
             )
         }
@@ -69,7 +70,7 @@ fun RecordingsScreen(
                 items(snapshot.schedules, key = { it.id }) { sched ->
                     FocusableCard(
                         title = sched.title,
-                        subtitle = "${sched.channelName} · ${timeFmt.format(Date(sched.startMs))} — tap to cancel",
+                        subtitle = "${DvrKind.label(sched.contentKind)} · ${sched.channelName} · ${timeFmt.format(Date(sched.startMs))} — tap to cancel",
                         onClick = { dvr.cancelSchedule(sched.id) }
                     )
                 }
@@ -79,7 +80,7 @@ fun RecordingsScreen(
             if (library.isEmpty()) {
                 item {
                     Text(
-                        "No recordings yet. Record now from Live, Guide, or while watching. Files stay on this device.",
+                        "No recordings yet. Record Live/Guide, a series episode, or a movie. Files stay on this device.",
                         color = OnCinemaMuted
                     )
                 }
@@ -87,7 +88,7 @@ fun RecordingsScreen(
                 items(library, key = { it.id }) { rec ->
                     FocusableCard(
                         title = rec.title,
-                        subtitle = "${rec.channelName} · ${timeFmt.format(Date(rec.startMs))} · ${rec.statusEnum().name.lowercase()} — play / long-press delete",
+                        subtitle = "${DvrKind.label(rec.contentKind)} · ${rec.channelName} · ${timeFmt.format(Date(rec.startMs))} · ${rec.statusEnum().name.lowercase()} — play / long-press delete",
                         onClick = { playRecording(onPlay, rec) },
                         onLongClick = {
                             dvr.deleteRecording(rec.id)

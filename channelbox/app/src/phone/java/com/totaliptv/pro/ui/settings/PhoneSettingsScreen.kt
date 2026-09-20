@@ -306,7 +306,7 @@ fun PhoneSettingsScreen(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "Recordings save on this phone only. Open the Recordings tab to play or delete.",
+            "Record Live, or download a movie / series episode from detail or while playing. Library shows type. Files stay on this phone.",
             color = OnCinemaMuted,
             style = MaterialTheme.typography.bodySmall
         )

@@ -248,25 +248,27 @@ class PlayerActivity : ComponentActivity() {
         controls.addView(controlBtn("Retry") { retryPlayback() })
         controls.addView(controlBtn("Play with VLC") { openInVlc() })
         controls.addView(controlBtn("Favorite") { toggleFavorite() })
-        if (isLivePlayback()) {
-            controls.addView(controlBtn("Record") {
-                val app = application as TotalIptvProApp
-                val item = com.totaliptv.pro.data.model.MediaItem(
-                    id = mediaId,
-                    name = mediaTitle,
-                    streamUrl = streamUrl,
-                    categoryId = null,
-                    kind = ContentKind.LIVE
-                )
-                if (app.dvr.isRecording()) {
-                    com.totaliptv.pro.dvr.DvrActions.stop(this)
-                    statusView?.text = "Stopping recording…"
+        controls.addView(controlBtn("Record") {
+            val app = application as TotalIptvProApp
+            val item = com.totaliptv.pro.data.model.MediaItem(
+                id = mediaId,
+                name = mediaTitle,
+                streamUrl = streamUrl,
+                categoryId = null,
+                kind = mediaKind
+            )
+            if (app.dvr.isRecording()) {
+                com.totaliptv.pro.dvr.DvrActions.stop(this)
+                statusView?.text = "Stopping recording…"
+            } else {
+                com.totaliptv.pro.dvr.DvrActions.recordNow(this, item)
+                statusView?.text = if (mediaKind == ContentKind.LIVE) {
+                    "Recording on this device…"
                 } else {
-                    com.totaliptv.pro.dvr.DvrActions.recordNow(this, item)
-                    statusView?.text = "Recording on this device…"
+                    "Downloading on this device…"
                 }
-            })
-        }
+            }
+        })
         playNextButton = controlBtn("Play next") {
             val next = cachedNextEpisode
             if (next != null && next.streamUrl.isNotBlank()) {

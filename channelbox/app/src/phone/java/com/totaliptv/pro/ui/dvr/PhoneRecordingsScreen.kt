@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.dvr.DvrActions
+import com.totaliptv.pro.dvr.DvrKind
 import com.totaliptv.pro.dvr.RecordingEntry
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
@@ -62,7 +63,7 @@ fun PhoneRecordingsScreen(
         snapshot.active?.let { active ->
             item {
                 Text("Recording now: ${active.title}", color = OnCinema, fontWeight = FontWeight.SemiBold)
-                Text(active.channelName, color = OnCinemaMuted)
+                Text("${DvrKind.label(active.contentKind)} · ${active.channelName}", color = OnCinemaMuted)
                 Button(onClick = { DvrActions.stop(context) }, modifier = Modifier.fillMaxWidth()) {
                     Text("Stop recording")
                 }
@@ -73,7 +74,7 @@ fun PhoneRecordingsScreen(
             items(snapshot.schedules, key = { it.id }) { sched ->
                 Column(Modifier.fillMaxWidth()) {
                     Text(sched.title, color = OnCinema, fontWeight = FontWeight.Medium)
-                    Text("${sched.channelName} · ${timeFmt.format(Date(sched.startMs))}", color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
+                    Text("${DvrKind.label(sched.contentKind)} · ${sched.channelName} · ${timeFmt.format(Date(sched.startMs))}", color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = { dvr.cancelSchedule(sched.id) }) { Text("Cancel") }
                 }
             }
@@ -83,7 +84,7 @@ fun PhoneRecordingsScreen(
         if (library.isEmpty()) {
             item {
                 Text(
-                    "No recordings yet. Use Record on a live channel. Files stay on this phone.",
+                    "No recordings yet. Record Live, a series episode, or a movie. Files stay on this phone.",
                     color = OnCinemaMuted
                 )
             }
@@ -113,7 +114,7 @@ private fun RecordingPhoneRow(
     Column(Modifier.fillMaxWidth()) {
         Text(rec.title, color = OnCinema, fontWeight = FontWeight.Medium)
         Text(
-            "${rec.channelName} · $timeLabel · ${rec.statusEnum().name.lowercase()}",
+            "${DvrKind.label(rec.contentKind)} · ${rec.channelName} · $timeLabel · ${rec.statusEnum().name.lowercase()}",
             color = OnCinemaMuted,
             style = MaterialTheme.typography.bodySmall
         )

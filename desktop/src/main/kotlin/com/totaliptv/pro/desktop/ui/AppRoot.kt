@@ -29,6 +29,7 @@ import com.totaliptv.pro.desktop.data.SeriesLaunch
 import com.totaliptv.pro.desktop.data.SeriesPlayback
 import com.totaliptv.pro.desktop.data.VodDetail
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
+import com.totaliptv.pro.desktop.dvr.DvrKind
 import com.totaliptv.pro.desktop.dvr.DvrRecorder
 import com.totaliptv.pro.desktop.dvr.RecordingEntry
 import com.totaliptv.pro.desktop.dvr.ScheduledRecording
@@ -56,6 +57,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     var error by remember { mutableStateOf<String?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var playingTitle by remember { mutableStateOf<String?>(null) }
+    var playingItem by remember { mutableStateOf<MediaItem?>(null) }
     var showOnboarding by remember { mutableStateOf(!prefs.onboarded) }
 
     var seriesDetail by remember { mutableStateOf<SeriesDetail?>(null) }
@@ -105,18 +107,19 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
 
     fun recordNow(item: MediaItem, title: String? = null, endMs: Long? = null) {
         if (item.streamUrl.isBlank()) {
-            statusMessage = "No live URL to record"
+            statusMessage = "No stream URL to record"
             return
         }
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
                     DvrRecorder.startNow(
-                        channelName = item.name,
+                        channelName = item.parentSeriesName?.takeIf { it.isNotBlank() } ?: item.name,
                         title = title?.takeIf { it.isNotBlank() } ?: item.name,
                         streamUrl = item.streamUrl,
                         channelId = item.id,
-                        scheduledEndMs = endMs
+                        scheduledEndMs = endMs,
+                        contentKind = item.kind.name
                     )
                 }
                 refreshDvr()
@@ -139,12 +142,13 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
             try {
                 withContext(Dispatchers.IO) {
                     DvrRecorder.schedule(
-                        channelName = item.name,
+                        channelName = item.parentSeriesName?.takeIf { it.isNotBlank() } ?: item.name,
                         title = title,
                         streamUrl = item.streamUrl,
                         startMs = startMs,
                         endMs = endMs,
-                        channelId = item.id
+                        channelId = item.id,
+                        contentKind = item.kind.name
                     )
                 }
                 refreshDvr()
@@ -413,6 +417,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     reason = reason
                 )
                 playingTitle = startWithSeries.name
+                playingItem = startWithSeries
                 error = null
                 val playlist = StreamPlayer.lastLaunchWasPlaylist
                 launch(Dispatchers.IO) {
@@ -422,6 +427,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         withContext(Dispatchers.Main) {
                             if (seq == playSeq.get()) {
                                 playingTitle = null
+                                playingItem = null
                                 setSeriesSession(null)
                             }
                         }
@@ -438,6 +444,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                                 if (seq == playSeq.get()) {
                                     resumeEntries = recorded
                                     playingTitle = null
+                                    playingItem = null
                                     setSeriesSession(null)
                                 }
                             }
@@ -445,6 +452,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                             withContext(Dispatchers.Main) {
                                 if (seq == playSeq.get()) {
                                     playingTitle = null
+                                    playingItem = null
                                     setSeriesSession(null)
                                 }
                             }
@@ -474,6 +482,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         withContext(Dispatchers.Main) {
                             if (seq == playSeq.get()) {
                                 playingTitle = null
+                                playingItem = null
                             }
                         }
                         return@launch
@@ -517,6 +526,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                             withContext(Dispatchers.Main) {
                                 if (seq == playSeq.get()) {
                                     playingTitle = null
+                                    playingItem = null
                                     if (outcome.reason == PlaybackAdvance.REASON_SAME_URL ||
                                         outcome.reason == PlaybackAdvance.REASON_NO_NEXT
                                     ) {
@@ -530,6 +540,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
             } catch (t: Throwable) {
                 error = t.message
                 playingTitle = null
+                playingItem = null
                 setSeriesSession(null)
             }
         }
@@ -583,6 +594,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         playSeq.incrementAndGet()
         StreamPlayer.stop()
         playingTitle = null
+        playingItem = null
         setSeriesSession(null)
     }
 
@@ -597,7 +609,10 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 name = entry.title,
                 streamUrl = entry.filePath,
                 categoryId = null,
-                kind = ContentKind.VOD,
+                kind = when (DvrKind.normalize(entry.contentKind)) {
+                    DvrKind.SERIES -> ContentKind.SERIES
+                    else -> ContentKind.VOD
+                },
                 playable = true
             )
         )
@@ -782,6 +797,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     catalog = catalog!!,
                     prefs = prefs,
                     playingTitle = playingTitle,
+                    playingItem = playingItem,
                     recordingTitle = dvrSnapshot.active?.let { "REC ${it.channelName}" },
                     dvrSnapshot = dvrSnapshot,
                     refreshing = refreshing || loading,

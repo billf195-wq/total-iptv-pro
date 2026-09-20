@@ -228,7 +228,7 @@ fun SettingsScreen(
             val activeDir = prefs.recordingsDir.trim().ifBlank { defaultDir }
             Text("Recordings folder (this computer only)", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
             Text(
-                "Windows default is %LOCALAPPDATA%\\TotalIptvPro\\Recordings. Linux default is ~/Videos/TotalIptvPro/Recordings. Kitchen and GTR each keep their own files — nothing is forced to Bigboybill or a NAS.",
+                "Live is stream capture. Movies and series episodes download into the same library. Windows default is %LOCALAPPDATA%\\TotalIptvPro\\Recordings. Linux default is ~/Videos/TotalIptvPro/Recordings. Kitchen and GTR each keep their own files — nothing is forced to Bigboybill or a NAS.",
                 style = MaterialTheme.typography.bodyMedium
             )
             Spacer(Modifier.height(8.dp))

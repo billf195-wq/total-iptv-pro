@@ -64,19 +64,27 @@ object DvrRecorder {
         title: String,
         streamUrl: String,
         channelId: String? = null,
-        scheduledEndMs: Long? = null
+        scheduledEndMs: Long? = null,
+        contentKind: String = DvrKind.LIVE
     ): RecordingEntry {
         if (streamUrl.isBlank()) error("No stream URL to record")
         if (activeRef.get() != null) error("Already recording on this device — stop it first (one at a time)")
         val now = System.currentTimeMillis()
         val dir = recordingsDir()
         Files.createDirectories(dir)
-        val file = dir.resolve(DvrPaths.recordingFileName(channelName, title, now))
+        val kind = DvrKind.normalize(contentKind)
+        val finite = DvrKind.isFiniteDownload(kind, streamUrl)
+        val ext = DvrKind.extensionForUrl(streamUrl, kind)
+        val file = dir.resolve(DvrPaths.recordingFileName(channelName, title, now, ext))
         val stop = AtomicBoolean(false)
-        val durationSec = DvrSchedule.remainingMs(now, scheduledEndMs)?.let { ms ->
-            (ms / 1000L).coerceAtLeast(1L)
+        val durationSec = if (finite) {
+            null
+        } else {
+            DvrSchedule.remainingMs(now, scheduledEndMs)?.let { ms ->
+                (ms / 1000L).coerceAtLeast(1L)
+            }
         }
-        val session = DvrCapture.start(streamUrl, file, durationSec, stop)
+        val session = DvrCapture.start(streamUrl, file, durationSec, stop, finite = finite)
         val entry = RecordingEntry(
             id = UUID.randomUUID().toString(),
             channelName = channelName,
@@ -88,11 +96,16 @@ object DvrRecorder {
             channelId = channelId,
             status = RecordingStatus.RECORDING.name,
             scheduledEndMs = scheduledEndMs,
-            captureEngine = session.engine.name
+            captureEngine = session.engine.name,
+            contentKind = kind
         )
         store.upsert(entry)
         activeRef.set(ActiveRecording(entry, session, stop))
-        lastMessage = "Recording ${entry.title} → ${file.fileName} (${session.engine.name})"
+        lastMessage = if (finite) {
+            "Downloading ${entry.title} → ${file.fileName}"
+        } else {
+            "Recording ${entry.title} → ${file.fileName} (${session.engine.name})"
+        }
         Thread({
             try {
                 DvrCapture.waitFor(session, stop)
@@ -121,7 +134,8 @@ object DvrRecorder {
         streamUrl: String,
         startMs: Long,
         endMs: Long,
-        channelId: String? = null
+        channelId: String? = null,
+        contentKind: String = DvrKind.LIVE
     ): ScheduledRecording {
         if (streamUrl.isBlank()) error("No stream URL to schedule")
         if (endMs <= startMs) error("Schedule needs a later end time")
@@ -132,7 +146,8 @@ object DvrRecorder {
             streamUrl = streamUrl,
             startMs = startMs,
             endMs = endMs,
-            channelId = channelId
+            channelId = channelId,
+            contentKind = DvrKind.normalize(contentKind)
         )
         store.addSchedule(item)
         lastMessage = "Scheduled ${item.title} on ${item.channelName}"
@@ -187,7 +202,8 @@ object DvrRecorder {
                     title = due.title,
                     streamUrl = due.streamUrl,
                     channelId = due.channelId,
-                    scheduledEndMs = due.endMs
+                    scheduledEndMs = due.endMs,
+                    contentKind = due.contentKind
                 )
             }.onFailure { lastMessage = it.message }
             return

@@ -42,5 +42,7 @@ class DvrPathsTest {
         assertTrue(name.endsWith(".ts"))
         assertFalse(name.contains("/"))
         assertFalse(name.contains(":"))
+        val movie = DvrPaths.recordingFileName("Movies", "Heat", 1_700_000_000_000L, "mp4")
+        assertTrue(movie.endsWith(".mp4"))
     }
 }

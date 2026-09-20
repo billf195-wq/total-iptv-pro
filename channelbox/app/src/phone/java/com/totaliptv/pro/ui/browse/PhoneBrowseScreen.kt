@@ -206,7 +206,7 @@ fun PhoneBrowseScreen(
                             onClick = {
                                 if (item.kind == ContentKind.LIVE) onPlay(item) else detail = item
                             },
-                            onRecord = if (item.kind == ContentKind.LIVE) {
+                            onRecord = if (item.kind == ContentKind.LIVE || item.streamUrl.isNotBlank()) {
                                 { DvrActions.recordNow(context, item) }
                             } else null
                         )

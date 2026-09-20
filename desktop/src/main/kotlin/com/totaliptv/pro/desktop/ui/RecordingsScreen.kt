@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.desktop.data.GuideTime
+import com.totaliptv.pro.desktop.dvr.DvrKind
 import com.totaliptv.pro.desktop.dvr.DvrRecorder
 import com.totaliptv.pro.desktop.dvr.RecordingEntry
 import com.totaliptv.pro.desktop.dvr.RecordingStatus
@@ -69,7 +70,7 @@ fun RecordingsScreen(
                 Icon(Icons.Default.FiberManualRecord, null, tint = TipAccent)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Recording now", color = TipAccent, fontWeight = FontWeight.Bold)
+                    Text("Recording now · ${DvrKind.label(active.contentKind)}", color = TipAccent, fontWeight = FontWeight.Bold)
                     Text("${active.channelName} · ${active.title}", color = TipOnBg, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -90,7 +91,7 @@ fun RecordingsScreen(
                     Column(Modifier.weight(1f)) {
                         Text(sched.title, fontWeight = FontWeight.Medium, color = TipOnBg, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            "${sched.channelName} · ${GuideTime.formatRange(sched.startMs, sched.endMs)}",
+                            "${DvrKind.label(sched.contentKind)} · ${sched.channelName} · ${GuideTime.formatRange(sched.startMs, sched.endMs)}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = TipMuted
                         )
@@ -113,7 +114,7 @@ fun RecordingsScreen(
                     .padding(16.dp)
             ) {
                 Text(
-                    "No recordings yet. Use Record now on Live TV or TV Guide. Files stay on this PC.",
+                    "No recordings yet. Record Live/Guide, a series episode, or a movie. Files stay on this PC.",
                     color = TipMuted
                 )
             }
@@ -144,7 +145,7 @@ private fun RecordingRow(
         Column(Modifier.weight(1f)) {
             Text(rec.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium, color = TipOnBg)
             Text(
-                "${rec.channelName} · ${GuideTime.formatTime(rec.startMs)} · ${formatDuration(rec.durationMs)} · ${rec.statusEnum().name.lowercase()}",
+                "${DvrKind.label(rec.contentKind)} · ${rec.channelName} · ${GuideTime.formatTime(rec.startMs)} · ${formatDuration(rec.durationMs)} · ${rec.statusEnum().name.lowercase()}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TipMuted,
                 maxLines = 1,

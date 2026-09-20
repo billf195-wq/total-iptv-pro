@@ -2,16 +2,14 @@ package com.totaliptv.pro.dvr
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.StandardCopyOption
-import kotlin.io.path.exists
-import kotlin.io.path.readText
+import java.io.File
 
-class DvrStore(private val dir: Path) {
+class DvrStore(private val dir: File) {
+    constructor(dirPath: String) : this(File(dirPath))
+
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefaults = true }
-    private val file: Path = dir.resolve("recordings.json")
-    private val tmp: Path = dir.resolve("recordings.json.tmp")
+    private val file = File(dir, "recordings.json")
+    private val tmp = File(dir, "recordings.json.tmp")
 
     fun load(): DvrFile {
         return try {
@@ -23,12 +21,11 @@ class DvrStore(private val dir: Path) {
     }
 
     fun save(data: DvrFile) {
-        Files.createDirectories(dir)
-        Files.writeString(tmp, json.encodeToString(data))
-        try {
-            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
-        } catch (_: Exception) {
-            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING)
+        dir.mkdirs()
+        tmp.writeText(json.encodeToString(data))
+        if (!tmp.renameTo(file)) {
+            tmp.copyTo(file, overwrite = true)
+            tmp.delete()
         }
     }
 

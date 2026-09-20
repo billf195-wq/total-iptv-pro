@@ -3,12 +3,12 @@ package com.totaliptv.pro.dvr
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.io.path.createTempDirectory
+import java.nio.file.Files
 
 class DvrStoreTest {
     @Test
     fun persistRecordingAndSchedule() {
-        val store = DvrStore(createTempDirectory("android-dvr-"))
+        val store = DvrStore(Files.createTempDirectory("android-dvr-").toFile())
         store.upsert(
             RecordingEntry(
                 id = "r1",
@@ -17,7 +17,8 @@ class DvrStoreTest {
                 startMs = 100L,
                 durationMs = 50L,
                 filePath = "/tmp/a.ts",
-                status = RecordingStatus.COMPLETED.name
+                status = RecordingStatus.COMPLETED.name,
+                contentKind = DvrKind.VOD
             )
         )
         store.addSchedule(
@@ -33,6 +34,7 @@ class DvrStoreTest {
         assertEquals(1, store.recordings().size)
         assertEquals("CNN", store.recordings()[0].channelName)
         assertEquals("/tmp/a.ts", store.recordings()[0].filePath)
+        assertEquals(DvrKind.VOD, store.recordings()[0].contentKind)
         assertEquals(1, store.schedules().size)
         store.removeSchedule("s1")
         store.removeRecording("r1")

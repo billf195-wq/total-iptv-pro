@@ -403,7 +403,7 @@ fun SettingsScreen(
             }
             item {
                 Text(
-                    "Record now from Live, Guide, or the player overlay. Files stay on this Shield/TV — not a shared NAS. HLS/.ts download (no ffmpeg-kit).",
+                    "Record Live/Guide (HLS capture), or download a movie or series episode from detail / the player. Library shows type. Files stay on this Shield/TV — not a shared NAS. No ffmpeg-kit.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
                 )

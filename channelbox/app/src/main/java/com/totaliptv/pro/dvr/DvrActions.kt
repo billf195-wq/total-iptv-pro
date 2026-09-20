@@ -21,9 +21,12 @@ object DvrActions {
                 title = title?.takeIf { it.isNotBlank() } ?: item.name,
                 streamUrl = item.streamUrl,
                 channelId = item.id,
-                scheduledEndMs = endMs
+                scheduledEndMs = endMs,
+                contentKind = item.kind.name
             )
-            Toast.makeText(context, "Recording ${item.name} on this device", Toast.LENGTH_SHORT).show()
+            val kind = DvrKind.normalize(item.kind.name)
+            val verb = if (DvrKind.isFiniteDownload(kind, item.streamUrl)) "Downloading" else "Recording"
+            Toast.makeText(context, "$verb ${item.name} on this device", Toast.LENGTH_SHORT).show()
             true
         } catch (t: Throwable) {
             Toast.makeText(context, t.message ?: "Could not record", Toast.LENGTH_LONG).show()
@@ -39,7 +42,15 @@ object DvrActions {
         endMs: Long
     ): Boolean {
         return try {
-            recorder(context).schedule(item.name, title, item.streamUrl, startMs, endMs, item.id)
+            recorder(context).schedule(
+                item.name,
+                title,
+                item.streamUrl,
+                startMs,
+                endMs,
+                item.id,
+                item.kind.name
+            )
             Toast.makeText(context, "Scheduled $title", Toast.LENGTH_SHORT).show()
             true
         } catch (t: Throwable) {

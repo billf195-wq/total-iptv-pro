@@ -82,6 +82,7 @@ fun BrowseScreen(
     catalog: Catalog,
     prefs: SavedPrefs,
     playingTitle: String?,
+    playingItem: MediaItem? = null,
     recordingTitle: String? = null,
     dvrSnapshot: DvrRecorder.Snapshot,
     refreshing: Boolean,
@@ -168,6 +169,8 @@ fun BrowseScreen(
                 playingStreamUrl = playingStreamUrl,
                 onToggleFavorite = { seriesMedia?.let(onToggleFavorite) },
                 onPlayEpisode = onPlay,
+                onRecordEpisode = { ep -> onRecordNow(ep, ep.name, null) },
+                recordingBusy = recordingTitle != null,
                 onBack = onCloseSeries,
                 onStop = onStop,
                 modifier = Modifier.weight(1f).fillMaxWidth()
@@ -188,6 +191,8 @@ fun BrowseScreen(
                 isFavorite = vodMedia?.let { favoriteKeys.contains(it.id) } == true,
                 onToggleFavorite = { vodMedia?.let(onToggleFavorite) },
                 onPlay = { vodMedia?.let(onPlay) },
+                onRecord = { vodMedia?.let { onRecordNow(it, it.name, null) } },
+                recordingBusy = recordingTitle != null,
                 onBack = onCloseVod,
                 onStop = onStop,
                 modifier = Modifier.weight(1f).fillMaxWidth()
@@ -269,6 +274,11 @@ fun BrowseScreen(
                 if (playingTitle != null) {
                     Text("Playing", style = MaterialTheme.typography.bodyMedium)
                     Text(playingTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, color = TipAccent)
+                    if (recordingTitle == null && playingItem != null && playingItem.streamUrl.isNotBlank()) {
+                        TextButton(onClick = { onRecordNow(playingItem, playingItem.name, null) }) {
+                            Text("Record")
+                        }
+                    }
                     TextButton(onClick = onStop) { Text("Stop player") }
                 }
                 TextButton(onClick = onQuit) {
@@ -807,6 +817,8 @@ private fun VodDetailPane(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onPlay: () -> Unit,
+    onRecord: () -> Unit = {},
+    recordingBusy: Boolean = false,
     onBack: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier
@@ -907,6 +919,21 @@ private fun VodDetailPane(
                                 Text("Play", color = TipOnAmber, fontWeight = FontWeight.Bold)
                             }
                             OutlinedButton(
+                                onClick = onRecord,
+                                enabled = detail.streamUrl.isNotBlank() && !recordingBusy,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TipOnBg),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, TipBlue)
+                            ) {
+                                Icon(
+                                    Icons.Default.FiberManualRecord,
+                                    contentDescription = null,
+                                    tint = TipAccent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("Record", color = TipOnBg, fontWeight = FontWeight.SemiBold)
+                            }
+                            OutlinedButton(
                                 onClick = onToggleFavorite,
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = TipOnBg),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, TipBlue)
@@ -949,6 +976,8 @@ private fun SeriesDetailPane(
     playingStreamUrl: String? = null,
     onToggleFavorite: () -> Unit,
     onPlayEpisode: (MediaItem) -> Unit,
+    onRecordEpisode: (MediaItem) -> Unit = {},
+    recordingBusy: Boolean = false,
     onBack: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier
@@ -1087,7 +1116,20 @@ private fun SeriesDetailPane(
                                 ) {
                                     Text("Next S${nextEp.season}E${nextEp.episodeNum}", color = TipOnBg)
                                 }
-                            } else if (hasResume || playingThisSeries) {
+                            }
+                            if (continueEp != null && continueEp.streamUrl.isNotBlank()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        onRecordEpisode(continueEp.toMediaItem(detail.name, detail.seriesId))
+                                    },
+                                    enabled = !recordingBusy,
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TipOnBg),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, TipBlue)
+                                ) {
+                                    Text("Record S${continueEp.season}E${continueEp.episodeNum}", color = TipOnBg)
+                                }
+                            }
+                            if (nextEp == null && (hasResume || playingThisSeries)) {
                                     Text(
                                     SeriesPlayback.LAST_EPISODE_MESSAGE,
                                     color = TipMuted,
@@ -1154,7 +1196,11 @@ private fun SeriesDetailPane(
                             isFavorite = false,
                             highlighted = highlighted,
                             onClick = { onPlayEpisode(media) },
-                            onToggleFavorite = null
+                            onToggleFavorite = null,
+                            onRecord = if (media.streamUrl.isNotBlank()) {
+                                { onRecordEpisode(media) }
+                            } else null,
+                            recordingBusy = recordingBusy
                         )
                     }
                 }

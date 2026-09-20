@@ -19,7 +19,7 @@ Lean source snapshot imported from Bill Foster’s Bigboybill PC (main + phone +
 - Live categories with logos, movies/series posters
 - Live TV Guide (Xtream `get_short_epg` / `get_simple_data_table`)
 - Favorites, continue watching, Media3 ExoPlayer
-- Personal DVR (1.4.55 / phone 1.4.32): Record now, EPG schedule, library on **this device** (`Android/data/…/Movies/TotalIptvPro/Recordings`)
+- Personal DVR (1.4.55 / phone 1.4.32): Record Live/Guide (HLS/.ts capture + EPG schedule), download a movie or series episode from detail / player, library with type (Live / Movie / Series) on **this device** (`Android/data/…/Movies/TotalIptvPro/Recordings`)
 - In-app update check against a LAN shelf
 
 ## Build

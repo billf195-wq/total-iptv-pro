@@ -30,7 +30,8 @@ class DvrStoreTest {
             durationMs = 3_600_000L,
             filePath = "/tmp/cnn.ts",
             streamUrl = "http://host/live/u/p/1.m3u8",
-            status = RecordingStatus.COMPLETED.name
+            status = RecordingStatus.COMPLETED.name,
+            contentKind = DvrKind.LIVE
         )
         s.upsert(entry)
         val loaded = s.recordings()
@@ -39,7 +40,42 @@ class DvrStoreTest {
         assertEquals("News Hour", loaded[0].title)
         assertEquals("/tmp/cnn.ts", loaded[0].filePath)
         assertEquals(3_600_000L, loaded[0].durationMs)
+        assertEquals(DvrKind.LIVE, loaded[0].contentKind)
         assertTrue(loaded[0].playable())
+    }
+
+    @Test
+    fun movieAndSeriesKindsRoundTrip() {
+        val s = store()
+        s.upsert(
+            RecordingEntry(
+                id = "m1",
+                channelName = "Godfather",
+                title = "The Godfather",
+                startMs = 2L,
+                filePath = "/tmp/godfather.mp4",
+                streamUrl = "http://host/movie/u/p/9.mp4",
+                status = RecordingStatus.COMPLETED.name,
+                contentKind = DvrKind.VOD
+            )
+        )
+        s.upsert(
+            RecordingEntry(
+                id = "e1",
+                channelName = "Show",
+                title = "S1E1",
+                startMs = 3L,
+                filePath = "/tmp/ep.mp4",
+                streamUrl = "http://host/series/u/p/2.mp4",
+                status = RecordingStatus.COMPLETED.name,
+                contentKind = DvrKind.SERIES
+            )
+        )
+        val kinds = s.recordings().associate { it.id to it.contentKind }
+        assertEquals(DvrKind.VOD, kinds["m1"])
+        assertEquals(DvrKind.SERIES, kinds["e1"])
+        assertEquals("Movie", DvrKind.label(kinds["m1"]))
+        assertEquals("Series", DvrKind.label(kinds["e1"]))
     }
 
     @Test
@@ -60,7 +96,8 @@ class DvrStoreTest {
             title = "Movie",
             streamUrl = "http://host/live/u/p/9.m3u8",
             startMs = 2L,
-            endMs = 3L
+            endMs = 3L,
+            contentKind = DvrKind.LIVE
         )
         s.addSchedule(sched)
         assertEquals(1, s.schedules().size)

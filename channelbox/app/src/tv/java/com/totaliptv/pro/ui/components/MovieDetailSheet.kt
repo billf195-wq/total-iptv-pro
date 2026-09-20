@@ -395,6 +395,28 @@ fun MovieDetailSheet(
                         emphasized = false
                     )
                     TopBarChip(
+                        label = if (isSeriesPicker) "Record episode" else "Record",
+                        onClick = {
+                            if (isSeriesPicker && selectedEpisodeId > 0) {
+                                scope.launch {
+                                    val ep = withContext(Dispatchers.IO) {
+                                        repository.resolveSeriesEpisodePlayable(enriched, selectedEpisodeId)
+                                    }
+                                    if (ep == null) {
+                                        android.widget.Toast.makeText(
+                                            context, "No playable episode", android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        com.totaliptv.pro.dvr.DvrActions.recordNow(context, ep)
+                                    }
+                                }
+                            } else {
+                                com.totaliptv.pro.dvr.DvrActions.recordNow(context, enriched)
+                            }
+                        },
+                        emphasized = false
+                    )
+                    TopBarChip(
                         label = "Close",
                         onClick = onDismiss,
                         emphasized = false

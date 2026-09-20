@@ -168,7 +168,7 @@ fun PhoneLiveRow(
                 Text(text = group, style = MaterialTheme.typography.bodySmall, color = muted)
             }
         }
-        if (onRecord != null && item.kind == com.totaliptv.pro.data.model.ContentKind.LIVE) {
+        if (onRecord != null) {
             androidx.compose.material3.TextButton(onClick = onRecord) {
                 Text("Record")
             }

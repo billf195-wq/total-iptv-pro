@@ -29,7 +29,7 @@ object DvrCapture {
         val name: String,
         val kind: Kind
     ) {
-        enum class Kind { FFMPEG, VLC, HLS }
+        enum class Kind { FFMPEG, VLC, HLS, DOWNLOAD }
     }
 
     data class Session(
@@ -91,9 +91,20 @@ object DvrCapture {
         output: Path,
         durationSec: Long?,
         stopFlag: AtomicBoolean,
-        windows: Boolean = AppPaths.isWindows
+        windows: Boolean = AppPaths.isWindows,
+        finite: Boolean = false
     ): Session {
         Files.createDirectories(output.parent)
+        if (finite) {
+            val engine = Engine("download", Engine.Kind.DOWNLOAD)
+            val thread = Thread({
+                runCatching { captureHttp(url, output, stopFlag) }
+            }, "dvr-download").apply {
+                isDaemon = true
+                start()
+            }
+            return Session(null, stopFlag, engine, thread)
+        }
         val engine = detectEngine(windows)
         return when (engine.kind) {
             Engine.Kind.FFMPEG -> {

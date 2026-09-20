@@ -23,7 +23,9 @@ data class RecordingEntry(
     val status: String = RecordingStatus.COMPLETED.name,
     val scheduledEndMs: Long? = null,
     val errorMessage: String? = null,
-    val captureEngine: String? = null
+    val captureEngine: String? = null,
+    /** LIVE, VOD (movie), or SERIES. Unknown/blank reads as LIVE. */
+    val contentKind: String = DvrKind.LIVE
 ) {
     fun statusEnum(): RecordingStatus =
         runCatching { RecordingStatus.valueOf(status) }.getOrDefault(RecordingStatus.COMPLETED)
@@ -44,7 +46,8 @@ data class ScheduledRecording(
     val streamUrl: String,
     val startMs: Long,
     val endMs: Long,
-    val channelId: String? = null
+    val channelId: String? = null,
+    val contentKind: String = DvrKind.LIVE
 ) {
     fun durationMs(): Long = (endMs - startMs).coerceAtLeast(0L)
 }
