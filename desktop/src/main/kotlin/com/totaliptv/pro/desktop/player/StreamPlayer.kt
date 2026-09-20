@@ -33,8 +33,6 @@ object StreamPlayer {
     var lastLaunchWasPlaylist: Boolean = false
         private set
 
-    fun lastPlayerBinary(): String? = lastBinary
-
     fun play(url: String, preferredPlayer: String = "auto"): String =
         playQueue(listOf(url), preferredPlayer)
 
