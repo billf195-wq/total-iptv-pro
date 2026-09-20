@@ -36,6 +36,12 @@ object SeriesNextHotkeys {
         }
     }
 
+    /** Tear down OS hotkeys even if a listener is still registered (real Quit). */
+    fun shutdown() {
+        listeners.clear()
+        stopNative()
+    }
+
     fun requestNext() {
         val fire = {
             val now = System.currentTimeMillis()

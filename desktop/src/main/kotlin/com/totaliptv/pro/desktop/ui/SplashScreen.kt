@@ -3,7 +3,10 @@ package com.totaliptv.pro.desktop.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -13,6 +16,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.res.useResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.totaliptv.pro.desktop.AppVersion
 
 /**
  * Full-screen logo banner shown on launch.
@@ -33,14 +38,30 @@ fun SplashScreen(banner: ImageBitmap? = rememberSplashBanner()) {
             .background(TipBg),
         contentAlignment = Alignment.Center
     ) {
-        if (banner != null) {
-            Image(
-                bitmap = banner,
-                contentDescription = "Total IPTV Pro",
-                modifier = Modifier.fillMaxSize().padding(24.dp),
-                contentScale = ContentScale.Fit,
-                alignment = Alignment.Center
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            if (banner != null) {
+                Image(
+                    bitmap = banner,
+                    contentDescription = SplashBranding.APP_TITLE,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 8.dp),
+                    contentScale = ContentScale.Fit,
+                    alignment = Alignment.Center
+                )
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
+            SplashBrandTitle(
+                versionName = AppVersion.VERSION_NAME,
+                titleSize = 28.sp,
+                versionSize = 16.sp,
+                modifier = Modifier.padding(horizontal = 24.dp)
             )
+            Spacer(Modifier.height(28.dp))
         }
     }
 }

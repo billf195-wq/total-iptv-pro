@@ -38,7 +38,8 @@ fun SettingsScreen(
     playingTitle: String?,
     onSavePrefs: (SavedPrefs) -> Unit,
     onChangeSource: () -> Unit,
-    onStop: () -> Unit
+    onStop: () -> Unit,
+    onQuit: () -> Unit = {}
 ) {
     val available = remember { StreamPlayer.availablePlayers() }
     var player by remember(prefs.preferredPlayer) { mutableStateOf(prefs.preferredPlayer) }
@@ -452,6 +453,14 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = TipMuted
             )
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = onQuit,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TipOnBg)
+            ) {
+                Text("Quit Total IPTV Pro")
+            }
         }
 
         Spacer(Modifier.height(12.dp))

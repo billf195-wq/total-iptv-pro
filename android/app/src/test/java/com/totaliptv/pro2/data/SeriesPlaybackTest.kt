@@ -1,5 +1,6 @@
 package com.totaliptv.pro2.data
 
+import com.totaliptv.pro2.ui.SplashBranding
 import com.totaliptv.pro2.ui.SplashTiming
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -51,6 +52,13 @@ class SeriesPlaybackTest {
     fun splashIsFifteenSecondsNotCatalogHold() {
         assertEquals(15_000L, SplashTiming.DURATION_MS)
         assertTrue(SplashTiming.MAX_CATALOG_HOLD_MS > SplashTiming.DURATION_MS)
+    }
+
+    @Test
+    fun splashTitleKeepsNameAndSmallerVersionSuffix() {
+        assertEquals("Total IPTV Pro", SplashBranding.APP_TITLE)
+        assertEquals("1.0.4", SplashBranding.versionLabel("1.0.4"))
+        assertEquals("1.0.4-debug", SplashBranding.versionLabel(" 1.0.4-debug "))
     }
 
     @Test

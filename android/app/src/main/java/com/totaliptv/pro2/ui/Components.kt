@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,6 +32,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.AsyncImage
+import com.totaliptv.pro2.BuildConfig
 import com.totaliptv.pro2.data.MediaItem
 
 @Composable
@@ -213,15 +215,38 @@ fun AmberButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifie
 
 @Composable
 fun TopBanner(modifier: Modifier = Modifier) {
-    androidx.compose.foundation.Image(
-        painter = androidx.compose.ui.res.painterResource(com.totaliptv.pro2.R.drawable.app_banner),
-        contentDescription = "Total IPTV Pro",
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .height(TipDimens.BannerHeight)
             .background(TipSurface)
             .padding(horizontal = TipDimens.dp(12), vertical = TipDimens.dp(8)),
-        contentScale = ContentScale.Fit,
-        alignment = Alignment.Center
-    )
+        verticalAlignment = Alignment.Bottom
+    ) {
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(com.totaliptv.pro2.R.drawable.app_banner),
+            contentDescription = SplashBranding.APP_TITLE,
+            modifier = Modifier
+                .weight(1f)
+                .height(TipDimens.BannerHeight),
+            contentScale = ContentScale.Fit,
+            alignment = Alignment.CenterStart
+        )
+        Spacer(Modifier.width(TipDimens.dp(10)))
+        Text(
+            text = SplashBranding.APP_TITLE,
+            color = TipGoldText,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = TipDimens.TitleLargeSp,
+            maxLines = 1
+        )
+        Spacer(Modifier.width(TipDimens.dp(8)))
+        Text(
+            text = SplashBranding.versionLabel(BuildConfig.VERSION_NAME),
+            color = TipGoldMuted,
+            fontWeight = FontWeight.Medium,
+            fontSize = TipDimens.BodyMediumSp,
+            maxLines = 1
+        )
+    }
 }

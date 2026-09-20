@@ -17,7 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -30,13 +30,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
+import com.totaliptv.pro.desktop.AppShutdown
 import com.totaliptv.pro.desktop.data.SeriesEpisode
 import com.totaliptv.pro.desktop.data.SeriesPlayback
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
 import com.totaliptv.pro.desktop.input.WindowsTopMost
 import com.totaliptv.pro.desktop.util.AppPaths
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 
 /** Shared with Main so the overlay is a sibling OS window, not nested in the app frame. */
 class SeriesNextHost {
@@ -44,6 +43,12 @@ class SeriesNextHost {
     var darkTheme by mutableStateOf(true)
     @Volatile var onNext: () -> Unit = {}
     @Volatile var onStop: () -> Unit = {}
+
+    fun clear() {
+        session = null
+        onNext = {}
+        onStop = {}
+    }
 }
 
 data class ActiveSeriesPlay(
@@ -77,10 +82,12 @@ fun SeriesNextOverlay(
     Window(
         onCloseRequest = onStop,
         state = state,
+        visible = !AppShutdown.isExiting(),
         title = "Next episode",
         alwaysOnTop = true,
         undecorated = true,
         resizable = false,
+        focusable = false,
         onPreviewKeyEvent = { event ->
             if (SeriesNextHotkeys.isLocalNextKey(event)) {
                 SeriesNextHotkeys.requestNext()
@@ -90,13 +97,11 @@ fun SeriesNextOverlay(
             }
         }
     ) {
-        LaunchedEffect(Unit) {
-            window.isAlwaysOnTop = true
+        DisposableEffect(window) {
             runCatching { window.type = java.awt.Window.Type.UTILITY }
-            while (isActive) {
-                WindowsTopMost.raiseWithoutFocus(window)
-                delay(400)
-            }
+            runCatching { window.isAlwaysOnTop = true }
+            val pump = WindowsTopMost.startRaisePump(window)
+            onDispose { runCatching { pump.close() } }
         }
         TipTheme(darkTheme = darkTheme) {
             Column(

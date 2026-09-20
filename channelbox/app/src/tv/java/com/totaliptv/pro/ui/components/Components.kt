@@ -1,6 +1,7 @@
 package com.totaliptv.pro.ui.components
 
 import androidx.compose.foundation.background
+import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.R
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
@@ -52,6 +53,7 @@ import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
+import com.totaliptv.pro.ui.splash.SplashBranding
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.ClassicDimens
 import com.totaliptv.pro.ui.theme.BrandBluePill
@@ -948,7 +950,8 @@ fun AppTopNav(
     userBadge: String? = null,
     sourceKind: String? = null,
     focusRequester: FocusRequester? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    versionName: String = BuildConfig.VERSION_NAME
 ) {
     Row(
         modifier = modifier
@@ -972,6 +975,26 @@ fun AppTopNav(
                 contentScale = ContentScale.Crop,
                 alignment = Alignment.CenterStart
             )
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = brandTitle.ifBlank { SplashBranding.APP_TITLE },
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = OnCinema,
+                    maxLines = 1
+                )
+                Text(
+                    text = SplashBranding.versionLabel(versionName),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = OnCinemaMuted,
+                    fontSize = 11.sp,
+                    maxLines = 1
+                )
+            }
             Text(
                 text = clockText,
                 style = MaterialTheme.typography.labelSmall,

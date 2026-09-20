@@ -5,12 +5,15 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,6 +32,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -45,6 +49,11 @@ import kotlinx.coroutines.launch
 object SplashTiming {
     const val DURATION_MS: Long = 15_000L
     const val MAX_CATALOG_HOLD_MS: Long = 30_000L
+}
+
+object SplashBranding {
+    const val APP_TITLE = "Total IPTV Pro"
+    fun versionLabel(versionName: String): String = versionName.trim()
 }
 
 object StartupSplashGate {
@@ -116,13 +125,27 @@ fun LogoBannerSplash(
                 contentScale = ContentScale.Fit
             )
             Spacer(Modifier.height(18.dp))
-            Text(
-                text = "Total IPTV Pro",
-                color = Color(0xFFFFE082),
-                fontSize = 28.sp,
-                fontWeight = FontWeight.SemiBold,
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.Center,
                 modifier = Modifier.alpha(titleAlpha.value)
-            )
+            ) {
+                Text(
+                    text = SplashBranding.APP_TITLE,
+                    color = Color(0xFFFFE082),
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = SplashBranding.versionLabel(BuildConfig.VERSION_NAME),
+                    color = Color(0xFFC9A84C),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1
+                )
+            }
             if (!statusMessage.isNullOrBlank()) {
                 Spacer(Modifier.height(14.dp))
                 Text(
