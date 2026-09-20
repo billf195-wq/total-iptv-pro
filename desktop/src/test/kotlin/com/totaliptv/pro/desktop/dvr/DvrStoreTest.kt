@@ -74,8 +74,8 @@ class DvrStoreTest {
         val kinds = s.recordings().associate { it.id to it.contentKind }
         assertEquals(DvrKind.VOD, kinds["m1"])
         assertEquals(DvrKind.SERIES, kinds["e1"])
-        assertEquals("Movie", DvrKind.label(kinds["m1"]))
-        assertEquals("Series", DvrKind.label(kinds["e1"]))
+        assertEquals("Movie", DvrKind.label(kinds.getValue("m1")))
+        assertEquals("Series", DvrKind.label(kinds.getValue("e1")))
     }
 
     @Test

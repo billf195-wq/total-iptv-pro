@@ -123,7 +123,7 @@ object DvrCapture {
                     .start()
                 Session(proc, stopFlag, engine, null)
             }
-            Engine.Kind.HLS -> {
+            Engine.Kind.HLS, Engine.Kind.DOWNLOAD -> {
                 val thread = Thread({
                     runCatching { captureHttp(url, output, stopFlag) }
                 }, "dvr-hls").apply {
@@ -160,11 +160,11 @@ object DvrCapture {
         return when (engine.kind) {
             Engine.Kind.FFMPEG -> "Recording with ffmpeg (copy MPEG-TS)."
             Engine.Kind.VLC -> "ffmpeg not on PATH — recording with VLC file output."
-            Engine.Kind.HLS -> {
+            Engine.Kind.HLS, Engine.Kind.DOWNLOAD -> {
                 if (windows) {
-                    "ffmpeg/VLC not found — downloading HLS/.ts segments. Install ffmpeg (or VLC) for more reliable capture."
+                    "ffmpeg/VLC not found — downloading HLS/.ts segments. Install ffmpeg (or VLC) for more reliable capture. Movies and episodes download the file into the same library."
                 } else {
-                    "ffmpeg/VLC not found — downloading HLS/.ts segments. Install ffmpeg (sudo apt install ffmpeg) for more reliable capture."
+                    "ffmpeg/VLC not found — downloading HLS/.ts segments. Install ffmpeg (sudo apt install ffmpeg) for more reliable capture. Movies and episodes download the file into the same library."
                 }
             }
         }
