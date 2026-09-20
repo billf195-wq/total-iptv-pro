@@ -1,6 +1,8 @@
 package com.totaliptv.pro.desktop
 
+import com.totaliptv.pro.desktop.data.SeriesEpisode
 import com.totaliptv.pro.desktop.input.WindowsTopMost
+import com.totaliptv.pro.desktop.ui.ActiveSeriesPlay
 import com.totaliptv.pro.desktop.ui.SeriesNextHost
 import com.totaliptv.pro.desktop.ui.SplashBranding
 import java.util.concurrent.CopyOnWriteArrayList
@@ -95,7 +97,7 @@ class AppShutdownTest {
     }
 
     @Test
-    fun firstQuitDisposesOverlayThenHotkeysThenPlayer() {
+    fun firstQuitStopsPlayerThenOverlayThenHotkeys() {
         val order = CopyOnWriteArrayList<String>()
         val exits = AtomicInteger(0)
         val halts = AtomicInteger(0)
@@ -113,10 +115,39 @@ class AppShutdownTest {
         )
 
         assertTrue(AppShutdown.isExiting())
-        assertEquals(listOf("overlay", "hotkeys", "player", "topMost", "compose"), order.toList())
+        assertEquals(listOf("player", "overlay", "hotkeys", "topMost", "compose"), order.toList())
         Thread.sleep(80)
         assertEquals(1, exits.get(), "JVM force-exit must run once after Compose teardown")
-        assertEquals(0, halts.get(), "halt is last resort after ~2s, not the first exit")
+        assertEquals(0, halts.get(), "halt is last resort, not the first exit")
+    }
+
+    @Test
+    fun overlaySyncWhileExitingDoesNotReviveHostWindow() {
+        AppShutdown.begin()
+        val host = SeriesNextHost()
+        host.sync(
+            session = ActiveSeriesPlay(
+                episodes = emptyList(),
+                seriesName = "Show",
+                seriesId = 1,
+                current = SeriesEpisode(
+                    id = "1-1",
+                    title = "E1",
+                    season = 1,
+                    episodeNum = 1,
+                    streamUrl = "http://example.test/1.mp4"
+                )
+            ),
+            darkTheme = true,
+            onNext = {},
+            onStop = {}
+        )
+        assertFalse(host.isOverlayWindowAlive())
+        val main = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/Main.kt")
+        val text = main.readText()
+        assertTrue(text.contains("!AppShutdown.isExiting()"))
+        assertTrue(text.contains("StreamPlayer.stop()"))
+        assertTrue(text.contains("seriesNextHost.disposeOverlay()"))
     }
 
     @Test
@@ -138,11 +169,11 @@ class AppShutdownTest {
 
     @Test
     fun splashAndWindowTitleShowDesktopVersion() {
-        assertEquals("1.2.8", AppVersion.VERSION_NAME)
-        assertEquals(20, AppVersion.VERSION_CODE)
+        assertEquals("1.2.9", AppVersion.VERSION_NAME)
+        assertEquals(21, AppVersion.VERSION_CODE)
         assertEquals("Total IPTV Pro", SplashBranding.APP_TITLE)
-        assertEquals("1.2.8", SplashBranding.versionLabel(AppVersion.VERSION_NAME))
-        assertEquals("Total IPTV Pro 1.2.8", SplashBranding.windowTitle(AppVersion.VERSION_NAME))
+        assertEquals("1.2.9", SplashBranding.versionLabel(AppVersion.VERSION_NAME))
+        assertEquals("Total IPTV Pro 1.2.9", SplashBranding.windowTitle(AppVersion.VERSION_NAME))
         val main = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/Main.kt")
         assertTrue(main.isFile, "Main.kt should be readable from desktop/ test cwd")
         val text = main.readText()

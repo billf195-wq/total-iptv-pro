@@ -24,10 +24,12 @@ import com.totaliptv.pro.desktop.data.ResumeStore
 import com.totaliptv.pro.desktop.data.SavedPrefs
 import com.totaliptv.pro.desktop.data.SeriesDetail
 import com.totaliptv.pro.desktop.data.SeriesEpisode
+import com.totaliptv.pro.desktop.data.SeriesAdvance
 import com.totaliptv.pro.desktop.data.SeriesLaunch
 import com.totaliptv.pro.desktop.data.SeriesPlayback
 import com.totaliptv.pro.desktop.data.VodDetail
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
+import com.totaliptv.pro.desktop.player.PlaybackAdvance
 import com.totaliptv.pro.desktop.player.PlaybackDebugLog
 import com.totaliptv.pro.desktop.player.StreamPlayer
 import com.totaliptv.pro.desktop.update.AppUpdateManager
@@ -263,6 +265,10 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 val playerPref = PreferencesStore.load().preferredPlayer
                 val ctx = resolveSeriesContext(item)
                 val windows = AppPaths.isWindows
+                val cachedEpisodes = lastSeriesEpisodes
+                val sameCachedSeries = item.kind == ContentKind.SERIES &&
+                    cachedEpisodes.isNotEmpty() &&
+                    (item.parentSeriesId == null || item.parentSeriesId == lastSeriesId)
                 val plan = if (ctx != null) {
                     lastSeriesEpisodes = ctx.all
                     lastSeriesName = ctx.name
@@ -272,6 +278,13 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         episodes = ctx.all,
                         seriesName = ctx.name,
                         seriesId = ctx.id
+                    )
+                } else if (sameCachedSeries) {
+                    SeriesLaunch.plan(
+                        item = item,
+                        episodes = cachedEpisodes,
+                        seriesName = item.parentSeriesName ?: lastSeriesName,
+                        seriesId = item.parentSeriesId ?: lastSeriesId
                     )
                 } else {
                     SeriesLaunch.single(item)
@@ -310,6 +323,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 val binary = withContext(Dispatchers.IO) {
                     StreamPlayer.playQueue(urls, playerPref)
                 }
+                val launchedAtMs = StreamPlayer.lastLaunchAtMs
                 PlaybackDebugLog.record(
                     episodeId = plan.currentEpisode?.id ?: startWithSeries.id,
                     season = startWithSeries.season ?: plan.currentEpisode?.season,
@@ -359,26 +373,57 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         }
                         return@launch
                     }
-                    // One URL per process (Linux + Windows VLC/mpv, and ffplay) — start SxxE(n+1).
-                    val next = plan.nextEpisode?.toMediaItem(plan.seriesName, plan.seriesId)
-                        ?: SeriesPlayback.nextAfterPlaying(
-                            ctx?.all.orEmpty(),
-                            startWithSeries.season,
-                            startWithSeries.episodeNum,
-                            startWithSeries.id,
-                            startWithSeries.streamUrl
-                        )?.toMediaItem(ctx?.name ?: plan.seriesName, ctx?.id ?: plan.seriesId)
-                    if (next != null && next.streamUrl.isNotBlank()) {
-                        withContext(Dispatchers.Main) {
-                            if (seq == playSeq.get() && !AppShutdown.isExiting()) {
-                                playItem(next, reason = "auto-advance")
+                    // One URL per process (Linux + Windows). Do not treat a 5–15s
+                    // VLC crash / one-instance handoff as EOF, and never relaunch
+                    // the same episodeId/url (GTR same-episode loop).
+                    val durationMs = StreamPlayer.lastPlaybackDurationMs.takeIf { it > 0 }
+                        ?: (System.currentTimeMillis() - launchedAtMs).coerceAtLeast(0L)
+                    val exitCode = StreamPlayer.lastExitCode
+                    val sessionNow = seriesSessionRef.get()
+                    val episodesNow = sessionNow?.episodes?.ifEmpty { lastSeriesEpisodes }
+                        ?: lastSeriesEpisodes.ifEmpty { plan.allEpisodes }.ifEmpty { ctx?.all.orEmpty() }
+                    val outcome = SeriesAdvance.afterNaturalEnd(
+                        start = startWithSeries,
+                        plan = plan,
+                        episodes = episodesNow,
+                        seriesName = plan.seriesName.ifBlank { sessionNow?.seriesName ?: lastSeriesName },
+                        seriesId = plan.seriesId ?: sessionNow?.seriesId ?: lastSeriesId,
+                        durationMs = durationMs,
+                        exitCode = exitCode
+                    )
+                    PlaybackDebugLog.record(
+                        episodeId = plan.currentEpisode?.id ?: startWithSeries.id,
+                        season = startWithSeries.season ?: plan.currentEpisode?.season,
+                        episodeNum = startWithSeries.episodeNum ?: plan.currentEpisode?.episodeNum,
+                        streamUrl = startWithSeries.streamUrl,
+                        playerBinary = binary,
+                        windows = windows,
+                        playlist = playlist,
+                        reason = when (outcome) {
+                            is SeriesAdvance.Outcome.PlayNext -> outcome.reason
+                            is SeriesAdvance.Outcome.Stop -> outcome.reason
+                        },
+                        durationMs = durationMs,
+                        exitCode = exitCode
+                    )
+                    when (outcome) {
+                        is SeriesAdvance.Outcome.PlayNext -> {
+                            withContext(Dispatchers.Main) {
+                                if (seq == playSeq.get() && !AppShutdown.isExiting()) {
+                                    playItem(outcome.item, reason = outcome.reason)
+                                }
                             }
                         }
-                    } else {
-                        withContext(Dispatchers.Main) {
-                            if (seq == playSeq.get()) {
-                                playingTitle = null
-                                setSeriesSession(null)
+                        is SeriesAdvance.Outcome.Stop -> {
+                            withContext(Dispatchers.Main) {
+                                if (seq == playSeq.get()) {
+                                    playingTitle = null
+                                    if (outcome.reason == PlaybackAdvance.REASON_SAME_URL ||
+                                        outcome.reason == PlaybackAdvance.REASON_NO_NEXT
+                                    ) {
+                                        setSeriesSession(null)
+                                    }
+                                }
                             }
                         }
                     }
@@ -395,40 +440,44 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         if (AppShutdown.isExiting()) return
         val session = seriesSessionRef.get()
         val episodes = session?.episodes?.ifEmpty { lastSeriesEpisodes } ?: lastSeriesEpisodes
-        val next = session?.next
-            ?: SeriesPlayback.nextAfterPlaying(
-                episodes,
-                session?.current?.season,
-                session?.current?.episodeNum,
-                session?.current?.id,
-                session?.current?.streamUrl
-            )
-        if (next == null || next.streamUrl.isBlank()) {
-            val (eps, idx) = SeriesPlayback.indexInSeries(
-                episodes,
-                session?.current?.season,
-                session?.current?.episodeNum,
-                session?.current?.id,
-                session?.current?.streamUrl
-            )
-            PlaybackDebugLog.record(
-                episodeId = session?.current?.id,
-                season = session?.current?.season,
-                episodeNum = session?.current?.episodeNum,
-                streamUrl = session?.current?.streamUrl.orEmpty(),
-                playerBinary = "-",
-                windows = AppPaths.isWindows,
-                playlist = StreamPlayer.lastLaunchWasPlaylist,
-                reason = "skip-no-next",
-                episodeCount = eps,
-                episodeIndex = idx
-            )
-            statusMessage = SeriesPlayback.LAST_EPISODE_MESSAGE
-            return
-        }
         val name = session?.seriesName ?: lastSeriesName
         val id = session?.seriesId ?: lastSeriesId
-        playItem(next.toMediaItem(name, id), reason = "skip")
+        val outcome = SeriesAdvance.afterSkip(
+            current = session?.current,
+            plannedNext = session?.next,
+            episodes = episodes,
+            seriesName = name,
+            seriesId = id
+        )
+        when (outcome) {
+            is SeriesAdvance.Outcome.PlayNext -> {
+                playItem(outcome.item, reason = outcome.reason)
+            }
+            is SeriesAdvance.Outcome.Stop -> {
+                val (eps, idx) = SeriesPlayback.indexInSeries(
+                    episodes,
+                    session?.current?.season,
+                    session?.current?.episodeNum,
+                    session?.current?.id,
+                    session?.current?.streamUrl
+                )
+                PlaybackDebugLog.record(
+                    episodeId = session?.current?.id,
+                    season = session?.current?.season,
+                    episodeNum = session?.current?.episodeNum,
+                    streamUrl = session?.current?.streamUrl.orEmpty(),
+                    playerBinary = "-",
+                    windows = AppPaths.isWindows,
+                    playlist = StreamPlayer.lastLaunchWasPlaylist,
+                    reason = outcome.reason,
+                    episodeCount = eps,
+                    episodeIndex = idx
+                )
+                if (outcome.reason == "skip-no-next") {
+                    statusMessage = SeriesPlayback.LAST_EPISODE_MESSAGE
+                }
+            }
+        }
     }
 
     fun stopPlayback() {

@@ -57,7 +57,9 @@ object PlaybackDebugLog {
         playlist: Boolean,
         reason: String,
         episodeCount: Int? = null,
-        episodeIndex: Int? = null
+        episodeIndex: Int? = null,
+        durationMs: Long? = null,
+        exitCode: Int? = null
     ): String {
         val sxex = when {
             season != null && episodeNum != null -> "S${season}E${episodeNum}"
@@ -89,6 +91,14 @@ object PlaybackDebugLog {
                 append(" idx=")
                 append(episodeIndex)
             }
+            if (durationMs != null) {
+                append(" durationMs=")
+                append(durationMs)
+            }
+            if (exitCode != null) {
+                append(" exitCode=")
+                append(exitCode)
+            }
         }
     }
 
@@ -102,7 +112,9 @@ object PlaybackDebugLog {
         playlist: Boolean,
         reason: String,
         episodeCount: Int? = null,
-        episodeIndex: Int? = null
+        episodeIndex: Int? = null,
+        durationMs: Long? = null,
+        exitCode: Int? = null
     ) {
         runCatching {
             val dir = AppPaths.configDir
@@ -119,7 +131,9 @@ object PlaybackDebugLog {
                 playlist = playlist,
                 reason = reason,
                 episodeCount = episodeCount,
-                episodeIndex = episodeIndex
+                episodeIndex = episodeIndex,
+                durationMs = durationMs,
+                exitCode = exitCode
             )
             Files.writeString(
                 path,

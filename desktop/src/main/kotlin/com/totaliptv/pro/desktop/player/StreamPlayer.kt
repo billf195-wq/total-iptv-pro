@@ -7,9 +7,9 @@ import java.io.File
  * Plays streams via an external player (Linux / Windows).
  * Prefers configured player, else VLC → mpv → ffplay.
  *
- * Series (1.2.8, Linux + Windows): always start **one** episode URL. AppRoot
- * sequential-plays SxxE(n+1) when that process exits. VLC’s own playlist Next
- * will not advance (one-item playlist by design).
+ * Series (1.2.9, Linux + Windows): always start **one** episode URL. AppRoot
+ * sequential-plays SxxE(n+1) when that process exits after a real play
+ * (≥20s, exit 0). VLC’s own playlist Next will not advance (one-item playlist).
  *
  * Windows VLC extra (1.2.2): `taskkill` leftover `vlc.exe` and `--ignore-config`
  * so installer vlcrc one-instance cannot steal the launch.
@@ -29,6 +29,18 @@ object StreamPlayer {
     @Volatile
     var lastLaunchWasPlaylist: Boolean = false
         private set
+    @Volatile
+    var lastLaunchAtMs: Long = 0L
+        private set
+    @Volatile
+    var lastExitCode: Int? = null
+        private set
+    @Volatile
+    var lastPlaybackDurationMs: Long = 0L
+        private set
+
+    /** Windows Quit: kill every player image we launch, not only the last binary. */
+    internal val WINDOWS_QUIT_IMAGES: List<String> = listOf("vlc.exe", "mpv.exe", "ffplay.exe")
 
     fun play(url: String, preferredPlayer: String = "auto"): String =
         playQueue(listOf(url), preferredPlayer)
@@ -53,8 +65,9 @@ object StreamPlayer {
         lastLaunchWasPlaylist = resolved.playlist
         lastBinary = resolved.command.first()
         if (AppPaths.isWindows) {
-            killLeftoverWindowsPlayers(resolved.command.first())
+            killWindowsPlayerTree(resolved.command.first())
         }
+        markLaunch()
         current = ProcessBuilder(resolved.command)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
@@ -66,8 +79,7 @@ object StreamPlayer {
         stoppedByUser = true
         stopProcessOnly()
         if (AppPaths.isWindows) {
-            val bin = currentBinaryHint()
-            if (bin != null) killLeftoverWindowsPlayers(bin)
+            killWindowsPlayerTree(currentBinaryHint())
         }
     }
 
@@ -87,13 +99,25 @@ object StreamPlayer {
     fun waitForExit(): Boolean {
         val proc = current ?: return false
         return try {
-            proc.waitFor()
+            val code = proc.waitFor()
+            markExit(code)
             val natural = !stoppedByUser
             if (current === proc) current = null
             natural
         } catch (_: InterruptedException) {
             false
         }
+    }
+
+    internal fun markLaunch(nowMs: Long = System.currentTimeMillis()) {
+        lastLaunchAtMs = nowMs
+        lastExitCode = null
+        lastPlaybackDurationMs = 0L
+    }
+
+    internal fun markExit(exitCode: Int, nowMs: Long = System.currentTimeMillis()) {
+        lastExitCode = exitCode
+        lastPlaybackDurationMs = (nowMs - lastLaunchAtMs).coerceAtLeast(0L)
     }
 
     fun availablePlayers(): List<String> {
@@ -220,8 +244,16 @@ object StreamPlayer {
     internal fun windowsKillCommand(imageName: String): List<String> =
         listOf("taskkill.exe", "/F", "/T", "/IM", imageName)
 
-    private fun killLeftoverWindowsPlayers(binary: String) {
-        for (image in windowsKillImageNames(binary)) {
+    internal fun windowsQuitImageNames(extraBinary: String? = null): List<String> {
+        val images = linkedSetOf<String>()
+        images += WINDOWS_QUIT_IMAGES
+        extraBinary?.let { images += windowsKillImageNames(it) }
+        return images.toList()
+    }
+
+    /** taskkill /F /T the VLC/mpv/ffplay tree so Quit leaves zero player processes. */
+    internal fun killWindowsPlayerTree(extraBinary: String? = null) {
+        for (image in windowsQuitImageNames(extraBinary)) {
             runCatching {
                 ProcessBuilder(windowsKillCommand(image))
                     .redirectError(ProcessBuilder.Redirect.DISCARD)
