@@ -38,7 +38,7 @@ import com.totaliptv.pro.ui.browse.PhoneBrowseScreen
 import com.totaliptv.pro.ui.home.PhoneHomeScreen
 import com.totaliptv.pro.ui.onboarding.OnboardingScreen
 import com.totaliptv.pro.ui.player.PlayerActivity
-import com.totaliptv.pro.ui.StartupSplash
+import com.totaliptv.pro.ui.LogoBannerSplash
 import com.totaliptv.pro.ui.StartupSplashGate
 import com.totaliptv.pro.ui.search.PhoneSearchScreen
 import com.totaliptv.pro.ui.settings.PhoneSettingsScreen
@@ -155,7 +155,7 @@ private fun PhoneAppRoot(
     }
 
     if (!splashDone) {
-        StartupSplash(
+        LogoBannerSplash(
             ready = prefsReady,
             statusMessage = if (prefsReady) null else "Starting…",
             onFinished = { splashDone = true }

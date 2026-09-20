@@ -34,25 +34,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Logo banner duration shared with desktop and Pro2.
- * 15s is the logo splash; 30s is a separate catalog-hold cap.
+ * Cold-start logo banner: stays up for [SplashTiming.DURATION_MS], then until
+ * [ready] or [SplashTiming.MAX_CATALOG_HOLD_MS]. Named distinctly so it cannot
+ * clash with an old `StartupSplash` left in the TV source set.
  */
-object SplashTiming {
-    const val DURATION_MS: Long = 15_000L
-    const val MAX_CATALOG_HOLD_MS: Long = 30_000L
-}
-
-/**
- * Cold-start splash: logo stays up for [SplashTiming.DURATION_MS], then until
- * [ready] (catalog update done) or [SplashTiming.MAX_CATALOG_HOLD_MS].
- * Skipped on subsequent shows via [StartupSplashGate].
- */
-object StartupSplashGate {
-    @Volatile var shownThisProcess: Boolean = false
-}
-
 @Composable
-fun StartupSplash(
+fun LogoBannerSplash(
     ready: Boolean = true,
     statusMessage: String? = "Updating Live / Movies / Series...",
     onFinished: () -> Unit
@@ -86,7 +73,6 @@ fun StartupSplash(
         minLogoDone = true
     }
 
-    // Leave when the 15s logo has elapsed AND catalog is ready
     LaunchedEffect(ready, minLogoDone) {
         if (ready && minLogoDone) {
             delay(280)
@@ -94,7 +80,6 @@ fun StartupSplash(
         }
     }
 
-    // Separate catalog-hold cap — never block app start forever
     LaunchedEffect(Unit) {
         delay(SplashTiming.MAX_CATALOG_HOLD_MS)
         finishOnce()
