@@ -9,8 +9,8 @@ import java.time.temporal.ChronoUnit
  * TV Guide clock, hour ticks, program ranges, and now-line.
  *
  * Always uses the **computer timezone** ([ZoneId.systemDefault]) — never a
- * hardcoded zone such as America/Chicago. If the OS is set to Central, the
- * lineup shows Central; change the OS zone and the guide follows.
+ * hardcoded IANA zone. If the OS is set to Central, the lineup shows Central;
+ * change the OS zone and the guide follows.
  *
  * Epoch milliseconds are UTC instants. Display converts Instant → local zone.
  * Do not treat epoch ms as a local wall-clock LocalDateTime.

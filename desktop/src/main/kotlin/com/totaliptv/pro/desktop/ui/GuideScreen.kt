@@ -33,7 +33,7 @@ import com.totaliptv.pro.desktop.data.MediaItem
 /**
  * Live TV guide: category chips, channel list, and program timeline.
  * Clock, hour ticks, program ranges, and the now-line use [GuideTime]
- * ([ZoneId.systemDefault]) — no in-app timezone override.
+ * (OS default zone) — no in-app timezone override.
  * Selecting a program/channel plays that live stream.
  */
 @Composable
