@@ -98,7 +98,12 @@ fun BrowseScreen(
     onLogout: () -> Unit,
     onSavePrefs: (SavedPrefs) -> Unit,
     onNeedEpg: (MediaItem) -> Unit,
-    onResumeEntry: (ResumeStore.ResumeEntry, MediaItem?) -> Unit
+    onResumeEntry: (ResumeStore.ResumeEntry, MediaItem?) -> Unit,
+    playingSeriesId: Int? = null,
+    playingSeason: Int? = null,
+    playingEpisodeNum: Int? = null,
+    playingEpisodeId: String? = null,
+    playingStreamUrl: String? = null
 ) {
     var nav by remember { mutableStateOf(MainNav.HOME) }
     var selectedCategoryId by remember { mutableStateOf<String?>(null) }
@@ -140,6 +145,11 @@ fun BrowseScreen(
                 resumeSeason = resume?.season,
                 resumeEpisodeNum = resume?.episodeNum,
                 resumeEpisodeId = resume?.episodeId,
+                playingThisSeries = playingSeriesId != null && playingSeriesId == seriesDetail?.seriesId,
+                playingSeason = playingSeason,
+                playingEpisodeNum = playingEpisodeNum,
+                playingEpisodeId = playingEpisodeId,
+                playingStreamUrl = playingStreamUrl,
                 onToggleFavorite = { seriesMedia?.let(onToggleFavorite) },
                 onPlayEpisode = onPlay,
                 onBack = onCloseSeries,
@@ -876,6 +886,11 @@ private fun SeriesDetailPane(
     resumeSeason: Int? = null,
     resumeEpisodeNum: Int? = null,
     resumeEpisodeId: String? = null,
+    playingThisSeries: Boolean = false,
+    playingSeason: Int? = null,
+    playingEpisodeNum: Int? = null,
+    playingEpisodeId: String? = null,
+    playingStreamUrl: String? = null,
     onToggleFavorite: () -> Unit,
     onPlayEpisode: (MediaItem) -> Unit,
     onBack: () -> Unit,
@@ -967,9 +982,19 @@ private fun SeriesDetailPane(
                         val continueEp = SeriesPlayback.continueEpisode(
                             detail.episodes, resumeSeason, resumeEpisodeNum, resumeEpisodeId
                         )
-                        val nextEp = SeriesPlayback.nextActionEpisode(
-                            detail.episodes, resumeSeason, resumeEpisodeNum, resumeEpisodeId
-                        )
+                        val nextEp = if (playingThisSeries) {
+                            SeriesPlayback.nextAfterPlaying(
+                                detail.episodes,
+                                playingSeason,
+                                playingEpisodeNum,
+                                playingEpisodeId,
+                                playingStreamUrl
+                            )
+                        } else {
+                            SeriesPlayback.nextActionEpisode(
+                                detail.episodes, resumeSeason, resumeEpisodeNum, resumeEpisodeId
+                            )
+                        }
                         val hasResume = resumeSeason != null || resumeEpisodeNum != null || !resumeEpisodeId.isNullOrBlank()
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (continueEp != null) {

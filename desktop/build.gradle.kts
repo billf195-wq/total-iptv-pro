@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.totaliptv.pro"
-version = "1.2.3"
+version = "1.2.4"
 
 repositories {
     mavenCentral()
@@ -26,6 +26,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("net.java.dev.jna:jna:5.14.0")
+    implementation("net.java.dev.jna:jna-platform:5.14.0")
 
     testImplementation(kotlin("test"))
 }
@@ -45,7 +47,7 @@ compose.desktop {
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi
             )
             packageName = "TotalIptvPro"
-            packageVersion = "1.2.3"
+            packageVersion = "1.2.4"
             description = "Total IPTV Pro — desktop IPTV player (Linux & Windows)"
             linux {
                 packageName = "total-iptv-pro"

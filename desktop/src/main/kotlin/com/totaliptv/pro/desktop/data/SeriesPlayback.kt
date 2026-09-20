@@ -71,7 +71,11 @@ object SeriesPlayback {
         }
     }
 
-    /** Current episode through the end of the series (for external-player playlists). */
+    /**
+     * Current episode through the end of the series (Linux VLC M3U queue).
+     * If SxxExx / episode id was provided but did not match, return empty rather
+     * than restarting at S01E01 — the caller should play the clicked URL instead.
+     */
     fun remainingFrom(
         episodes: List<SeriesEpisode>,
         season: Int?,
@@ -81,7 +85,9 @@ object SeriesPlayback {
         val sorted = sortedEpisodes(episodes)
         if (sorted.isEmpty()) return emptyList()
         val idx = indexOfEpisode(sorted, season, episodeNum, episodeId)
-        return if (idx >= 0) sorted.drop(idx) else sorted
+        if (idx >= 0) return sorted.drop(idx)
+        val hadIdentity = season != null || episodeNum != null || !normalizeEpisodeId(episodeId).isNullOrBlank()
+        return if (hadIdentity) emptyList() else sorted
     }
 
     /** Last watched episode if still in the list, else first episode. */
@@ -109,5 +115,26 @@ object SeriesPlayback {
     ): SeriesEpisode? {
         val current = continueEpisode(episodes, season, episodeNum, episodeId) ?: return null
         return nextEpisode(episodes, current.season, current.episodeNum, current.id)
+    }
+
+    /**
+     * Episode after whatever is actually playing. Id / SxxExx first, then exact
+     * stream URL — never S01E01 just because lookup missed.
+     */
+    fun nextAfterPlaying(
+        episodes: List<SeriesEpisode>,
+        season: Int?,
+        episodeNum: Int?,
+        episodeId: String? = null,
+        streamUrl: String? = null
+    ): SeriesEpisode? {
+        val sorted = sortedEpisodes(episodes)
+        if (sorted.isEmpty()) return null
+        val idx = indexOfEpisode(sorted, season, episodeNum, episodeId)
+        if (idx >= 0) return sorted.getOrNull(idx + 1)
+        val url = streamUrl?.trim().orEmpty()
+        if (url.isBlank()) return null
+        val byUrl = sorted.indexOfFirst { it.streamUrl.trim() == url }
+        return if (byUrl >= 0) sorted.getOrNull(byUrl + 1) else null
     }
 }

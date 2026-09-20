@@ -17,7 +17,8 @@ import java.nio.file.Files
  *  1. `taskkill /F /T /IM vlc.exe` so a leftover one-instance VLC cannot steal the launch
  *  2. Start **one** episode URL with `--ignore-config --no-one-instance --play-and-exit`
  *  3. AppRoot sequential-plays SxxE(n+1) when that process exits (same as ffplay)
- * In-app **Next SxEx** also kills VLC and starts only that next URL.
+ * Supported Next (Windows): in-app Next, always-on-top Next, Ctrl+Right / Media Next.
+ * VLC’s own playlist Next will not advance (one-item playlist by design).
  */
 object StreamPlayer {
     /** Brief pause after taskkill so Windows releases VLC's one-instance mutex. */

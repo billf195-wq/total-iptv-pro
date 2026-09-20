@@ -41,6 +41,13 @@ class SeriesPlaybackTest {
     }
 
     @Test
+    fun remainingFromDoesNotRestartAtS1WhenIdentityMisses() {
+        val eps = listOf(ep(1, 1), ep(1, 2), ep(2, 1))
+        assertEquals(emptyList(), SeriesPlayback.remainingFrom(eps, 9, 9).map { it.id })
+        assertEquals(emptyList(), SeriesPlayback.remainingFrom(eps, null, null, "ep-missing").map { it.id })
+    }
+
+    @Test
     fun seasonFilterAndContinue() {
         val eps = listOf(ep(1, 1), ep(1, 2), ep(3, 1))
         assertEquals(listOf(1, 3), SeriesPlayback.seasonNumbers(eps))
@@ -59,6 +66,20 @@ class SeriesPlaybackTest {
         assertEquals("2-1", SeriesPlayback.nextActionEpisode(eps, 1, 2)?.id)
         assertNull(SeriesPlayback.nextActionEpisode(eps, 2, 1))
         assertNull(SeriesPlayback.nextActionEpisode(listOf(ep(1, 1)), null, null, null))
+    }
+
+    @Test
+    fun nextAfterPlayingPrefersPlayingEpisodeNotStaleResumeAndNotS1() {
+        val eps = listOf(ep(1, 1), ep(1, 2), ep(1, 3))
+        // Watching E2; stale resume would have been E1 → Next must be E3 not E2.
+        assertEquals("1-3", SeriesPlayback.nextAfterPlaying(eps, 1, 2, "1-2")?.id)
+        assertEquals(
+            "1-3",
+            SeriesPlayback.nextAfterPlaying(eps, null, null, "ep-resume", eps[1].streamUrl)?.id
+        )
+        assertNull(SeriesPlayback.nextAfterPlaying(eps, null, null, "missing", "http://other.test/nope.mp4"))
+        val skip = SeriesPlayback.nextAfterPlaying(eps, 1, 2, "1-2")
+        assertTrue(skip!!.streamUrl != eps[1].streamUrl)
     }
 
     @Test

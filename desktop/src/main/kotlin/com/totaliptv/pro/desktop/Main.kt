@@ -1,5 +1,6 @@
 package com.totaliptv.pro.desktop
 
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.res.useResource
@@ -8,11 +9,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
 import com.totaliptv.pro.desktop.player.StreamPlayer
 import com.totaliptv.pro.desktop.ui.AppRoot
+import com.totaliptv.pro.desktop.ui.SeriesNextHost
+import com.totaliptv.pro.desktop.ui.SeriesNextOverlay
 import java.awt.Dimension
 
 fun main() = application {
+    val seriesNextHost = remember { SeriesNextHost() }
     val state = rememberWindowState(size = DpSize(1280.dp, 800.dp))
     val appIcon = runCatching {
         BitmapPainter(useResource("icon.png") { loadImageBitmap(it) })
@@ -24,9 +29,26 @@ fun main() = application {
         },
         title = "Total IPTV Pro",
         state = state,
-        icon = appIcon
+        icon = appIcon,
+        onPreviewKeyEvent = { event ->
+            if (SeriesNextHotkeys.isLocalNextKey(event)) {
+                SeriesNextHotkeys.requestNext()
+                true
+            } else {
+                false
+            }
+        }
     ) {
         window.minimumSize = Dimension(960, 600)
-        AppRoot()
+        AppRoot(seriesNextHost)
+    }
+    val overlay = seriesNextHost.session
+    if (overlay != null) {
+        SeriesNextOverlay(
+            session = overlay,
+            darkTheme = seriesNextHost.darkTheme,
+            onNext = { seriesNextHost.onNext() },
+            onStop = { seriesNextHost.onStop() }
+        )
     }
 }

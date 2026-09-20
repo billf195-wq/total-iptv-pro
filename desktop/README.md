@@ -46,6 +46,14 @@ Prefs are stored at `~/.config/total-iptv-pro/prefs.json` (plus `resume.json` / 
 
 Click a **movie** to open detail (plot, cast, Play / Favorite) before playback. Click a **channel** to play live. Open a **series** for episodes (also favoritable). Heart icons mark Favorites. Use **Stop player** to close playback.
 
+### Series next episode (Windows vs Linux)
+
+- **Linux:** remaining episodes are a local M3U. VLC’s Next / end-of-file advances inside the player.
+- **Windows:** only the current episode URL is launched (`taskkill` leftover `vlc.exe`, `--ignore-config`, `--no-one-instance`). VLC goes fullscreen over the app, so **do not use VLC’s playlist Next** — it replays the same episode. Use:
+  - the always-on-top **Next SxEx** control, or
+  - **Ctrl+Right** / **Media Next** (registered as a Windows hotkey while a series is playing)
+- Each series launch appends one line to `%APPDATA%\\total-iptv-pro\\playback-debug.log` (episode id, SxxExx, URL host/path tail, player binary).
+
 ## Build
 
 ```bash
