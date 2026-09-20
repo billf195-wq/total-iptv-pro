@@ -41,6 +41,13 @@ class SeriesPlaybackTest {
     }
 
     @Test
+    fun remainingFromDoesNotRestartAtS1WhenIdentityMisses() {
+        val eps = listOf(ep(1, 1), ep(1, 2), ep(2, 1))
+        assertEquals(emptyList(), SeriesPlayback.remainingFrom(eps, 9, 9).map { it.id })
+        assertEquals(emptyList(), SeriesPlayback.remainingFrom(eps, null, null, "ep-missing").map { it.id })
+    }
+
+    @Test
     fun seasonFilterAndContinue() {
         val eps = listOf(ep(1, 1), ep(1, 2), ep(3, 1))
         assertEquals(listOf(1, 3), SeriesPlayback.seasonNumbers(eps))

@@ -196,6 +196,16 @@ fun SettingsScreen(
             } else {
                 Text("Detected: ${available.joinToString(", ")}", style = MaterialTheme.typography.bodyMedium)
             }
+            Spacer(Modifier.height(10.dp))
+            Text("Series next episode", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
+            Text(
+                if (AppPaths.isWindows) {
+                    "Windows plays one episode URL (VLC goes fullscreen over this window). Use the floating Next episode button, Ctrl+Right, or the Media Next key. VLC’s own Next stays on the same episode. Debug: ${AppPaths.configDir.resolve("playback-debug.log")}"
+                } else {
+                    "Linux still launches the remaining-episode M3U so VLC Next / end-of-file advance inside the player. Ctrl+Right also skips when this window is focused."
+                },
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
 
         Spacer(Modifier.height(12.dp))

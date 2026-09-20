@@ -71,7 +71,11 @@ object SeriesPlayback {
         }
     }
 
-    /** Current episode through the end of the series (for external-player playlists). */
+    /**
+     * Current episode through the end of the series (Linux VLC M3U queue).
+     * If SxxExx / episode id was provided but did not match, return empty rather
+     * than restarting at S01E01 — the caller should play the clicked URL instead.
+     */
     fun remainingFrom(
         episodes: List<SeriesEpisode>,
         season: Int?,
@@ -81,7 +85,9 @@ object SeriesPlayback {
         val sorted = sortedEpisodes(episodes)
         if (sorted.isEmpty()) return emptyList()
         val idx = indexOfEpisode(sorted, season, episodeNum, episodeId)
-        return if (idx >= 0) sorted.drop(idx) else sorted
+        if (idx >= 0) return sorted.drop(idx)
+        val hadIdentity = season != null || episodeNum != null || !normalizeEpisodeId(episodeId).isNullOrBlank()
+        return if (hadIdentity) emptyList() else sorted
     }
 
     /** Last watched episode if still in the list, else first episode. */
