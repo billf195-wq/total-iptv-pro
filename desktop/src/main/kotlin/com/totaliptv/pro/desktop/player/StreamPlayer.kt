@@ -11,6 +11,9 @@ import java.io.File
  * sequential-plays SxxE(n+1) when that process exits after a real play
  * (≥20s, exit 0). VLC’s own playlist Next will not advance (one-item playlist).
  *
+ * Live (1.2.10): VLC/mpv/ffplay omit play-and-exit / autoexit so a valid HLS
+ * live window stays up. VOD still uses `--play-and-exit` for sequential next.
+ *
  * Windows VLC extra (1.2.2): `taskkill` leftover `vlc.exe` and `--ignore-config`
  * so installer vlcrc one-instance cannot steal the launch.
  *
@@ -42,19 +45,23 @@ object StreamPlayer {
     /** Windows Quit: kill every player image we launch, not only the last binary. */
     internal val WINDOWS_QUIT_IMAGES: List<String> = listOf("vlc.exe", "mpv.exe", "ffplay.exe")
 
-    fun play(url: String, preferredPlayer: String = "auto"): String =
-        playQueue(listOf(url), preferredPlayer)
+    fun play(url: String, preferredPlayer: String = "auto", live: Boolean = false): String =
+        playQueue(listOf(url), preferredPlayer, live)
 
     /**
      * Play one or more URLs. VLC/mpv always launch a **single** URL (sequential
      * next lives in AppRoot). ffplay is one file.
+     *
+     * [live] omits VLC `--play-and-exit` / ffplay `-autoexit` so a valid HLS
+     * window is not treated as a finished VOD item (Windows 1.2.9 died in 5–12s).
      */
-    fun playQueue(urls: List<String>, preferredPlayer: String = "auto"): String {
+    fun playQueue(urls: List<String>, preferredPlayer: String = "auto", live: Boolean = false): String {
         val clean = urls.map { it.trim() }.filter { it.isNotBlank() }
         require(clean.isNotEmpty()) { "No stream URL to play" }
         stoppedByUser = false
         stopProcessOnly()
-        val resolved = resolvePlayerCommand(clean, preferredPlayer)
+        val treatLive = live || isLiveStreamUrl(clean.first())
+        val resolved = resolvePlayerCommand(clean, preferredPlayer, treatLive)
             ?: error(
                 if (AppPaths.isWindows) {
                     "No media player found. Install VLC (recommended), or add mpv/ffplay to PATH."
@@ -133,7 +140,29 @@ object StreamPlayer {
         val playlist: Boolean
     )
 
-    internal fun resolvePlayerCommand(urls: List<String>, preferred: String): ResolvedCommand? {
+    /**
+     * Xtream live is `{host}/live/{user}/{pass}/{id}.m3u8`. HLS without
+     * `/movie/` or `/series/` is treated as live so `--play-and-exit` is skipped
+     * even if the caller forgot the [live] flag.
+     */
+    internal fun isLiveStreamUrl(url: String): Boolean {
+        val raw = url.trim()
+        if (raw.isBlank()) return false
+        val path = try {
+            java.net.URI(raw).path.orEmpty()
+        } catch (_: Exception) {
+            raw
+        }.lowercase()
+        if (path.contains("/live/")) return true
+        val hls = path.endsWith(".m3u8") || path.endsWith(".m3u")
+        return hls && !path.contains("/movie/") && !path.contains("/series/")
+    }
+
+    internal fun resolvePlayerCommand(
+        urls: List<String>,
+        preferred: String,
+        live: Boolean = false
+    ): ResolvedCommand? {
         val pref = preferred.trim().lowercase()
         val ordered = when (pref) {
             "vlc" -> listOf("vlc", "mpv", "ffplay")
@@ -141,8 +170,9 @@ object StreamPlayer {
             "ffplay" -> listOf("ffplay", "vlc", "mpv")
             else -> listOf("vlc", "mpv", "ffplay")
         }
+        val treatLive = live || isLiveStreamUrl(urls.firstOrNull().orEmpty())
         for (name in ordered) {
-            commandFor(name, urls)?.let { return it }
+            commandFor(name, urls, live = treatLive)?.let { return it }
         }
         return null
     }
@@ -150,26 +180,27 @@ object StreamPlayer {
     internal fun commandFor(
         name: String,
         urls: List<String>,
-        windows: Boolean = AppPaths.isWindows
+        windows: Boolean = AppPaths.isWindows,
+        live: Boolean = false
     ): ResolvedCommand? {
         return when (name) {
             "vlc" -> {
                 val vlc = resolveVlcBinary() ?: return null
                 ResolvedCommand(
-                    vlcCommand(vlc, urls, windows),
+                    vlcCommand(vlc, urls, windows, live),
                     playlist = treatsLaunchAsPlaylist("vlc", urls.size, windows)
                 )
             }
             "mpv" -> {
                 val bin = resolveOnPath("mpv") ?: return null
                 ResolvedCommand(
-                    mpvCommand(bin, urls, windows),
+                    mpvCommand(bin, urls, windows, live),
                     playlist = treatsLaunchAsPlaylist("mpv", urls.size, windows)
                 )
             }
             "ffplay" -> {
                 val bin = resolveOnPath("ffplay") ?: return null
-                ResolvedCommand(ffplayCommand(bin, urls.first()), playlist = false)
+                ResolvedCommand(ffplayCommand(bin, urls.first(), live), playlist = false)
             }
             else -> null
         }
@@ -183,22 +214,28 @@ object StreamPlayer {
     internal fun treatsLaunchAsPlaylist(player: String, urlCount: Int, windows: Boolean): Boolean = false
 
     /**
-     * **First URL only** on Linux and Windows. `--play-and-exit` + `--no-repeat`
-     * so the process ends at EOF and AppRoot can auto-advance.
+     * **First URL only** on Linux and Windows.
+     * VOD/series: `--play-and-exit` + `--no-repeat` so the process ends at EOF
+     * and AppRoot can auto-advance.
+     * Live HLS: do **not** pass `--play-and-exit`. Windows VLC treats a sliding
+     * live window (often 5–12s of segments) as a finished item and quits 0.
      * Windows also uses `--ignore-config` so installer vlcrc one-instance cannot
      * override `--no-one-instance` (1.2.1 still replayed the same episode).
      */
     internal fun vlcCommand(
         binary: String,
         urls: List<String>,
-        windows: Boolean = AppPaths.isWindows
+        windows: Boolean = AppPaths.isWindows,
+        live: Boolean = false
     ): List<String> {
         val args = mutableListOf(binary)
         if (windows) {
             args += "--ignore-config"
         }
         args += "--fullscreen"
-        args += "--play-and-exit"
+        if (!live) {
+            args += "--play-and-exit"
+        }
         args += "--no-one-instance"
         args += "--no-playlist-enqueue"
         args += "--no-repeat"
@@ -206,6 +243,11 @@ object StreamPlayer {
         if (windows) {
             args += "--no-one-instance-when-started-from-file"
             args += "--no-started-from-file"
+        }
+        if (live) {
+            args += "--network-caching=3000"
+            args += "--live-caching=3000"
+            args += "--http-reconnect"
         }
         args += "--meta-title=Total IPTV Pro"
         args += urls.first()
@@ -216,18 +258,29 @@ object StreamPlayer {
     internal fun mpvCommand(
         binary: String,
         urls: List<String>,
-        windows: Boolean = AppPaths.isWindows
+        windows: Boolean = AppPaths.isWindows,
+        live: Boolean = false
     ): List<String> {
         val args = mutableListOf(binary, "--fullscreen", "--force-window=yes", "--title=Total IPTV Pro")
         args += "--loop-file=no"
         args += "--loop-playlist=no"
-        args += "--keep-open=no"
+        if (live) {
+            args += "--keep-open=yes"
+        } else {
+            args += "--keep-open=no"
+        }
         args += urls.first()
         return args
     }
 
-    internal fun ffplayCommand(binary: String, url: String): List<String> =
-        listOf(binary, "-fs", "-autoexit", "-window_title", "Total IPTV Pro", url)
+    internal fun ffplayCommand(binary: String, url: String, live: Boolean = false): List<String> {
+        val args = mutableListOf(binary, "-fs")
+        if (!live) args += "-autoexit"
+        args += "-window_title"
+        args += "Total IPTV Pro"
+        args += url
+        return args
+    }
 
     internal fun windowsKillImageNames(binary: String): List<String> {
         val raw = File(binary).name.ifBlank { binary }

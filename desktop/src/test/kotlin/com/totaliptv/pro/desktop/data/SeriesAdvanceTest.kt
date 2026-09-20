@@ -110,10 +110,36 @@ class SeriesAdvanceTest {
     }
 
     @Test
+    fun liveNaturalEndNeverAdvancesToAnotherChannel() {
+        val live = MediaItem(
+            id = "live-3",
+            name = "CNN",
+            streamUrl = "http://hudv.net/live/u/p/3.m3u8",
+            categoryId = null,
+            kind = ContentKind.LIVE
+        )
+        val plan = SeriesLaunch.single(live)
+        val outcome = SeriesAdvance.afterNaturalEnd(
+            start = live,
+            plan = plan,
+            episodes = emptyList(),
+            seriesName = "",
+            seriesId = null,
+            durationMs = 90_000,
+            exitCode = 0
+        )
+        val stop = assertIs<SeriesAdvance.Outcome.Stop>(outcome)
+        assertEquals(PlaybackAdvance.REASON_SKIPPED_LIVE, stop.reason)
+    }
+
+    @Test
     fun appRootWiresShortPlayGuardAndSameUrlStop() {
         val root = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/ui/AppRoot.kt").readText()
         assertTrue(root.contains("SeriesAdvance.afterNaturalEnd"))
         assertTrue(root.contains("PlaybackAdvance.REASON_SAME_URL"))
         assertTrue(root.contains("SeriesAdvance.afterSkip"))
+        assertTrue(root.contains("live = live"))
+        assertTrue(root.contains("PlaybackAdvance.REASON_SKIPPED_LIVE"))
+        assertTrue(root.contains("StreamPlayer.isLiveStreamUrl"))
     }
 }

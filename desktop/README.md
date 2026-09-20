@@ -50,6 +50,10 @@ Click a **movie** to open detail (plot, cast, Play / Favorite) before playback. 
 
 Both platforms launch **one** episode URL. The app starts SxxE(n+1) when the player exits at end of episode after a real play (about 20 seconds; failed/short VLC exits do not auto-advance). **Do not use VLC’s playlist Next** — it replays the same episode. Next never relaunches the same episode id/URL.
 
+Live channels (Xtream HLS `.m3u8`) do **not** use VLC `--play-and-exit`, so a valid sliding live window stays up. The 1.2.9 VOD short-play guard is unchanged.
+
+**TV Guide** clock, hour ticks, program ranges, and the now-line follow the computer timezone (`ZoneId.systemDefault()`). EPG unix timestamps are UTC instants; they are not treated as local wall-clock values.
+
 - **Linux (GTR):** auto-advance at end of episode. Skip with the always-on-top **Next SxEx** control, the in-app Next button, or **Ctrl+Right** / **Media Next** while Total IPTV Pro is focused. Global hotkeys are not registered (they would need root). Fullscreen VLC often keeps keyboard focus — Alt+Tab back to this app, or wait for the episode to finish.
 - **Windows:** leftover `vlc.exe` is `taskkill`’d; `--ignore-config` / `--no-one-instance`. Skip with the always-on-top **Next SxEx** control or **Ctrl+Right** / **Media Next** (OS hotkeys while a series is playing).
 - On the last episode Next is disabled and shows “Last episode of this series.”

@@ -22,8 +22,9 @@ object SeriesAdvance {
         exitCode: Int?,
         userRequestedNext: Boolean = false
     ): Outcome {
-        if (!userRequestedNext && !PlaybackAdvance.shouldAutoAdvance(durationMs, false, exitCode)) {
-            return Outcome.Stop(PlaybackAdvance.skipReason(durationMs, exitCode))
+        val live = start.kind == ContentKind.LIVE
+        if (!userRequestedNext && !PlaybackAdvance.shouldAutoAdvance(durationMs, false, exitCode, live)) {
+            return Outcome.Stop(PlaybackAdvance.skipReason(durationMs, exitCode, live))
         }
         return resolveDistinctNext(
             start = start,

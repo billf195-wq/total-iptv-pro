@@ -14,8 +14,9 @@ package com.totaliptv.pro.desktop
  * 1.2.8: Version in window title + splash chip; Linux series uses one URL and auto-advances.
  * 1.2.9: Guard auto-advance on short VLC exits; Quit kills the player tree then halt;
  *        Linux next episode must change URL (never relaunch the same episode).
+ * 1.2.10: Windows live HLS stays up (no --play-and-exit); guide follows OS timezone.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 21
-    const val VERSION_NAME: String = "1.2.9"
+    const val VERSION_CODE: Int = 22
+    const val VERSION_NAME: String = "1.2.10"
 }

@@ -544,7 +544,7 @@ class XtreamApi(
         return ChannelEpg(streamId = streamId, programs = programs)
     }
 
-    private fun parseEpgListings(body: String, streamId: Int): List<EpgProgram> {
+    internal fun parseEpgListings(body: String, streamId: Int): List<EpgProgram> {
         if (body.isBlank()) return emptyList()
         val root = runCatching { json.parseToJsonElement(body) }.getOrNull() ?: return emptyList()
         val listings: JsonArray = when (root) {
@@ -585,23 +585,10 @@ class XtreamApi(
         return out
     }
 
-    private fun epgTimeMs(obj: JsonObject, tsKey: String, textKey: String): Long {
-        val ts = obj[tsKey]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
-        if (ts != null && ts > 0) {
-            // Xtream usually uses unix seconds
-            return if (ts < 10_000_000_000L) ts * 1000L else ts
-        }
-        val text = obj[textKey]?.jsonPrimitive?.contentOrNull ?: return 0L
-        val normalized = text.trim().take(19).replace('T', ' ')
-        return try {
-            val parsed = java.time.LocalDateTime.parse(
-                normalized,
-                java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-            )
-            parsed.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-        } catch (_: Exception) {
-            0L
-        }
+    internal fun epgTimeMs(obj: JsonObject, tsKey: String, textKey: String): Long {
+        val ts = obj[tsKey]?.jsonPrimitive?.contentOrNull
+        val text = obj[textKey]?.jsonPrimitive?.contentOrNull
+        return EpgTime.fromFields(ts, text)
     }
 
     private fun decodeEpgText(raw: String?): String {

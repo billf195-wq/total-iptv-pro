@@ -40,6 +40,34 @@ class PlaybackAdvanceTest {
     }
 
     @Test
+    fun liveNeverAutoAdvancesEvenAfterLongPlay() {
+        assertFalse(
+            PlaybackAdvance.shouldAutoAdvance(
+                durationMs = 120_000,
+                userRequestedNext = false,
+                exitCode = 0,
+                live = true
+            )
+        )
+        assertTrue(
+            PlaybackAdvance.shouldAutoAdvance(
+                durationMs = 45_000,
+                userRequestedNext = false,
+                exitCode = 0,
+                live = false
+            )
+        )
+        assertEquals(
+            PlaybackAdvance.REASON_SKIPPED_LIVE,
+            PlaybackAdvance.skipReason(durationMs = 8_000, exitCode = 0, live = true)
+        )
+        assertEquals(
+            PlaybackAdvance.REASON_SKIPPED_SHORT_PLAY,
+            PlaybackAdvance.skipReason(durationMs = 8_000, exitCode = 0, live = false)
+        )
+    }
+
+    @Test
     fun sameLaunchDetectsEpisodeIdOrUrl() {
         assertTrue(
             PlaybackAdvance.isSameLaunch(

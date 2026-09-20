@@ -15,6 +15,7 @@ object PlaybackAdvance {
     const val REASON_AUTO_ADVANCE: String = "auto-advance"
     const val REASON_SKIPPED_SHORT_PLAY: String = "auto-advance-skipped-short-play"
     const val REASON_SKIPPED_EXIT_CODE: String = "auto-advance-skipped-exit-code"
+    const val REASON_SKIPPED_LIVE: String = "auto-advance-skipped-live"
     const val REASON_SAME_URL: String = "auto-advance-same-url"
     const val REASON_SKIP_SAME_URL: String = "skip-same-url"
     const val REASON_NO_NEXT: String = "auto-advance-no-next"
@@ -22,14 +23,17 @@ object PlaybackAdvance {
     fun shouldAutoAdvance(
         durationMs: Long,
         userRequestedNext: Boolean = false,
-        exitCode: Int? = 0
+        exitCode: Int? = 0,
+        live: Boolean = false
     ): Boolean {
         if (userRequestedNext) return true
+        if (live) return false
         if (exitCode != null && exitCode != 0) return false
         return durationMs >= MIN_NATURAL_PLAY_MS
     }
 
-    fun skipReason(durationMs: Long, exitCode: Int?): String {
+    fun skipReason(durationMs: Long, exitCode: Int?, live: Boolean = false): String {
+        if (live) return REASON_SKIPPED_LIVE
         if (exitCode != null && exitCode != 0) return REASON_SKIPPED_EXIT_CODE
         if (durationMs < MIN_NATURAL_PLAY_MS) return REASON_SKIPPED_SHORT_PLAY
         return REASON_AUTO_ADVANCE
