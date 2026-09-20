@@ -57,6 +57,19 @@ if [[ -z "$APP_DIR" || ! -d "$APP_DIR" ]]; then
   exit 1
 fi
 
+RUNTIME_BIN=""
+if [[ -d "$APP_DIR/lib/runtime" ]]; then
+  RUNTIME_BIN="$APP_DIR/lib/runtime/bin"
+elif [[ -d "$APP_DIR/runtime" ]]; then
+  RUNTIME_BIN="$APP_DIR/runtime/bin"
+fi
+if [[ -z "$RUNTIME_BIN" || ! -x "$RUNTIME_BIN/java" ]]; then
+  echo "Bundled runtime is missing $RUNTIME_BIN/java (jlink stripped native commands)."
+  echo "desktop/build.gradle.kts should keep java in the runtime; rebuild createDistributable."
+  find "$APP_DIR" -maxdepth 4 -type d 2>/dev/null | head -40 || true
+  exit 1
+fi
+
 echo "==> Packaging $APP_DIR → $TARBALL_NAME"
 mkdir -p "$SHELF_DIR"
 TMP_TAR="$SHELF_DIR/$TARBALL_NAME"
