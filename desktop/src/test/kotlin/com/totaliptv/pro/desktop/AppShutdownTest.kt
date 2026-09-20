@@ -1,7 +1,9 @@
 package com.totaliptv.pro.desktop
 
 import com.totaliptv.pro.desktop.input.WindowsTopMost
+import com.totaliptv.pro.desktop.ui.SeriesNextHost
 import com.totaliptv.pro.desktop.ui.SplashBranding
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -16,52 +18,105 @@ class AppShutdownTest {
     }
 
     @Test
-    fun beginWinsOnceThenFurtherQuitHardExits() {
+    fun mainComposesOnlyOneApplicationWindow() {
+        val main = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/Main.kt")
+        assertTrue(main.isFile, "Main.kt should be readable from desktop/ test cwd")
+        val text = main.readText()
+        assertEquals(
+            1,
+            Regex("""\bWindow\(""").findAll(text).count(),
+            "a second Compose Window keeps the JVM alive after Quit"
+        )
+        assertFalse(text.contains("SeriesNextOverlay("))
+    }
+
+    @Test
+    fun overlayIsNotAComposeApplicationWindow() {
+        // Two Compose application Windows keep the JVM alive after Quit and
+        // the overlay raise path re-shows the main frame (restart loop).
+        assertFalse(SeriesNextHost.IS_COMPOSE_APPLICATION_WINDOW)
+        val host = SeriesNextHost()
+        host.clear()
+        assertFalse(host.isOverlayWindowAlive())
+    }
+
+    @Test
+    fun beginWinsOnceThenFurtherQuitHalts() {
         val exits = AtomicInteger(0)
+        val halts = AtomicInteger(0)
         AppShutdown.forceExit = { exits.incrementAndGet() }
+        AppShutdown.haltExit = { halts.incrementAndGet() }
         AppShutdown.forceExitDelayMs = 50L
+        AppShutdown.haltDelayMs = 5_000L
 
         assertTrue(AppShutdown.begin())
         assertTrue(AppShutdown.isExiting())
         assertFalse(AppShutdown.begin())
 
         AppShutdown.requestQuit(
-            clearOverlay = {},
-            stopPlayer = {},
+            disposeOverlay = {},
             stopHotkeys = {},
+            stopPlayer = {},
             stopTopMost = {},
             exitApplication = {}
         )
-        assertEquals(1, exits.get(), "second quit must force-exit immediately, not relaunch")
+        assertEquals(1, halts.get(), "second quit must halt immediately, not relaunch")
+        assertEquals(0, exits.get(), "second quit should not wait for System.exit")
     }
 
     @Test
-    fun firstQuitRunsTeardownThenSchedulesOneForceExit() {
+    fun secondQuitWithinTwoSecondsHaltsEvenIfComposeDidNotExit() {
+        val order = CopyOnWriteArrayList<String>()
         val exits = AtomicInteger(0)
-        val overlayCleared = AtomicInteger(0)
-        val playerStopped = AtomicInteger(0)
-        val hotkeysStopped = AtomicInteger(0)
-        val topMostStopped = AtomicInteger(0)
-        val appExited = AtomicInteger(0)
+        val halts = AtomicInteger(0)
         AppShutdown.forceExit = { exits.incrementAndGet() }
-        AppShutdown.forceExitDelayMs = 30L
+        AppShutdown.haltExit = { halts.incrementAndGet() }
+        AppShutdown.forceExitDelayMs = 5_000L
+        AppShutdown.haltDelayMs = 5_000L
 
         AppShutdown.requestQuit(
-            clearOverlay = { overlayCleared.incrementAndGet() },
-            stopPlayer = { playerStopped.incrementAndGet() },
-            stopHotkeys = { hotkeysStopped.incrementAndGet() },
-            stopTopMost = { topMostStopped.incrementAndGet() },
-            exitApplication = { appExited.incrementAndGet() }
+            disposeOverlay = { order += "overlay" },
+            stopHotkeys = { order += "hotkeys" },
+            stopPlayer = { order += "player" },
+            stopTopMost = { order += "topMost" },
+            exitApplication = { order += "compose" }
+        )
+        AppShutdown.requestQuit(
+            disposeOverlay = { order += "overlay2" },
+            stopHotkeys = { order += "hotkeys2" },
+            stopPlayer = { order += "player2" },
+            stopTopMost = { order += "topMost2" },
+            exitApplication = { order += "compose2" }
+        )
+
+        assertEquals(1, halts.get(), "second quit within 2s force-halts")
+        assertEquals(0, exits.get())
+        assertFalse(order.contains("compose2"), "halt path must not wait on Compose exitApplication")
+    }
+
+    @Test
+    fun firstQuitDisposesOverlayThenHotkeysThenPlayer() {
+        val order = CopyOnWriteArrayList<String>()
+        val exits = AtomicInteger(0)
+        val halts = AtomicInteger(0)
+        AppShutdown.forceExit = { exits.incrementAndGet() }
+        AppShutdown.haltExit = { halts.incrementAndGet() }
+        AppShutdown.forceExitDelayMs = 30L
+        AppShutdown.haltDelayMs = 5_000L
+
+        AppShutdown.requestQuit(
+            disposeOverlay = { order += "overlay" },
+            stopHotkeys = { order += "hotkeys" },
+            stopPlayer = { order += "player" },
+            stopTopMost = { order += "topMost" },
+            exitApplication = { order += "compose" }
         )
 
         assertTrue(AppShutdown.isExiting())
-        assertEquals(1, overlayCleared.get())
-        assertEquals(1, playerStopped.get())
-        assertEquals(1, hotkeysStopped.get())
-        assertEquals(1, topMostStopped.get())
-        assertEquals(1, appExited.get())
+        assertEquals(listOf("overlay", "hotkeys", "player", "topMost", "compose"), order.toList())
         Thread.sleep(80)
         assertEquals(1, exits.get(), "JVM force-exit must run once after Compose teardown")
+        assertEquals(0, halts.get(), "halt is last resort after ~2s, not the first exit")
     }
 
     @Test
@@ -83,9 +138,9 @@ class AppShutdownTest {
 
     @Test
     fun splashAppendsDesktopVersionInSmallerSuffix() {
-        assertEquals("1.2.6", AppVersion.VERSION_NAME)
-        assertEquals(18, AppVersion.VERSION_CODE)
+        assertEquals("1.2.7", AppVersion.VERSION_NAME)
+        assertEquals(19, AppVersion.VERSION_CODE)
         assertEquals("Total IPTV Pro", SplashBranding.APP_TITLE)
-        assertEquals("1.2.6", SplashBranding.versionLabel(AppVersion.VERSION_NAME))
+        assertEquals("1.2.7", SplashBranding.versionLabel(AppVersion.VERSION_NAME))
     }
 }

@@ -75,6 +75,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     var seriesSession by remember { mutableStateOf<ActiveSeriesPlay?>(null) }
 
     fun setSeriesSession(session: ActiveSeriesPlay?) {
+        if (session != null && AppShutdown.isExiting()) return
         seriesSessionRef.set(session)
         seriesSession = session
     }
@@ -251,6 +252,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     }
 
     fun playItem(item: MediaItem, reason: String = "play") {
+        if (AppShutdown.isExiting()) return
         if (!item.playable || item.streamUrl.isBlank()) {
             openSeries(item)
             return
@@ -368,7 +370,9 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         )?.toMediaItem(ctx?.name ?: plan.seriesName, ctx?.id ?: plan.seriesId)
                     if (next != null && next.streamUrl.isNotBlank()) {
                         withContext(Dispatchers.Main) {
-                            if (seq == playSeq.get()) playItem(next, reason = "auto-advance")
+                            if (seq == playSeq.get() && !AppShutdown.isExiting()) {
+                                playItem(next, reason = "auto-advance")
+                            }
                         }
                     } else {
                         withContext(Dispatchers.Main) {
@@ -388,6 +392,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     }
 
     fun skipToNextEpisode() {
+        if (AppShutdown.isExiting()) return
         val session = seriesSessionRef.get()
         val episodes = session?.episodes?.ifEmpty { lastSeriesEpisodes } ?: lastSeriesEpisodes
         val next = session?.next
@@ -529,32 +534,27 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
 
     DisposableEffect(Unit) {
         val handle = SeriesNextHotkeys.addListener { skipToNextEpisode() }
-        onDispose { handle.close() }
+        onDispose {
+            handle.close()
+            seriesNextHost?.disposeOverlay()
+        }
     }
 
     SideEffect {
-        if (AppShutdown.isExiting()) return@SideEffect
-        val host = seriesNextHost
-        if (host != null) {
-            host.onNext = { skipToNextEpisode() }
-            host.onStop = { stopPlayback() }
-            host.session = seriesSession
-            host.darkTheme = prefs.themeMode != "light"
+        val host = seriesNextHost ?: return@SideEffect
+        if (AppShutdown.isExiting()) {
+            host.disposeOverlay()
+            return@SideEffect
         }
+        host.sync(
+            session = seriesSession,
+            darkTheme = prefs.themeMode != "light",
+            onNext = { skipToNextEpisode() },
+            onStop = { stopPlayback() }
+        )
     }
 
     TipTheme(darkTheme = prefs.themeMode != "light") {
-        if (seriesNextHost == null) {
-            val overlay = seriesSession
-            if (overlay != null) {
-                SeriesNextOverlay(
-                    session = overlay,
-                    darkTheme = prefs.themeMode != "light",
-                    onNext = { skipToNextEpisode() },
-                    onStop = { stopPlayback() }
-                )
-            }
-        }
         if (showSplash) {
             SplashScreen()
             return@TipTheme
@@ -642,7 +642,10 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     },
                     onToggleFavorite = { toggleFavorite(it) },
                     onStop = { stopPlayback() },
-                    onQuit = onQuit,
+                    onQuit = {
+                        playSeq.incrementAndGet()
+                        onQuit()
+                    },
                     onRefresh = { refreshFromSaved() },
                     onLogout = {
                         stopPlayback()

@@ -41,7 +41,8 @@ internal class WindowsHotkeyPump private constructor(
             }
         }
         thread.interrupt()
-        runCatching { thread.join(1500) }
+        // Do not join here: Quit runs on the EDT. A 1.5s GetMessage join
+        // blocked shutdown so the UI never uncomposed and looked like a relaunch.
     }
 
     companion object {
