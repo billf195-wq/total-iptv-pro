@@ -35,12 +35,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
@@ -149,7 +149,6 @@ fun EpgGuideScreen(
         guideLoadGen = myGen
         status = "Loading guide… | $selectedCategoryName"
         scroll.scrollTo(0)
-        runCatching { listState.scrollToItem(0) }
         focusedChannelId = null
 
         val filterCategoryId = selectedCategoryId.takeUnless { it == GUIDE_ALL_ID }
@@ -175,61 +174,52 @@ fun EpgGuideScreen(
             return@LaunchedEffect
         }
 
-        val ids = channels.map { it.id }
-        val started = channels.mapNotNull { ch ->
-            ch.id.takeIf { repository.peekCachedGuideRow(ch) != null }
-        }.toMutableSet()
         fun withDataCount() = rows.count { it.programs.isNotEmpty() || it.nowNext.now != null }
-        status = if (started.isNotEmpty()) {
-            "Timeline | ${withDataCount()} channels | $selectedCategoryName | loading…"
+        val cachedN = withDataCount()
+        status = if (cachedN > 0) {
+            "Timeline | $cachedN channels | $selectedCategoryName | loading…"
         } else {
             "Loading programming… | $selectedCategoryName"
         }
 
-        val latest = Channel<EpgChannelRow>(Channel.UNLIMITED)
-        val inFlight = AtomicInteger(0)
-        coroutineScope {
-            launch {
-                for (filled in latest) {
-                    if (guideLoadGen != myGen) break
-                    rows = rows.map { if (it.channel.id == filled.channel.id) filled else it }
-                    val n = withDataCount()
-                    status = "Timeline | $n / ${channels.size} | $selectedCategoryName | ${timeFmt.format(Date())}"
-                }
-            }
+        val ids = channels.map { it.id }
+        val alreadyCached = channels.mapNotNull { ch ->
+            ch.id.takeIf { repository.peekCachedGuideRow(ch) != null }
+        }.toSet()
+        val order = GuideEpgLoad.fetchOrder(
+            channelIds = ids,
+            firstVisibleIndex = listState.firstVisibleItemIndex.coerceAtLeast(0),
+            focusedId = focusedChannelId,
+            alreadyStarted = alreadyCached
+        )
 
-            fun launchSlots() {
-                val slots = GuideEpgLoad.PARALLEL - inFlight.get()
-                if (slots <= 0) return
-                val batchIdx = GuideEpgLoad.nextBatch(
-                    channelIds = ids,
-                    firstVisibleIndex = listState.firstVisibleItemIndex,
-                    focusedId = focusedChannelId,
-                    alreadyStarted = started,
-                    limit = slots
-                )
-                batchIdx.forEach { idx ->
-                    started += ids[idx]
-                    inFlight.incrementAndGet()
-                    launch(Dispatchers.IO) {
+        // Fetch on IO, apply rows on Main. supervisorScope: one failure must not cancel the rest.
+        // Do not read Compose state or send a Channel from Dispatchers.IO (1.4.53 dropped all updates).
+        supervisorScope {
+            for (idx in order) {
+                val ch = channels[idx]
+                launch {
+                    val filled = withContext(Dispatchers.IO) {
                         try {
-                            val filled = runCatching { repository.loadGuideRow(channels[idx]) }
-                                .getOrElse { EpgChannelRow(channel = channels[idx]) }
-                            if (guideLoadGen == myGen) latest.send(filled)
-                        } finally {
-                            inFlight.decrementAndGet()
+                            repository.loadGuideRow(ch)
+                        } catch (ce: CancellationException) {
+                            throw ce
+                        } catch (_: Throwable) {
+                            EpgChannelRow(channel = ch)
                         }
                     }
+                    if (!isActive || guideLoadGen != myGen) return@launch
+                    rows = GuideEpgLoad.applyRow(rows, filled)
+                    val n = withDataCount()
+                    status = "Timeline | $n / ${channels.size} | $selectedCategoryName | ${timeFmt.format(Date())}"
+                    Log.i(
+                        "TotalIPTV.Guide",
+                        "guideRowApplied name=${filled.channel.name} id=${filled.channel.id} " +
+                            "sid=${filled.channel.xtreamStreamId} programs=${filled.programs.size} " +
+                            "n=$n/${channels.size}"
+                    )
                 }
             }
-
-            // Visible/focused first; each row paints as its EPG returns — no category awaitAll.
-            launchSlots()
-            while (guideLoadGen == myGen && (started.size < channels.size || inFlight.get() > 0)) {
-                delay(40)
-                launchSlots()
-            }
-            latest.close()
         }
 
         if (guideLoadGen != myGen) return@LaunchedEffect

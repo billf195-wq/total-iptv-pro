@@ -1,9 +1,14 @@
 package com.totaliptv.pro.ui.epg
 
+import com.totaliptv.pro.data.model.EpgChannelRow
+
 /**
  * Desktop loads EPG per selected/visible channel ([needEpg]). Android TV used
  * to `awaitAll()` every `get_short_epg` in the category before painting blocks.
- * This helper picks the next fetches: focused + on-screen first, then the rest.
+ *
+ * 1.4.53 tried a Channel + [Dispatchers.IO] collector gated on Compose
+ * `guideLoadGen`; snapshot reads / child failure cancelled the whole scope so
+ * **no blocks ever applied**. Launch on Main, fetch on IO, apply on Main.
  */
 object GuideEpgLoad {
     /** In-flight cap; CatalogRepository semaphore matches this. */
@@ -37,4 +42,7 @@ object GuideEpgLoad {
         alreadyStarted: Set<String>,
         limit: Int = PARALLEL
     ): List<Int> = fetchOrder(channelIds, firstVisibleIndex, focusedId, alreadyStarted).take(limit)
+
+    fun applyRow(rows: List<EpgChannelRow>, filled: EpgChannelRow): List<EpgChannelRow> =
+        rows.map { if (it.channel.id == filled.channel.id) filled else it }
 }

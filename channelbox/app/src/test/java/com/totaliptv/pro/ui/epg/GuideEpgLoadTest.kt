@@ -1,5 +1,10 @@
 package com.totaliptv.pro.ui.epg
 
+import com.totaliptv.pro.data.model.ContentKind
+import com.totaliptv.pro.data.model.EpgChannelRow
+import com.totaliptv.pro.data.model.EpgNowNext
+import com.totaliptv.pro.data.model.EpgProgram
+import com.totaliptv.pro.data.model.MediaItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -51,20 +56,52 @@ class GuideEpgLoadTest {
     }
 
     @Test
-    fun guideScreenPaintsThenFillsWithoutAwaitAll() {
+    fun applyRowReplacesMatchingChannelOnly() {
+        fun live(id: String, name: String) = MediaItem(
+            id = id,
+            name = name,
+            streamUrl = "http://hudv.net/live/u/p/$id.ts",
+            categoryId = "live-1",
+            kind = ContentKind.LIVE,
+            xtreamStreamId = id.removePrefix("ch-").toInt()
+        )
+        val a = live("ch-1", "CNN")
+        val b = live("ch-2", "HLN")
+        val rows = listOf(EpgChannelRow(channel = a), EpgChannelRow(channel = b))
+        val filled = EpgChannelRow(
+            channel = a,
+            programs = listOf(EpgProgram("Newsroom", startMs = 1L, endMs = 2L)),
+            nowNext = EpgNowNext(now = EpgProgram("Newsroom", startMs = 1L, endMs = 2L))
+        )
+        val next = GuideEpgLoad.applyRow(rows, filled)
+        assertEquals(1, next[0].programs.size)
+        assertEquals("Newsroom", next[0].programs[0].title)
+        assertTrue(next[1].programs.isEmpty())
+        assertEquals("ch-2", next[1].channel.id)
+    }
+
+    @Test
+    fun guideScreenPaintsThenFillsOnMainWithoutAwaitAll() {
         val guide = java.io.File("src/tv/java/com/totaliptv/pro/ui/epg/EpgGuideScreen.kt").readText()
         val repo = java.io.File("src/main/java/com/totaliptv/pro/data/repo/CatalogRepository.kt").readText()
         assertTrue(guide.contains("peekCachedGuideRow"))
         assertTrue(guide.contains("loadGuideRow"))
-        assertTrue(guide.contains("GuideEpgLoad.nextBatch"))
+        assertTrue(guide.contains("GuideEpgLoad.fetchOrder"))
+        assertTrue(guide.contains("GuideEpgLoad.applyRow"))
+        assertTrue(guide.contains("supervisorScope"))
+        assertTrue(guide.contains("withContext(Dispatchers.IO)"))
         assertTrue(guide.contains("state = listState"))
         assertTrue(guide.contains("loading = false"))
         assertFalse(guide.contains("loadGuideRows"))
         assertFalse(guide.contains("awaitAll("))
+        assertFalse(guide.contains("launch(Dispatchers.IO)"))
+        assertFalse(guide.contains("Channel<EpgChannelRow>"))
+        assertFalse(guide.contains("scrollToItem"))
         assertTrue(guide.indexOf("loading = false") < guide.indexOf("loadGuideRow"))
         assertTrue(repo.contains("epgFetchSemaphore = Semaphore(10)"))
         assertTrue(repo.contains("fun peekCachedGuideRow"))
         assertTrue(repo.contains("suspend fun loadGuideRow"))
+        assertTrue(repo.contains("xtreamApi.fetchShortEpg"))
         assertEquals(10, GuideEpgLoad.PARALLEL)
         assertEquals(20, GuideEpgLoad.VISIBLE_PREFETCH)
     }
