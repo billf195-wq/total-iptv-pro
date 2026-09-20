@@ -116,4 +116,25 @@ object SeriesPlayback {
         val current = continueEpisode(episodes, season, episodeNum, episodeId) ?: return null
         return nextEpisode(episodes, current.season, current.episodeNum, current.id)
     }
+
+    /**
+     * Episode after whatever is actually playing. Id / SxxExx first, then exact
+     * stream URL — never S01E01 just because lookup missed.
+     */
+    fun nextAfterPlaying(
+        episodes: List<SeriesEpisode>,
+        season: Int?,
+        episodeNum: Int?,
+        episodeId: String? = null,
+        streamUrl: String? = null
+    ): SeriesEpisode? {
+        val sorted = sortedEpisodes(episodes)
+        if (sorted.isEmpty()) return null
+        val idx = indexOfEpisode(sorted, season, episodeNum, episodeId)
+        if (idx >= 0) return sorted.getOrNull(idx + 1)
+        val url = streamUrl?.trim().orEmpty()
+        if (url.isBlank()) return null
+        val byUrl = sorted.indexOfFirst { it.streamUrl.trim() == url }
+        return if (byUrl >= 0) sorted.getOrNull(byUrl + 1) else null
+    }
 }

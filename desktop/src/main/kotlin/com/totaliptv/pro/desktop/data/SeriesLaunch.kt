@@ -37,9 +37,13 @@ object SeriesLaunch {
     ): SeriesLaunchPlan {
         val current = resolveCurrent(episodes, item)
         val start = current?.toMediaItem(seriesName, seriesId) ?: item
-        val next = current?.let { ep ->
-            SeriesPlayback.nextEpisode(episodes, ep.season, ep.episodeNum, ep.id)
-        } ?: SeriesPlayback.nextEpisode(episodes, start.season, start.episodeNum, start.id)
+        val next = SeriesPlayback.nextAfterPlaying(
+            episodes,
+            current?.season ?: start.season,
+            current?.episodeNum ?: start.episodeNum,
+            current?.id ?: start.id,
+            start.streamUrl
+        )
         val urls = launchUrls(
             start = start,
             episodes = episodes,
@@ -69,6 +73,14 @@ object SeriesLaunch {
         }
         return null
     }
+
+    fun placeholderCurrent(item: MediaItem): SeriesEpisode = SeriesEpisode(
+        id = SeriesPlayback.normalizeEpisodeId(item.id) ?: item.id,
+        title = item.name,
+        season = item.season ?: 0,
+        episodeNum = item.episodeNum ?: 0,
+        streamUrl = item.streamUrl
+    )
 
     fun launchUrls(
         start: MediaItem,

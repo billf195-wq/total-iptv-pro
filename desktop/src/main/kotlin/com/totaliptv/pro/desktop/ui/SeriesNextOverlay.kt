@@ -1,6 +1,8 @@
 package com.totaliptv.pro.desktop.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -17,11 +18,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
@@ -33,6 +38,14 @@ import com.totaliptv.pro.desktop.util.AppPaths
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
+/** Shared with Main so the overlay is a sibling OS window, not nested in the app frame. */
+class SeriesNextHost {
+    var session by mutableStateOf<ActiveSeriesPlay?>(null)
+    var darkTheme by mutableStateOf(true)
+    @Volatile var onNext: () -> Unit = {}
+    @Volatile var onStop: () -> Unit = {}
+}
+
 data class ActiveSeriesPlay(
     val episodes: List<SeriesEpisode>,
     val seriesName: String,
@@ -40,7 +53,13 @@ data class ActiveSeriesPlay(
     val current: SeriesEpisode
 ) {
     val next: SeriesEpisode?
-        get() = SeriesPlayback.nextEpisode(episodes, current.season, current.episodeNum, current.id)
+        get() = SeriesPlayback.nextAfterPlaying(
+            episodes,
+            current.season,
+            current.episodeNum,
+            current.id,
+            current.streamUrl
+        )
 }
 
 @Composable
@@ -52,8 +71,8 @@ fun SeriesNextOverlay(
 ) {
     val next = session.next
     val state = rememberWindowState(
-        position = WindowPosition(Alignment.TopEnd),
-        size = DpSize(320.dp, 168.dp)
+        position = WindowPosition(Alignment.BottomCenter),
+        size = DpSize(420.dp, 196.dp)
     )
     Window(
         onCloseRequest = onStop,
@@ -73,18 +92,26 @@ fun SeriesNextOverlay(
     ) {
         LaunchedEffect(Unit) {
             window.isAlwaysOnTop = true
+            runCatching { window.type = java.awt.Window.Type.UTILITY }
             while (isActive) {
                 WindowsTopMost.raiseWithoutFocus(window)
-                delay(1500)
+                delay(400)
             }
         }
         TipTheme(darkTheme = darkTheme) {
             Column(
                 Modifier
                     .fillMaxSize()
-                    .background(TipSurface, RoundedCornerShape(0.dp))
-                    .padding(12.dp)
+                    .background(TipSurface)
+                    .border(BorderStroke(3.dp, TipBlue))
+                    .padding(14.dp)
             ) {
+                Text(
+                    "NEXT EPISODE",
+                    color = TipBlue,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
                 Text(
                     session.seriesName.ifBlank { "Series" },
                     style = MaterialTheme.typography.titleMedium,
@@ -97,7 +124,7 @@ fun SeriesNextOverlay(
                     style = MaterialTheme.typography.bodyMedium,
                     color = TipMuted
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -110,12 +137,13 @@ fun SeriesNextOverlay(
                                 containerColor = TipBlue,
                                 contentColor = TipOnAmber
                             ),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f).height(48.dp)
                         ) {
                             Text(
                                 "Next S${next.season}E${next.episodeNum}",
                                 color = TipOnAmber,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
                             )
                         }
                     } else {
@@ -126,14 +154,17 @@ fun SeriesNextOverlay(
                             modifier = Modifier.weight(1f)
                         )
                     }
-                    OutlinedButton(onClick = onStop) {
+                    OutlinedButton(
+                        onClick = onStop,
+                        modifier = Modifier.height(48.dp)
+                    ) {
                         Text("Stop", color = TipOnBg)
                     }
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     if (AppPaths.isWindows) {
-                        "${SeriesNextHotkeys.CTRL_RIGHT_HINT} or ${SeriesNextHotkeys.MEDIA_NEXT_HINT} — VLC Next stays on this episode"
+                        "${SeriesNextHotkeys.CTRL_RIGHT_HINT} or ${SeriesNextHotkeys.MEDIA_NEXT_HINT} — not VLC’s Next"
                     } else {
                         "Linux: VLC Next also advances the remaining-episode playlist"
                     },

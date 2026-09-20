@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 @Composable
-fun AppRoot() {
+fun AppRoot(seriesNextHost: SeriesNextHost? = null) {
     val scope = rememberCoroutineScope()
     val repo = remember { CatalogRepository() }
 
@@ -282,11 +282,12 @@ fun AppRoot() {
                     )
                 }
                 if (startWithSeries.kind == ContentKind.SERIES) {
-                    val current = plan.currentEpisode
-                    if (current != null) {
+                    val episodes = plan.allEpisodes.ifEmpty { ctx?.all.orEmpty() }
+                    val current = plan.currentEpisode ?: SeriesLaunch.placeholderCurrent(startWithSeries)
+                    if (episodes.isNotEmpty() || current.streamUrl.isNotBlank()) {
                         setSeriesSession(
                             ActiveSeriesPlay(
-                                episodes = plan.allEpisodes.ifEmpty { ctx?.all.orEmpty() },
+                                episodes = episodes,
                                 seriesName = plan.seriesName.ifBlank { lastSeriesName },
                                 seriesId = plan.seriesId ?: lastSeriesId,
                                 current = current
@@ -357,16 +358,13 @@ fun AppRoot() {
                     }
                     // Windows VLC and ffplay: one URL per process — start SxxE(n+1) ourselves.
                     val next = plan.nextEpisode?.toMediaItem(plan.seriesName, plan.seriesId)
-                        ?: if (ctx != null) {
-                            SeriesPlayback.nextEpisode(
-                                ctx.all,
-                                startWithSeries.season,
-                                startWithSeries.episodeNum,
-                                startWithSeries.id
-                            )?.toMediaItem(ctx.name, ctx.id)
-                        } else {
-                            null
-                        }
+                        ?: SeriesPlayback.nextAfterPlaying(
+                            ctx?.all.orEmpty(),
+                            startWithSeries.season,
+                            startWithSeries.episodeNum,
+                            startWithSeries.id,
+                            startWithSeries.streamUrl
+                        )?.toMediaItem(ctx?.name ?: plan.seriesName, ctx?.id ?: plan.seriesId)
                     if (next != null && next.streamUrl.isNotBlank()) {
                         withContext(Dispatchers.Main) {
                             if (seq == playSeq.get()) playItem(next, reason = "auto-advance")
@@ -389,9 +387,32 @@ fun AppRoot() {
     }
 
     fun skipToNextEpisode() {
-        val session = seriesSessionRef.get() ?: return
-        val next = session.next ?: return
-        playItem(next.toMediaItem(session.seriesName, session.seriesId), reason = "skip")
+        val session = seriesSessionRef.get()
+        val episodes = session?.episodes?.ifEmpty { lastSeriesEpisodes } ?: lastSeriesEpisodes
+        val next = session?.next
+            ?: SeriesPlayback.nextAfterPlaying(
+                episodes,
+                session?.current?.season,
+                session?.current?.episodeNum,
+                session?.current?.id,
+                session?.current?.streamUrl
+            )
+        if (next == null || next.streamUrl.isBlank()) {
+            PlaybackDebugLog.record(
+                episodeId = session?.current?.id,
+                season = session?.current?.season,
+                episodeNum = session?.current?.episodeNum,
+                streamUrl = session?.current?.streamUrl.orEmpty(),
+                playerBinary = "-",
+                windows = AppPaths.isWindows,
+                playlist = StreamPlayer.lastLaunchWasPlaylist,
+                reason = "skip-no-next"
+            )
+            return
+        }
+        val name = session?.seriesName ?: lastSeriesName
+        val id = session?.seriesId ?: lastSeriesId
+        playItem(next.toMediaItem(name, id), reason = "skip")
     }
 
     fun stopPlayback() {
@@ -500,15 +521,27 @@ fun AppRoot() {
         onDispose { handle.close() }
     }
 
+    SideEffect {
+        val host = seriesNextHost
+        if (host != null) {
+            host.onNext = { skipToNextEpisode() }
+            host.onStop = { stopPlayback() }
+            host.session = seriesSession
+            host.darkTheme = prefs.themeMode != "light"
+        }
+    }
+
     TipTheme(darkTheme = prefs.themeMode != "light") {
-        val overlay = seriesSession
-        if (overlay != null) {
-            SeriesNextOverlay(
-                session = overlay,
-                darkTheme = prefs.themeMode != "light",
-                onNext = { skipToNextEpisode() },
-                onStop = { stopPlayback() }
-            )
+        if (seriesNextHost == null) {
+            val overlay = seriesSession
+            if (overlay != null) {
+                SeriesNextOverlay(
+                    session = overlay,
+                    darkTheme = prefs.themeMode != "light",
+                    onNext = { skipToNextEpisode() },
+                    onStop = { stopPlayback() }
+                )
+            }
         }
         if (showSplash) {
             SplashScreen()
@@ -577,6 +610,11 @@ fun AppRoot() {
                     epgLoadingIds = epgLoadingIds,
                     resumeEntries = resumeEntries,
                     favoriteEntries = favoriteEntries,
+                    playingSeriesId = seriesSession?.seriesId,
+                    playingSeason = seriesSession?.current?.season,
+                    playingEpisodeNum = seriesSession?.current?.episodeNum,
+                    playingEpisodeId = seriesSession?.current?.id,
+                    playingStreamUrl = seriesSession?.current?.streamUrl,
                     onPlay = { playItem(it) },
                     onOpenSeries = { openSeries(it) },
                     onCloseSeries = {

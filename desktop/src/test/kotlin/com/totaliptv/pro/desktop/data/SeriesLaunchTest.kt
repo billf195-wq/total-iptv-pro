@@ -87,4 +87,23 @@ class SeriesLaunchTest {
         assertTrue(plan.nextEpisode!!.streamUrl != plan.start.streamUrl)
         assertEquals("http://cdn.example.test/series/user/pass/1-5.mp4", plan.nextEpisode!!.streamUrl)
     }
+
+    @Test
+    fun skipAfterIdentityMissUsesUrlNeighborNotS1E1() {
+        val eps = listOf(ep(1, 1), ep(1, 2), ep(1, 3))
+        val clicked = MediaItem(
+            id = "ep-resume",
+            name = "Show — S1E2",
+            streamUrl = eps[1].streamUrl,
+            categoryId = null,
+            kind = ContentKind.SERIES,
+            playable = true,
+            parentSeriesId = 4,
+            parentSeriesName = "Show"
+        )
+        val plan = SeriesLaunch.plan(clicked, eps, "Show", 4, windowsSingleUrl = true)
+        assertEquals(listOf(eps[1].streamUrl), plan.urls)
+        assertEquals("1-3", plan.nextEpisode?.id)
+        assertTrue(plan.nextEpisode!!.streamUrl != plan.urls.first())
+    }
 }
