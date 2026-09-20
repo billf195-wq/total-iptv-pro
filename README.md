@@ -26,7 +26,8 @@ IPTV player for **Android TV / phone** and **Desktop** (Linux & Windows).
 
 | Folder | What |
 |--------|------|
-| `android/` | Android / TV app (Gradle) |
+| `android/` | Total IPTV Pro 2 (`com.totaliptv.pro2`) — Android / TV |
+| `channelbox/` | Original Total IPTV Pro (`com.totaliptv.pro`) — phone + Shield |
 | `desktop/` | Desktop Compose app (Gradle) |
 
 ## Support / donations (PayPal)
