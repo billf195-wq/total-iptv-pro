@@ -34,8 +34,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Cold-start splash: logo + title, then stay up until [ready] (catalog update done)
- * or the ~30s hard cap. Skipped on subsequent shows via [StartupSplashGate].
+ * Logo banner duration shared with desktop and Pro2.
+ * 15s is the logo splash; 30s is a separate catalog-hold cap.
+ */
+object SplashTiming {
+    const val DURATION_MS: Long = 15_000L
+    const val MAX_CATALOG_HOLD_MS: Long = 30_000L
+}
+
+/**
+ * Cold-start splash: logo stays up for [SplashTiming.DURATION_MS], then until
+ * [ready] (catalog update done) or [SplashTiming.MAX_CATALOG_HOLD_MS].
+ * Skipped on subsequent shows via [StartupSplashGate].
  */
 object StartupSplashGate {
     @Volatile var shownThisProcess: Boolean = false
@@ -48,7 +58,7 @@ fun StartupSplash(
     onFinished: () -> Unit
 ) {
     var finished by remember { mutableStateOf(false) }
-    var minAnimDone by remember { mutableStateOf(false) }
+    var minLogoDone by remember { mutableStateOf(false) }
     fun finishOnce() {
         if (finished) return
         finished = true
@@ -70,20 +80,23 @@ fun StartupSplash(
         titleAlpha.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
         delay(400)
         statusAlpha.animateTo(1f, tween(350, easing = FastOutSlowInEasing))
-        minAnimDone = true
+        val already = 700L + 180L + 420L + 400L + 350L
+        val remain = (SplashTiming.DURATION_MS - already).coerceAtLeast(0L)
+        delay(remain)
+        minLogoDone = true
     }
 
-    // Leave when min animation done AND catalog ready
-    LaunchedEffect(ready, minAnimDone) {
-        if (ready && minAnimDone) {
+    // Leave when the 15s logo has elapsed AND catalog is ready
+    LaunchedEffect(ready, minLogoDone) {
+        if (ready && minLogoDone) {
             delay(280)
             finishOnce()
         }
     }
 
-    // Hard cap ~30s — never block app start forever
+    // Separate catalog-hold cap — never block app start forever
     LaunchedEffect(Unit) {
-        delay(30_000)
+        delay(SplashTiming.MAX_CATALOG_HOLD_MS)
         finishOnce()
     }
 

@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // While logo splash is up, load/update catalog so splash can wait (~30s max).
+            // While logo splash is up, load/update catalog. Logo stays 15s; catalog-hold cap is 30s.
             LaunchedEffect(Unit) {
                 if (StartupSplashGate.shownThisProcess) {
                     splashCatalogReady = true

@@ -231,20 +231,22 @@ fun SeriesDetailPane(
     error: String?,
     resumeSeason: Int? = null,
     resumeEpisodeNum: Int? = null,
+    resumeEpisodeId: String? = null,
     onBack: () -> Unit,
     onPlay: (MediaItem) -> Unit
 ) {
     val seasons = remember(detail) { detail?.let { SeriesPlayback.seasonNumbers(it.episodes) }.orEmpty() }
-    var selectedSeason by remember(detail?.seriesId) { mutableStateOf<Int?>(resumeSeason) }
+    var selectedSeason by remember(detail?.seriesId, resumeSeason) { mutableStateOf<Int?>(resumeSeason) }
     val visible = remember(detail, selectedSeason) {
         detail?.let { SeriesPlayback.inSeason(it.episodes, selectedSeason) }.orEmpty()
     }
-    val continueEp = remember(detail, resumeSeason, resumeEpisodeNum) {
-        detail?.let { SeriesPlayback.continueEpisode(it.episodes, resumeSeason, resumeEpisodeNum) }
+    val continueEp = remember(detail, resumeSeason, resumeEpisodeNum, resumeEpisodeId) {
+        detail?.let { SeriesPlayback.continueEpisode(it.episodes, resumeSeason, resumeEpisodeNum, resumeEpisodeId) }
     }
-    val nextEp = remember(detail, resumeSeason, resumeEpisodeNum) {
-        detail?.let { SeriesPlayback.nextEpisode(it.episodes, resumeSeason, resumeEpisodeNum) }
+    val nextEp = remember(detail, resumeSeason, resumeEpisodeNum, resumeEpisodeId) {
+        detail?.let { SeriesPlayback.nextEpisode(it.episodes, resumeSeason, resumeEpisodeNum, resumeEpisodeId) }
     }
+    val hasResume = resumeSeason != null || resumeEpisodeNum != null || !resumeEpisodeId.isNullOrBlank()
 
     Column(Modifier.fillMaxSize()) {
         AmberButton("Back", onClick = onBack)
@@ -263,11 +265,11 @@ fun SeriesDetailPane(
                 Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
                     if (continueEp != null) {
                         AmberButton(
-                            if (resumeSeason != null) "Continue S${continueEp.season}E${continueEp.episodeNum}" else "Play first episode",
+                            if (hasResume) "Continue S${continueEp.season}E${continueEp.episodeNum}" else "Play first episode",
                             onClick = { onPlay(continueEp.toMediaItem(detail.name, detail.seriesId)) }
                         )
                     }
-                    if (nextEp != null && resumeSeason != null) {
+                    if (nextEp != null && hasResume) {
                         AmberButton(
                             "Next S${nextEp.season}E${nextEp.episodeNum}",
                             onClick = { onPlay(nextEp.toMediaItem(detail.name, detail.seriesId)) }
@@ -298,17 +300,35 @@ fun SeriesDetailPane(
                 Spacer(Modifier.height(TipDimens.dp(8)))
                 LazyColumn {
                     items(visible, key = { it.id }) { ep ->
+                        val highlighted = SeriesPlayback.matchesEpisodeId(ep, resumeEpisodeId) ||
+                            (resumeSeason != null && resumeEpisodeNum != null &&
+                                ep.season == resumeSeason && ep.episodeNum == resumeEpisodeNum)
                         TipFocusable(
                             onClick = { onPlay(ep.toMediaItem(detail.name, detail.seriesId)) },
                             modifier = Modifier.fillMaxWidth().padding(vertical = TipDimens.dp(2))
                         ) { focused ->
                             Text(
-                                "S${ep.season}E${ep.episodeNum} — ${ep.title}",
-                                color = if (focused) TipAccent else TipGoldText,
+                                if (highlighted) {
+                                    "▶ S${ep.season}E${ep.episodeNum} — ${ep.title}  (last watched)"
+                                } else {
+                                    "S${ep.season}E${ep.episodeNum} — ${ep.title}"
+                                },
+                                color = when {
+                                    focused -> TipAccent
+                                    highlighted -> TipAmber
+                                    else -> TipGoldText
+                                },
+                                fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Normal,
                                 fontSize = TipDimens.BodyLargeSp,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(if (focused) TipSurfaceAlt else TipSurface)
+                                    .background(
+                                        when {
+                                            focused -> TipSurfaceAlt
+                                            highlighted -> TipAmber.copy(alpha = 0.22f)
+                                            else -> TipSurface
+                                        }
+                                    )
                                     .padding(TipDimens.dp(12))
                             )
                         }

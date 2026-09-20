@@ -10,8 +10,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.totaliptv.pro2.data.ContentKind
 import com.totaliptv.pro2.data.MediaItem
+import com.totaliptv.pro2.data.SeriesDetail
 import com.totaliptv.pro2.data.SeriesPlayback
 import com.totaliptv.pro2.player.PlayerActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.totaliptv.pro2.ui.AppRoot
 import com.totaliptv.pro2.ui.TipTheme
 import com.totaliptv.pro2.update.AppUpdateManager
@@ -111,18 +114,34 @@ class MainActivity : ComponentActivity() {
             return
         }
         vm.recordPlay(item)
+        val cached = vm.state.value.seriesDetail
+        if (item.kind == ContentKind.SERIES && item.parentSeriesId != null &&
+            (cached == null || cached.seriesId != item.parentSeriesId)
+        ) {
+            lifecycleScope.launch {
+                val detail = vm.ensureSeriesDetail(
+                    item.parentSeriesId!!,
+                    item.parentSeriesName ?: item.name
+                )
+                startPlayer(item, detail)
+            }
+            return
+        }
+        startPlayer(item, cached)
+    }
+
+    private fun startPlayer(item: MediaItem, detail: SeriesDetail?) {
         startActivity(
             Intent(this, PlayerActivity::class.java).apply {
                 putExtra(PlayerActivity.EXTRA_URL, item.streamUrl)
                 putExtra(PlayerActivity.EXTRA_TITLE, item.name)
-                val detail = vm.state.value.seriesDetail
                 if (item.kind == ContentKind.SERIES && detail != null &&
                     (item.parentSeriesId == null || item.parentSeriesId == detail.seriesId)
                 ) {
                     val sorted = SeriesPlayback.sortedEpisodes(detail.episodes)
-                    val start = sorted.indexOfFirst {
-                        it.season == item.season && it.episodeNum == item.episodeNum
-                    }.let { if (it >= 0) it else 0 }
+                    val start = SeriesPlayback.indexOfEpisode(
+                        sorted, item.season, item.episodeNum, item.id
+                    ).let { if (it >= 0) it else 0 }
                     putStringArrayListExtra(
                         PlayerActivity.EXTRA_URLS,
                         ArrayList(sorted.map { it.streamUrl })

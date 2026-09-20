@@ -2,21 +2,38 @@ package com.totaliptv.pro.desktop.player
 
 import com.totaliptv.pro.desktop.util.AppPaths
 import java.io.File
+import java.nio.file.Files
 
 /**
  * Plays streams via an external player (Linux / Windows).
  * Prefers configured player, else VLC → mpv → ffplay.
+ *
+ * Series next-episode depends on handing the player a queue (not a single URL)
+ * and disabling VLC's default one-instance mode so Linux/Windows actually
+ * wait for / advance the playlist we launched.
  */
 object StreamPlayer {
     @Volatile
     private var current: Process? = null
     @Volatile
     private var stoppedByUser: Boolean = false
+    @Volatile
+    var lastLaunchWasPlaylist: Boolean = false
+        private set
 
-    fun play(url: String, preferredPlayer: String = "auto"): String {
+    fun play(url: String, preferredPlayer: String = "auto"): String =
+        playQueue(listOf(url), preferredPlayer)
+
+    /**
+     * Play one or more URLs. VLC/mpv receive the full queue so Next / end-of-file
+     * advance inside the player. ffplay only supports one file (caller may sequential-play).
+     */
+    fun playQueue(urls: List<String>, preferredPlayer: String = "auto"): String {
+        val clean = urls.map { it.trim() }.filter { it.isNotBlank() }
+        require(clean.isNotEmpty()) { "No stream URL to play" }
         stoppedByUser = false
         stopProcessOnly()
-        val cmd = resolvePlayerCommand(url, preferredPlayer)
+        val resolved = resolvePlayerCommand(clean, preferredPlayer)
             ?: error(
                 if (AppPaths.isWindows) {
                     "No media player found. Install VLC (recommended), or add mpv/ffplay to PATH."
@@ -24,11 +41,12 @@ object StreamPlayer {
                     "No media player found. Install vlc, mpv, or ffmpeg (ffplay)."
                 }
             )
-        current = ProcessBuilder(cmd)
+        lastLaunchWasPlaylist = resolved.playlist
+        current = ProcessBuilder(resolved.command)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .start()
-        return cmd.first()
+        return resolved.command.first()
     }
 
     fun stop() {
@@ -67,7 +85,12 @@ object StreamPlayer {
         return found
     }
 
-    private fun resolvePlayerCommand(url: String, preferred: String): List<String>? {
+    internal data class ResolvedCommand(
+        val command: List<String>,
+        val playlist: Boolean
+    )
+
+    internal fun resolvePlayerCommand(urls: List<String>, preferred: String): ResolvedCommand? {
         val pref = preferred.trim().lowercase()
         val ordered = when (pref) {
             "vlc" -> listOf("vlc", "mpv", "ffplay")
@@ -76,27 +99,68 @@ object StreamPlayer {
             else -> listOf("vlc", "mpv", "ffplay")
         }
         for (name in ordered) {
-            commandFor(name, url)?.let { return it }
+            commandFor(name, urls)?.let { return it }
         }
         return null
     }
 
-    private fun commandFor(name: String, url: String): List<String>? {
+    internal fun commandFor(name: String, urls: List<String>): ResolvedCommand? {
         return when (name) {
             "vlc" -> {
                 val vlc = resolveVlcBinary() ?: return null
-                listOf(vlc, "--fullscreen", "--play-and-exit", "--meta-title=Total IPTV Pro", url)
+                ResolvedCommand(vlcCommand(vlc, urls), playlist = urls.size > 1)
             }
             "mpv" -> {
                 val bin = resolveOnPath("mpv") ?: return null
-                listOf(bin, "--fullscreen", "--force-window=yes", "--title=Total IPTV Pro", url)
+                ResolvedCommand(mpvCommand(bin, urls), playlist = urls.size > 1)
             }
             "ffplay" -> {
                 val bin = resolveOnPath("ffplay") ?: return null
-                listOf(bin, "-fs", "-autoexit", "-window_title", "Total IPTV Pro", url)
+                // ffplay plays a single file; remaining episodes are sequential in AppRoot.
+                ResolvedCommand(ffplayCommand(bin, urls.first()), playlist = false)
             }
             else -> null
         }
+    }
+
+    internal fun vlcCommand(binary: String, urls: List<String>): List<String> {
+        // --no-one-instance: default one-instance/D-Bus mode exits the new process
+        // immediately (or never honors --play-and-exit), so next-episode never fires.
+        val args = mutableListOf(
+            binary,
+            "--fullscreen",
+            "--play-and-exit",
+            "--no-one-instance",
+            "--no-playlist-enqueue",
+            "--meta-title=Total IPTV Pro"
+        )
+        if (urls.size == 1) {
+            args += urls.first()
+        } else {
+            args += writeM3u(urls).absolutePath
+        }
+        return args
+    }
+
+    internal fun mpvCommand(binary: String, urls: List<String>): List<String> =
+        listOf(binary, "--fullscreen", "--force-window=yes", "--title=Total IPTV Pro") + urls
+
+    internal fun ffplayCommand(binary: String, url: String): List<String> =
+        listOf(binary, "-fs", "-autoexit", "-window_title", "Total IPTV Pro", url)
+
+    internal fun writeM3u(urls: List<String>): File {
+        val dir = AppPaths.configDir.toFile()
+        if (!dir.exists()) dir.mkdirs()
+        val file = File(dir, "series-next.m3u")
+        val body = buildString {
+            appendLine("#EXTM3U")
+            urls.forEach { url ->
+                appendLine("#EXTINF:-1,Total IPTV Pro")
+                appendLine(url)
+            }
+        }
+        Files.writeString(file.toPath(), body)
+        return file
     }
 
     private fun resolveVlcBinary(): String? {

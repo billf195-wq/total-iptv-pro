@@ -189,12 +189,15 @@ private fun MainShell(
                                 detail = state.seriesDetail,
                                 loading = state.seriesLoading,
                                 error = state.seriesError,
-                                resumeSeason = state.resumeEntries.firstOrNull {
-                                    it.seriesId != null && it.seriesId == state.seriesDetail?.seriesId
-                                }?.season,
-                                resumeEpisodeNum = state.resumeEntries.firstOrNull {
-                                    it.seriesId != null && it.seriesId == state.seriesDetail?.seriesId
-                                }?.episodeNum,
+                                resumeSeason = ResumeStore.forSeries(
+                                    state.seriesDetail?.seriesId, state.resumeEntries
+                                )?.season,
+                                resumeEpisodeNum = ResumeStore.forSeries(
+                                    state.seriesDetail?.seriesId, state.resumeEntries
+                                )?.episodeNum,
+                                resumeEpisodeId = ResumeStore.forSeries(
+                                    state.seriesDetail?.seriesId, state.resumeEntries
+                                )?.episodeId,
                                 onBack = onCloseSeries,
                                 onPlay = onPlay
                             )

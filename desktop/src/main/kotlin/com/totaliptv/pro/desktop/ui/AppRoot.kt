@@ -199,6 +199,50 @@ fun AppRoot() {
         favoriteEntries = FavoritesStore.toggle(item)
     }
 
+    suspend fun resolveSeriesContext(item: MediaItem): SeriesPlayContext? {
+        if (item.kind != ContentKind.SERIES) return null
+        val sid = item.parentSeriesId ?: lastSeriesId
+        var episodes = when {
+            sid != null && seriesDetail?.seriesId == sid -> seriesDetail?.episodes.orEmpty()
+            sid != null && lastSeriesId == sid -> lastSeriesEpisodes
+            else -> emptyList()
+        }
+        var name = item.parentSeriesName ?: lastSeriesName
+        var id = sid
+        if (episodes.isEmpty() && sid != null) {
+            val seriesItem = catalog?.seriesItems?.find { it.xtreamStreamId == sid }
+                ?: MediaItem(
+                    id = "series-$sid",
+                    name = name.ifBlank { item.name },
+                    streamUrl = "",
+                    categoryId = null,
+                    kind = ContentKind.SERIES,
+                    posterUrl = item.posterUrl,
+                    xtreamStreamId = sid,
+                    playable = false
+                )
+            runCatching {
+                val detail = withContext(Dispatchers.IO) {
+                    repo.loadSeriesDetail(PreferencesStore.load(), seriesItem)
+                }
+                episodes = detail.episodes
+                name = detail.name
+                id = detail.seriesId
+                lastSeriesEpisodes = detail.episodes
+                lastSeriesName = detail.name
+                lastSeriesId = detail.seriesId
+            }
+        }
+        if (episodes.isEmpty()) return null
+        val remaining = SeriesPlayback.remainingFrom(
+            episodes,
+            item.season,
+            item.episodeNum,
+            item.id
+        ).ifEmpty { SeriesPlayback.sortedEpisodes(episodes) }
+        return SeriesPlayContext(all = episodes, remaining = remaining, name = name, id = id)
+    }
+
     fun playItem(item: MediaItem) {
         if (!item.playable || item.streamUrl.isBlank()) {
             openSeries(item)
@@ -208,34 +252,81 @@ fun AppRoot() {
         scope.launch {
             try {
                 val playerPref = PreferencesStore.load().preferredPlayer
+                val ctx = resolveSeriesContext(item)
+                val queueItems: List<MediaItem> = if (ctx != null && ctx.remaining.isNotEmpty()) {
+                    lastSeriesEpisodes = ctx.all
+                    lastSeriesName = ctx.name
+                    lastSeriesId = ctx.id
+                    ctx.remaining.map { it.toMediaItem(ctx.name, ctx.id) }
+                } else {
+                    listOf(item)
+                }
+                val start = queueItems.first()
+                val startWithSeries = if (start.kind == ContentKind.SERIES && start.parentSeriesId == null && ctx?.id != null) {
+                    start.copy(
+                        parentSeriesId = ctx.id,
+                        parentSeriesName = ctx.name.ifBlank { start.parentSeriesName.orEmpty() }
+                    )
+                } else {
+                    start
+                }
+                if (startWithSeries.kind == ContentKind.VOD || startWithSeries.kind == ContentKind.SERIES) {
+                    val recorded = withContext(Dispatchers.IO) { ResumeStore.recordPlay(startWithSeries) }
+                    resumeEntries = recorded
+                }
+                val urls = queueItems.map { it.streamUrl }.filter { it.isNotBlank() }
+                if (urls.isEmpty()) error("No stream URL for ${item.name}")
                 withContext(Dispatchers.IO) {
-                    // Persist continue-watching before launching external player
-                    if (item.kind == ContentKind.VOD || item.kind == ContentKind.SERIES) {
-                        resumeEntries = ResumeStore.recordPlay(item)
-                    }
-                    StreamPlayer.play(item.streamUrl, playerPref)
+                    StreamPlayer.playQueue(urls, playerPref)
                 }
-                playingTitle = item.name
+                playingTitle = startWithSeries.name
                 error = null
-                val episodes = when {
-                    item.parentSeriesId != null && seriesDetail?.seriesId == item.parentSeriesId ->
-                        seriesDetail?.episodes.orEmpty()
-                    item.parentSeriesId != null && lastSeriesId == item.parentSeriesId ->
-                        lastSeriesEpisodes
-                    else -> emptyList()
-                }
-                if (item.kind == ContentKind.SERIES && episodes.isNotEmpty()) {
-                    val seriesName = item.parentSeriesName ?: lastSeriesName
-                    val seriesId = item.parentSeriesId ?: lastSeriesId
-                    launch(Dispatchers.IO) {
-                        val naturalEnd = StreamPlayer.waitForExit()
-                        if (!naturalEnd || seq != playSeq.get()) return@launch
-                        val next = SeriesPlayback.nextEpisode(episodes, item.season, item.episodeNum)
-                            ?: return@launch
+                val playlist = StreamPlayer.lastLaunchWasPlaylist
+                launch(Dispatchers.IO) {
+                    val naturalEnd = StreamPlayer.waitForExit()
+                    if (seq != playSeq.get()) return@launch
+                    if (!naturalEnd) {
                         withContext(Dispatchers.Main) {
-                            if (seq == playSeq.get()) {
-                                playItem(next.toMediaItem(seriesName, seriesId))
+                            if (seq == playSeq.get()) playingTitle = null
+                        }
+                        return@launch
+                    }
+                    // VLC/mpv already advanced through the remaining queue.
+                    if (playlist) {
+                        val last = queueItems.lastOrNull()
+                        if (last != null && last.kind == ContentKind.SERIES && last.parentSeriesId != null) {
+                            val recorded = ResumeStore.recordPlay(last)
+                            withContext(Dispatchers.Main) {
+                                if (seq == playSeq.get()) {
+                                    resumeEntries = recorded
+                                    playingTitle = null
+                                }
                             }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                if (seq == playSeq.get()) playingTitle = null
+                            }
+                        }
+                        return@launch
+                    }
+                    // ffplay (single file): start the next episode ourselves.
+                    val next = if (ctx != null) {
+                        SeriesPlayback.nextEpisode(
+                            ctx.all,
+                            startWithSeries.season,
+                            startWithSeries.episodeNum,
+                            startWithSeries.id
+                        )?.toMediaItem(ctx.name, ctx.id)
+                    } else {
+                        queueItems.getOrNull(1)
+                    }
+                    if (next != null && next.streamUrl.isNotBlank()) {
+                        withContext(Dispatchers.Main) {
+                            if (seq == playSeq.get()) playItem(next)
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            if (seq == playSeq.get()) playingTitle = null
                         }
                     }
                 }
@@ -275,6 +366,8 @@ fun AppRoot() {
                     ?: catalog?.seriesItems?.find { it.id == entry.catalogId }
                 // Prefer replaying last episode URL when we still have it
                 if (entry.streamUrl.isNotBlank()) {
+                    lastSeriesId = entry.seriesId ?: lastSeriesId
+                    lastSeriesName = entry.name
                     playItem(
                         MediaItem(
                             id = entry.episodeId?.let { "ep-$it" } ?: "ep-resume",
@@ -453,3 +546,10 @@ fun AppRoot() {
         }
     }
 }
+
+private data class SeriesPlayContext(
+    val all: List<SeriesEpisode>,
+    val remaining: List<SeriesEpisode>,
+    val name: String,
+    val id: Int?
+)
