@@ -241,6 +241,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         it.copy(seriesDetail = null, seriesError = null, seriesLoading = false)
     }
 
+    /** Load series episodes if not already cached for this id (Continue watching / next). */
+    suspend fun ensureSeriesDetail(seriesId: Int, fallbackName: String = ""): SeriesDetail? {
+        val cached = _state.value.seriesDetail
+        if (cached != null && cached.seriesId == seriesId) return cached
+        val catalogItem = _state.value.catalog?.seriesItems?.find { it.xtreamStreamId == seriesId }
+        val item = catalogItem ?: MediaItem(
+            id = "series-$seriesId",
+            name = fallbackName.ifBlank { "Series $seriesId" },
+            streamUrl = "",
+            categoryId = null,
+            kind = ContentKind.SERIES,
+            xtreamStreamId = seriesId,
+            playable = false
+        )
+        return try {
+            val saved = prefsStore.load()
+            val detail = withContext(Dispatchers.IO) { repo.loadSeriesDetail(saved, item) }
+            _state.update { it.copy(seriesDetail = detail, seriesLoading = false, seriesError = null) }
+            detail
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     fun recordPlay(item: MediaItem) {
         if (item.kind == ContentKind.VOD || item.kind == ContentKind.SERIES) {
             val entries = resumeStore.recordPlay(item)

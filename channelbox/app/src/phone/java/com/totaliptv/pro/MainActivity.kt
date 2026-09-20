@@ -38,6 +38,8 @@ import com.totaliptv.pro.ui.browse.PhoneBrowseScreen
 import com.totaliptv.pro.ui.home.PhoneHomeScreen
 import com.totaliptv.pro.ui.onboarding.OnboardingScreen
 import com.totaliptv.pro.ui.player.PlayerActivity
+import com.totaliptv.pro.ui.StartupSplash
+import com.totaliptv.pro.ui.StartupSplashGate
 import com.totaliptv.pro.ui.search.PhoneSearchScreen
 import com.totaliptv.pro.ui.settings.PhoneSettingsScreen
 import com.totaliptv.pro.ui.theme.AccentPreset
@@ -145,10 +147,20 @@ private fun PhoneAppRoot(
     var prefsReady by remember { mutableStateOf(false) }
     var showOnboarding by remember { mutableStateOf(false) }
     var tab by remember { mutableStateOf(PhoneTab.Home) }
+    var splashDone by remember { mutableStateOf(StartupSplashGate.shownThisProcess) }
 
     LaunchedEffect(Unit) {
         repository.sources.first()
         prefsReady = true
+    }
+
+    if (!splashDone) {
+        StartupSplash(
+            ready = prefsReady,
+            statusMessage = if (prefsReady) null else "Starting…",
+            onFinished = { splashDone = true }
+        )
+        return
     }
 
     if (!prefsReady) {

@@ -60,13 +60,13 @@ class ResumeStore(context: Context) {
 
         when {
             isEpisode || (item.kind == ContentKind.SERIES && item.playable) -> {
-                val sid = item.parentSeriesId ?: item.xtreamStreamId ?: return load()
+                val sid = item.parentSeriesId ?: return load()
                 key = "series-$sid"
                 catalogId = "series-$sid"
                 displayName = item.parentSeriesName?.takeIf { it.isNotBlank() } ?: item.name
                 kind = ContentKind.SERIES.name
                 seriesId = sid
-                episodeId = item.id.removePrefix("ep-").takeIf { item.id.startsWith("ep-") }
+                episodeId = SeriesPlayback.normalizeEpisodeId(item.id)
                     ?: item.xtreamStreamId?.toString()
                 episodeLabel = item.name
             }
@@ -103,8 +103,16 @@ class ResumeStore(context: Context) {
         return next
     }
 
+    fun forSeries(seriesId: Int?): ResumeEntry? = Companion.forSeries(seriesId, load())
+
     companion object {
         private const val KEY = "entries"
         private const val MAX_ENTRIES = 40
+
+        fun forSeries(seriesId: Int?, entries: List<ResumeEntry>): ResumeEntry? {
+            if (seriesId == null) return null
+            val key = "series-$seriesId"
+            return entries.firstOrNull { it.seriesId == seriesId || it.key == key || it.catalogId == key }
+        }
     }
 }

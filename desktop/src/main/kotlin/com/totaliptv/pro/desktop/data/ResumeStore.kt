@@ -86,15 +86,15 @@ object ResumeStore {
         val episodeLabel: String?
 
         if (isEpisode || (item.kind == ContentKind.SERIES && item.playable)) {
-            val sid = item.parentSeriesId
-                ?: item.xtreamStreamId
-                ?: return load()
+            // Never fall back to the episode stream id — that would store series-{episodeId}
+            // and break lookup when reopening the real series poster.
+            val sid = item.parentSeriesId ?: return load()
             key = "series-$sid"
             catalogId = "series-$sid"
             displayName = item.parentSeriesName?.takeIf { it.isNotBlank() } ?: item.name
             kind = ContentKind.SERIES.name
             seriesId = sid
-            episodeId = item.id.removePrefix("ep-").takeIf { item.id.startsWith("ep-") }
+            episodeId = SeriesPlayback.normalizeEpisodeId(item.id)
                 ?: item.xtreamStreamId?.toString()
             episodeLabel = item.name
         } else if (item.kind == ContentKind.VOD) {
@@ -132,6 +132,12 @@ object ResumeStore {
         val next = listOf(entry) + rest
         saveAll(next)
         return next
+    }
+
+    fun forSeries(seriesId: Int?, entries: List<ResumeEntry> = load()): ResumeEntry? {
+        if (seriesId == null) return null
+        val key = "series-$seriesId"
+        return entries.firstOrNull { it.seriesId == seriesId || it.key == key || it.catalogId == key }
     }
 
     private fun Path.writeText(text: String) {

@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -129,14 +130,16 @@ fun BrowseScreen(
         }
         Column(Modifier.fillMaxSize().background(TipBg)) {
             TopBanner(banner)
+            val resume = ResumeStore.forSeries(seriesDetail?.seriesId, resumeEntries)
             SeriesDetailPane(
                 detail = seriesDetail,
                 loading = seriesLoading,
                 error = seriesError,
                 playingTitle = playingTitle,
                 isFavorite = seriesMedia?.let { favoriteKeys.contains(it.id) } == true,
-                resumeSeason = resumeEntries.firstOrNull { it.seriesId == seriesDetail?.seriesId }?.season,
-                resumeEpisodeNum = resumeEntries.firstOrNull { it.seriesId == seriesDetail?.seriesId }?.episodeNum,
+                resumeSeason = resume?.season,
+                resumeEpisodeNum = resume?.episodeNum,
+                resumeEpisodeId = resume?.episodeId,
                 onToggleFavorite = { seriesMedia?.let(onToggleFavorite) },
                 onPlayEpisode = onPlay,
                 onBack = onCloseSeries,
@@ -872,6 +875,7 @@ private fun SeriesDetailPane(
     isFavorite: Boolean,
     resumeSeason: Int? = null,
     resumeEpisodeNum: Int? = null,
+    resumeEpisodeId: String? = null,
     onToggleFavorite: () -> Unit,
     onPlayEpisode: (MediaItem) -> Unit,
     onBack: () -> Unit,
@@ -961,11 +965,12 @@ private fun SeriesDetailPane(
                         }
                         Spacer(Modifier.height(10.dp))
                         val continueEp = SeriesPlayback.continueEpisode(
-                            detail.episodes, resumeSeason, resumeEpisodeNum
+                            detail.episodes, resumeSeason, resumeEpisodeNum, resumeEpisodeId
                         )
                         val nextEp = SeriesPlayback.nextEpisode(
-                            detail.episodes, resumeSeason, resumeEpisodeNum
+                            detail.episodes, resumeSeason, resumeEpisodeNum, resumeEpisodeId
                         )
+                        val hasResume = resumeSeason != null || resumeEpisodeNum != null || !resumeEpisodeId.isNullOrBlank()
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (continueEp != null) {
                                 Button(
@@ -978,7 +983,7 @@ private fun SeriesDetailPane(
                                     )
                                 ) {
                                     Text(
-                                        if (resumeSeason != null) {
+                                        if (hasResume) {
                                             "Continue S${continueEp.season}E${continueEp.episodeNum}"
                                         } else {
                                             "Play first episode"
@@ -988,7 +993,7 @@ private fun SeriesDetailPane(
                                     )
                                 }
                             }
-                            if (nextEp != null && resumeSeason != null) {
+                            if (nextEp != null && hasResume) {
                                 OutlinedButton(
                                     onClick = {
                                         onPlayEpisode(nextEp.toMediaItem(detail.name, detail.seriesId))
@@ -1003,7 +1008,7 @@ private fun SeriesDetailPane(
                     }
                 }
                 val seasons = SeriesPlayback.seasonNumbers(detail.episodes)
-                var selectedSeason by remember(detail.seriesId) { mutableStateOf(resumeSeason) }
+                var selectedSeason by remember(detail.seriesId, resumeSeason) { mutableStateOf(resumeSeason) }
                 if (seasons.size > 1) {
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1026,7 +1031,20 @@ private fun SeriesDetailPane(
                     }
                 }
                 val visible = SeriesPlayback.inSeason(detail.episodes, selectedSeason)
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val listState = rememberLazyListState()
+                val resumeIndex = remember(visible, resumeSeason, resumeEpisodeNum, resumeEpisodeId) {
+                    SeriesPlayback.indexOfEpisode(visible, resumeSeason, resumeEpisodeNum, resumeEpisodeId)
+                }
+                LaunchedEffect(detail.seriesId, resumeIndex) {
+                    if (resumeIndex >= 0) {
+                        val header = if (selectedSeason != null) 1 else 0
+                        listState.animateScrollToItem(resumeIndex + header)
+                    }
+                }
+                LazyColumn(
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     if (selectedSeason != null) {
                         item(key = "season-head-$selectedSeason") {
                             Text(
@@ -1038,7 +1056,16 @@ private fun SeriesDetailPane(
                     }
                     items(visible, key = { it.id }) { ep ->
                         val media = ep.toMediaItem(detail.name, detail.seriesId)
-                        MediaRow(media, isFavorite = false, onClick = { onPlayEpisode(media) }, onToggleFavorite = null)
+                        val highlighted = SeriesPlayback.matchesEpisodeId(ep, resumeEpisodeId) ||
+                            (resumeSeason != null && resumeEpisodeNum != null &&
+                                ep.season == resumeSeason && ep.episodeNum == resumeEpisodeNum)
+                        MediaRow(
+                            media,
+                            isFavorite = false,
+                            highlighted = highlighted,
+                            onClick = { onPlayEpisode(media) },
+                            onToggleFavorite = null
+                        )
                     }
                 }
             }
@@ -1077,6 +1104,7 @@ private fun NavBtn(
 private fun MediaRow(
     item: MediaItem,
     isFavorite: Boolean = false,
+    highlighted: Boolean = false,
     onClick: () -> Unit,
     onToggleFavorite: (() -> Unit)? = null
 ) {
@@ -1085,7 +1113,7 @@ private fun MediaRow(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(TipSurface)
+            .background(if (highlighted) TipBlue.copy(alpha = 0.28f) else TipSurface)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1106,9 +1134,15 @@ private fun MediaRow(
         )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium, color = TipOnBg)
-            val sub = item.groupTitle ?: item.kind.name
-            Text(sub, style = MaterialTheme.typography.bodyMedium, maxLines = 1, color = TipMuted)
+            Text(
+                item.name,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Medium,
+                color = TipOnBg
+            )
+            val sub = if (highlighted) "Last watched · ${item.groupTitle ?: item.kind.name}" else (item.groupTitle ?: item.kind.name)
+            Text(sub, style = MaterialTheme.typography.bodyMedium, maxLines = 1, color = if (highlighted) TipBlue else TipMuted)
         }
         if (onToggleFavorite != null) {
             IconButton(onClick = onToggleFavorite) {

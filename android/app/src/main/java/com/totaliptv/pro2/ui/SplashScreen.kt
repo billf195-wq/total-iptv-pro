@@ -16,7 +16,10 @@ import androidx.compose.ui.res.painterResource
  * Duration is shared with the Windows / Linux desktop app so Shield matches Bigboybill and GTR.
  */
 object SplashTiming {
-    const val DURATION_MS: Long = 2500L
+    /** Logo banner stays up for 15 seconds so Shield matches desktop. */
+    const val DURATION_MS: Long = 15_000L
+    /** Catalog load may continue after the logo; this cap is separate from splash. */
+    const val MAX_CATALOG_HOLD_MS: Long = 30_000L
 }
 
 @Composable

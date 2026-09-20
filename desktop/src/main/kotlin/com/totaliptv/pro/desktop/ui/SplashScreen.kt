@@ -19,7 +19,10 @@ import androidx.compose.ui.unit.dp
  * Duration is shared with Windows, Linux (GTR), and Shield so every format matches.
  */
 object SplashTiming {
-    const val DURATION_MS: Long = 2500L
+    /** Logo banner stays up for 15 seconds on Linux and Windows. */
+    const val DURATION_MS: Long = 15_000L
+    /** Catalog load may continue after the logo; this cap is separate from splash. */
+    const val MAX_CATALOG_HOLD_MS: Long = 30_000L
 }
 
 @Composable
