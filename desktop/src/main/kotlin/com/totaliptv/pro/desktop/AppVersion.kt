@@ -24,7 +24,7 @@ package com.totaliptv.pro.desktop
  * 1.2.21: Game Day split screen (VLC), resume position, M3U XMLTV guide,
  *         manual guide offset, remembered window, GitHub Releases updater.
  * 1.2.22: Live, movies, and series open the external player full screen.
- *         Settings can turn that off. Game Day split screen is unchanged.
+ *         Settings can turn that off. Game Day windows meet with no gap.
  */
 object AppVersion {
     const val VERSION_CODE: Int = 34

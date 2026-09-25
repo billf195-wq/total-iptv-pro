@@ -207,9 +207,40 @@ class StreamPlayerTest {
         )
         assertTrue(split.contains("--qt-continue=0"))
         assertTrue(split.contains("--no-qt-privacy-ask"))
+        assertTrue(split.contains("--no-video-deco"))
+        assertTrue(split.contains("--no-embedded-video"))
         assertFalse(split.contains("--fullscreen"))
         assertTrue(split.contains("--audio-language=eng,en,english"))
         assertEquals(url, split.last())
+        assertFalse(single.contains("--no-video-deco"))
+        assertFalse(single.contains("--no-embedded-video"))
+    }
+
+    @Test
+    fun gameDayHalvesMeetAtTheMiddleOnAnyWidth() {
+        val bounds = WindowPositioner.ScreenBounds(0, 0, 1920, 1080)
+        val (left, right) = WindowPositioner.splitHalves(bounds)
+        assertEquals(0, left.x)
+        assertEquals(960, left.width)
+        assertEquals(960, right.x)
+        assertEquals(960, right.width)
+        assertEquals(1080, left.height)
+        assertEquals(bounds.width, left.width + right.width)
+        assertEquals(left.x + left.width, right.x)
+
+        val odd = WindowPositioner.splitHalves(WindowPositioner.ScreenBounds(0, 0, 1921, 1000))
+        assertEquals(960, odd.first.width)
+        assertEquals(961, odd.second.width)
+        assertEquals(960, odd.second.x)
+        assertEquals(1921, odd.first.width + odd.second.width)
+
+        val work = WindowPositioner.splitHalves(WindowPositioner.ScreenBounds(10, 40, 1900, 1000))
+        assertEquals(10, work.first.x)
+        assertEquals(40, work.first.y)
+        assertEquals(950, work.first.width)
+        assertEquals(960, work.second.x)
+        assertEquals(950, work.second.width)
+        assertEquals(1000, work.first.height)
     }
 
     @Test

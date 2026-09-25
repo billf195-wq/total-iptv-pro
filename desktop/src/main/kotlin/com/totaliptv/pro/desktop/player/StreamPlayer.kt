@@ -199,17 +199,17 @@ object StreamPlayer {
         stoppedByUser = false
 
         val bounds = WindowPositioner.getPrimaryScreenBounds()
-        val halfWidth = (bounds.width / 2).coerceAtLeast(320)
-        val fullHeight = bounds.height.coerceAtLeast(240)
-        val xLeft = bounds.x
-        val xRight = bounds.x + halfWidth
-        val y = bounds.y
+        val (leftHalf, rightHalf) = WindowPositioner.splitHalves(bounds)
 
         val leftCmd = splitSideCommand(
-            vlc, left.streamUrl, AppPaths.isWindows, xLeft, y, halfWidth, fullHeight, 4212, "Total IPTV Pro — Left"
+            vlc, left.streamUrl, AppPaths.isWindows,
+            leftHalf.x, leftHalf.y, leftHalf.width, leftHalf.height,
+            4212, "Total IPTV Pro — Left"
         )
         val rightCmd = splitSideCommand(
-            vlc, right.streamUrl, AppPaths.isWindows, xRight, y, halfWidth, fullHeight, 4213, "Total IPTV Pro — Right"
+            vlc, right.streamUrl, AppPaths.isWindows,
+            rightHalf.x, rightHalf.y, rightHalf.width, rightHalf.height,
+            4213, "Total IPTV Pro — Right"
         )
         val leftProc = ProcessBuilder(leftCmd)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
@@ -227,8 +227,12 @@ object StreamPlayer {
             rightProcess = rightProc
         )
         splitSession = session
-        WindowPositioner.snapWindowAsync(scope, leftProc, leftProc.pid(), xLeft, y, halfWidth, fullHeight)
-        WindowPositioner.snapWindowAsync(scope, rightProc, rightProc.pid(), xRight, y, halfWidth, fullHeight)
+        WindowPositioner.snapWindowAsync(
+            scope, leftProc, leftProc.pid(), leftHalf.x, leftHalf.y, leftHalf.width, leftHalf.height
+        )
+        WindowPositioner.snapWindowAsync(
+            scope, rightProc, rightProc.pid(), rightHalf.x, rightHalf.y, rightHalf.width, rightHalf.height
+        )
         scope.launch(Dispatchers.IO) {
             for (waitMs in listOf(500L, 1200L, 2000L, 3000L)) {
                 delay(waitMs)
@@ -462,7 +466,12 @@ object StreamPlayer {
         return args
     }
 
-    /** One Game Day window. Same Qt quiet flags as [vlcCommand], without fullscreen. */
+    /**
+     * One Game Day window. Same Qt quiet flags as [vlcCommand], without fullscreen.
+     * `--no-video-deco` and `--no-embedded-video` drop the title bar and the Qt
+     * frame so the two pictures can sit against each other. Windows still snaps
+     * the visible DWM frame onto [x]/[width]; Linux uses these coordinates directly.
+     */
     internal fun splitSideCommand(
         binary: String,
         url: String,
@@ -480,6 +489,8 @@ object StreamPlayer {
         args += "--no-playlist-enqueue"
         args += "--no-video-title-show"
         args += "--no-qt-video-autoresize"
+        args += "--no-video-deco"
+        args += "--no-embedded-video"
         args += VLC_QT_QUIET
         args += VLC_AUDIO_LANGUAGE
         args += "--width=$width"
