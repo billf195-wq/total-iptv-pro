@@ -49,6 +49,20 @@ object StreamPlayer {
 
     /** VLC language preference order when multiple audio tracks exist. */
     internal const val VLC_AUDIO_LANGUAGE = "--audio-language=eng,en,english"
+
+    /**
+     * VLC 3.0.21 Qt options (modules/gui/qt/qt.cpp).
+     * `--qt-continue=0` is Never (0), not Ask (1) or Always (2), so VLC does not
+     * show its own continue-playback banner. The app stores resume itself.
+     * `--no-qt-privacy-ask` skips the first-run privacy dialog.
+     * `--no-qt-error-dialogs` is a real option but hides warning dialogs, so it
+     * is not set. `--no-qt-updates-notif` exists only when VLC is built with
+     * UPDATE_CHECK, so it is not passed.
+     */
+    internal val VLC_QT_QUIET: List<String> = listOf(
+        "--qt-continue=0",
+        "--no-qt-privacy-ask"
+    )
     /** mpv language preference order when multiple audio tracks exist. */
     internal const val MPV_AUDIO_LANGUAGE = "--alang=eng,en,english"
     /** Brief pause after taskkill so Windows releases VLC's one-instance mutex. */
@@ -191,28 +205,12 @@ object StreamPlayer {
         val xRight = bounds.x + halfWidth
         val y = bounds.y
 
-        fun sideCommand(item: MediaItem, x: Int, port: Int, title: String): List<String> {
-            val args = mutableListOf(vlc)
-            if (AppPaths.isWindows) args += "--ignore-config"
-            args += "--no-one-instance"
-            args += "--no-playlist-enqueue"
-            args += "--no-video-title-show"
-            args += "--no-qt-video-autoresize"
-            args += VLC_AUDIO_LANGUAGE
-            args += "--width=$halfWidth"
-            args += "--height=$fullHeight"
-            args += "--video-x=$x"
-            args += "--video-y=$y"
-            args += "--extraintf=rc"
-            args += "--rc-host=127.0.0.1:$port"
-            args += "--rc-quiet"
-            args += "--meta-title=$title"
-            args += item.streamUrl
-            return args
-        }
-
-        val leftCmd = sideCommand(left, xLeft, 4212, "Total IPTV Pro — Left")
-        val rightCmd = sideCommand(right, xRight, 4213, "Total IPTV Pro — Right")
+        val leftCmd = splitSideCommand(
+            vlc, left.streamUrl, AppPaths.isWindows, xLeft, y, halfWidth, fullHeight, 4212, "Total IPTV Pro — Left"
+        )
+        val rightCmd = splitSideCommand(
+            vlc, right.streamUrl, AppPaths.isWindows, xRight, y, halfWidth, fullHeight, 4213, "Total IPTV Pro — Right"
+        )
         val leftProc = ProcessBuilder(leftCmd)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
@@ -434,6 +432,7 @@ object StreamPlayer {
             args += "--ignore-config"
         }
         if (fullscreen) args += "--fullscreen"
+        args += VLC_QT_QUIET
         args += VLC_AUDIO_LANGUAGE
         if (!live) {
             args += "--play-and-exit"
@@ -460,6 +459,38 @@ object StreamPlayer {
         }
         args += "--meta-title=Total IPTV Pro"
         args += urls.first()
+        return args
+    }
+
+    /** One Game Day window. Same Qt quiet flags as [vlcCommand], without fullscreen. */
+    internal fun splitSideCommand(
+        binary: String,
+        url: String,
+        windows: Boolean,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        port: Int,
+        title: String
+    ): List<String> {
+        val args = mutableListOf(binary)
+        if (windows) args += "--ignore-config"
+        args += "--no-one-instance"
+        args += "--no-playlist-enqueue"
+        args += "--no-video-title-show"
+        args += "--no-qt-video-autoresize"
+        args += VLC_QT_QUIET
+        args += VLC_AUDIO_LANGUAGE
+        args += "--width=$width"
+        args += "--height=$height"
+        args += "--video-x=$x"
+        args += "--video-y=$y"
+        args += "--extraintf=rc"
+        args += "--rc-host=127.0.0.1:$port"
+        args += "--rc-quiet"
+        args += "--meta-title=$title"
+        args += url
         return args
     }
 

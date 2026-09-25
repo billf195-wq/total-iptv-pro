@@ -177,6 +177,42 @@ class StreamPlayerTest {
     }
 
     @Test
+    fun vlcNeverAsksToContinueAndSkipsThePrivacyDialog() {
+        val url = "http://example.test/movie.mp4"
+        val single = StreamPlayer.vlcCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            listOf(url),
+            windows = true,
+            startPositionSeconds = 30
+        )
+        assertTrue(single.contains("--qt-continue=0"))
+        assertTrue(single.contains("--no-qt-privacy-ask"))
+        assertFalse(single.contains("--no-qt-error-dialogs"))
+        assertFalse(single.any { it.contains("qt-updates-notif") })
+        assertTrue(single.contains("--fullscreen"))
+        assertTrue(single.contains("--audio-language=eng,en,english"))
+        assertTrue(single.contains("--start-time=30"))
+        assertEquals(url, single.last())
+
+        val split = StreamPlayer.splitSideCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            url,
+            windows = true,
+            x = 0,
+            y = 0,
+            width = 960,
+            height = 1080,
+            port = 4212,
+            title = "Total IPTV Pro — Left"
+        )
+        assertTrue(split.contains("--qt-continue=0"))
+        assertTrue(split.contains("--no-qt-privacy-ask"))
+        assertFalse(split.contains("--fullscreen"))
+        assertTrue(split.contains("--audio-language=eng,en,english"))
+        assertEquals(url, split.last())
+    }
+
+    @Test
     fun normalPlayOpensFullscreenAndCanBeTurnedOff() {
         val url = "http://example.test/ep1.mp4"
         val vlcOn = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf(url), windows = false, startPositionSeconds = 45)
