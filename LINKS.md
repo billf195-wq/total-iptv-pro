@@ -6,16 +6,15 @@ Copy/paste into email or chat. **Developed by Bill Foster.**
 ## Total IPTV Pro
 
 - **GitHub repo:** https://github.com/billf195-wq/total-iptv-pro
-- **All downloads (Release v1.1.8):** https://github.com/billf195-wq/total-iptv-pro/releases/tag/v1.1.8
+- **All releases:** https://github.com/billf195-wq/total-iptv-pro/releases
 
-### Desktop
-- **Linux:** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIptvPro-linux-1.1.8.tar.gz
-- **Windows:** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIptvPro-windows-1.1.8.zip
+### Desktop (v1.2.15)
+- **Linux:** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.15/TotalIptvPro-Desktop-1.2.15-linux.tar.gz
+- **Windows:** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.15/TotalIptvPro-Desktop-1.2.15-windows.zip
 
-### Android
-- **Android TV:** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIPTVPro-android-tv-1.4.41.apk
-- **Android phone:** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIPTVPro-android-phone.apk
-- **Android (Pro2 / repo build):** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIptvPro-android-1.0.1.apk
+### Android (release v1.4.57)
+- **Android TV (1.4.57):** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.4.57/TotalIPTVPro-android-tv-1.4.57-debug.apk
+- **Android phone (1.4.34):** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.4.57/TotalIPTVPro-android-phone-1.4.34-debug.apk
 
 ## Ubuntu From Zero (tutorial)
 
@@ -35,10 +34,11 @@ Copy/paste into email or chat. **Developed by Bill Foster.**
 ```
 Hey — Total IPTV Pro downloads:
 
-Android TV: https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIPTVPro-android-tv-1.4.41.apk
-Android phone: https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIPTVPro-android-phone.apk
-Linux: https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIptvPro-linux-1.1.8.tar.gz
-Windows: https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.1.8/TotalIptvPro-windows-1.1.8.zip
+Android TV (1.4.57): https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.4.57/TotalIPTVPro-android-tv-1.4.57-debug.apk
+Android phone (1.4.34): https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.4.57/TotalIPTVPro-android-phone-1.4.34-debug.apk
+Linux (v1.2.15): https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.15/TotalIptvPro-Desktop-1.2.15-linux.tar.gz
+Windows (v1.2.15): https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.15/TotalIptvPro-Desktop-1.2.15-windows.zip
+All releases: https://github.com/billf195-wq/total-iptv-pro/releases
 
 Ubuntu tutorial: https://billf195-wq.github.io/ubuntu-from-zero/
 
