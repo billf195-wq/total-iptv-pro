@@ -352,7 +352,9 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         val seq = playSeq.incrementAndGet()
         scope.launch {
             try {
-                val playerPref = PreferencesStore.load().preferredPlayer
+                val savedPrefs = PreferencesStore.load()
+                val playerPref = savedPrefs.preferredPlayer
+                val openFullscreen = savedPrefs.openPlayerFullscreen
                 val ctx = resolveSeriesContext(item)
                 val windows = AppPaths.isWindows
                 val cachedEpisodes = lastSeriesEpisodes
@@ -419,6 +421,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         playerPref,
                         live = live,
                         startPositionSeconds = if (live) null else startPositionSeconds,
+                        fullscreen = openFullscreen,
                         scope = scope,
                         onProgress = if (progressKey == null) {
                             null

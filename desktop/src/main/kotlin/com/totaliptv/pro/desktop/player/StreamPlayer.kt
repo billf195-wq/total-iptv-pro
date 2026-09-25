@@ -84,8 +84,12 @@ object StreamPlayer {
     /** Windows Quit: kill every player image we launch, not only the last binary. */
     internal val WINDOWS_QUIT_IMAGES: List<String> = listOf("vlc.exe", "mpv.exe", "ffplay.exe")
 
-    fun play(url: String, preferredPlayer: String = "auto", live: Boolean = false): String =
-        playQueue(listOf(url), preferredPlayer, live)
+    fun play(
+        url: String,
+        preferredPlayer: String = "auto",
+        live: Boolean = false,
+        fullscreen: Boolean = true
+    ): String = playQueue(listOf(url), preferredPlayer, live, fullscreen = fullscreen)
 
     /**
      * Play one or more URLs. VLC/mpv always launch a **single** URL (sequential
@@ -103,7 +107,8 @@ object StreamPlayer {
         live: Boolean = false,
         startPositionSeconds: Long? = null,
         scope: CoroutineScope? = null,
-        onProgress: ((positionMs: Long, durationMs: Long?, percent: Int?) -> Unit)? = null
+        onProgress: ((positionMs: Long, durationMs: Long?, percent: Int?) -> Unit)? = null,
+        fullscreen: Boolean = true
     ): String {
         val clean = urls.map { it.trim() }.filter { it.isNotBlank() }
         require(clean.isNotEmpty()) { "No stream URL to play" }
@@ -114,7 +119,7 @@ object StreamPlayer {
         stopProcessOnly()
         val treatLive = live || isLiveStreamUrl(clean.first())
         val resumeAt = if (treatLive) null else startPositionSeconds
-        val resolved = resolvePlayerCommand(clean, preferredPlayer, treatLive, resumeAt)
+        val resolved = resolvePlayerCommand(clean, preferredPlayer, treatLive, resumeAt, fullscreen)
             ?: error(
                 if (AppPaths.isWindows) {
                     "No media player found. Install VLC (recommended), or add mpv/ffplay to PATH."
@@ -343,7 +348,8 @@ object StreamPlayer {
         urls: List<String>,
         preferred: String,
         live: Boolean = false,
-        startPositionSeconds: Long? = null
+        startPositionSeconds: Long? = null,
+        fullscreen: Boolean = true
     ): ResolvedCommand? {
         val pref = preferred.trim().lowercase()
         val ordered = when (pref) {
@@ -354,7 +360,13 @@ object StreamPlayer {
         }
         val treatLive = live || isLiveStreamUrl(urls.firstOrNull().orEmpty())
         for (name in ordered) {
-            commandFor(name, urls, live = treatLive, startPositionSeconds = startPositionSeconds)?.let { return it }
+            commandFor(
+                name,
+                urls,
+                live = treatLive,
+                startPositionSeconds = startPositionSeconds,
+                fullscreen = fullscreen
+            )?.let { return it }
         }
         return null
     }
@@ -364,26 +376,30 @@ object StreamPlayer {
         urls: List<String>,
         windows: Boolean = AppPaths.isWindows,
         live: Boolean = false,
-        startPositionSeconds: Long? = null
+        startPositionSeconds: Long? = null,
+        fullscreen: Boolean = true
     ): ResolvedCommand? {
         return when (name) {
             "vlc" -> {
                 val vlc = resolveVlcBinary() ?: return null
                 ResolvedCommand(
-                    vlcCommand(vlc, urls, windows, live, startPositionSeconds),
+                    vlcCommand(vlc, urls, windows, live, startPositionSeconds, fullscreen),
                     playlist = treatsLaunchAsPlaylist("vlc", urls.size, windows)
                 )
             }
             "mpv" -> {
                 val bin = resolveOnPath("mpv") ?: return null
                 ResolvedCommand(
-                    mpvCommand(bin, urls, windows, live, startPositionSeconds),
+                    mpvCommand(bin, urls, windows, live, startPositionSeconds, fullscreen),
                     playlist = treatsLaunchAsPlaylist("mpv", urls.size, windows)
                 )
             }
             "ffplay" -> {
                 val bin = resolveOnPath("ffplay") ?: return null
-                ResolvedCommand(ffplayCommand(bin, urls.first(), live, startPositionSeconds), playlist = false)
+                ResolvedCommand(
+                    ffplayCommand(bin, urls.first(), live, startPositionSeconds, fullscreen),
+                    playlist = false
+                )
             }
             else -> null
         }
@@ -410,13 +426,14 @@ object StreamPlayer {
         urls: List<String>,
         windows: Boolean = AppPaths.isWindows,
         live: Boolean = false,
-        startPositionSeconds: Long? = null
+        startPositionSeconds: Long? = null,
+        fullscreen: Boolean = true
     ): List<String> {
         val args = mutableListOf(binary)
         if (windows) {
             args += "--ignore-config"
         }
-        args += "--fullscreen"
+        if (fullscreen) args += "--fullscreen"
         args += VLC_AUDIO_LANGUAGE
         if (!live) {
             args += "--play-and-exit"
@@ -452,9 +469,11 @@ object StreamPlayer {
         urls: List<String>,
         windows: Boolean = AppPaths.isWindows,
         live: Boolean = false,
-        startPositionSeconds: Long? = null
+        startPositionSeconds: Long? = null,
+        fullscreen: Boolean = true
     ): List<String> {
-        val args = mutableListOf(binary, "--fullscreen", "--force-window=yes", "--title=Total IPTV Pro")
+        val args = mutableListOf(binary, "--force-window=yes", "--title=Total IPTV Pro")
+        if (fullscreen) args += "--fullscreen"
         args += MPV_AUDIO_LANGUAGE
         args += "--loop-file=no"
         args += "--loop-playlist=no"
@@ -479,9 +498,11 @@ object StreamPlayer {
         binary: String,
         url: String,
         live: Boolean = false,
-        startPositionSeconds: Long? = null
+        startPositionSeconds: Long? = null,
+        fullscreen: Boolean = true
     ): List<String> {
-        val args = mutableListOf(binary, "-fs")
+        val args = mutableListOf(binary)
+        if (fullscreen) args += "-fs"
         if (!live) args += "-autoexit"
         args += "-window_title"
         args += "Total IPTV Pro"

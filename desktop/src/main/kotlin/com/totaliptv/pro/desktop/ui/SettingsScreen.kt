@@ -48,6 +48,7 @@ fun SettingsScreen(
 ) {
     val available = remember { StreamPlayer.availablePlayers() }
     var player by remember(prefs.preferredPlayer) { mutableStateOf(prefs.preferredPlayer) }
+    var openFullscreen by remember(prefs.openPlayerFullscreen) { mutableStateOf(prefs.openPlayerFullscreen) }
     var theme by remember(prefs.themeMode) { mutableStateOf(prefs.themeMode) }
     var columns by remember(prefs.posterColumns) {
         mutableStateOf(prefs.posterColumns.let { if (it in setOf(5, 6, 8, 11)) it else 6 })
@@ -78,7 +79,8 @@ fun SettingsScreen(
         nextShelf: String = shelfUrl,
         nextGuide: String = guideStyle,
         nextRecordingsDir: String = prefs.recordingsDir,
-        nextEpg: Int = epgOffset
+        nextEpg: Int = epgOffset,
+        nextFullscreen: Boolean = openFullscreen
     ) {
         player = nextPlayer
         theme = nextTheme
@@ -86,6 +88,7 @@ fun SettingsScreen(
         shelfUrl = nextShelf
         guideStyle = if (nextGuide == "classic") "classic" else "current"
         epgOffset = nextEpg
+        openFullscreen = nextFullscreen
         onSavePrefs(
             prefs.copy(
                 preferredPlayer = nextPlayer,
@@ -94,7 +97,8 @@ fun SettingsScreen(
                 updateShelfUrl = AppUpdateManager.normalizeShelf(nextShelf),
                 guideStyle = guideStyle,
                 recordingsDir = nextRecordingsDir,
-                epgTimeOffsetHours = nextEpg
+                epgTimeOffsetHours = nextEpg,
+                openPlayerFullscreen = nextFullscreen
             )
         )
     }
@@ -205,6 +209,21 @@ fun SettingsScreen(
                 )
             } else {
                 Text("Detected: ${available.joinToString(", ")}", style = MaterialTheme.typography.bodyMedium)
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("Open player full screen", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
+            Text(
+                "Live TV, movies, and series open VLC, mpv, or ffplay full screen. Game Day split screen stays side by side.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TipChoiceChip(selected = openFullscreen, label = "On") {
+                    persist(nextFullscreen = true)
+                }
+                TipChoiceChip(selected = !openFullscreen, label = "Off") {
+                    persist(nextFullscreen = false)
+                }
             }
             Spacer(Modifier.height(10.dp))
             Text("Series next episode", style = MaterialTheme.typography.titleMedium, color = TipOnBg)

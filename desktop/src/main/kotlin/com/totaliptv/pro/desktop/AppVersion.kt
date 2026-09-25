@@ -23,8 +23,10 @@ package com.totaliptv.pro.desktop
  * 1.2.15: Prefer English audio on VLC/mpv when a stream has multiple tracks.
  * 1.2.21: Game Day split screen (VLC), resume position, M3U XMLTV guide,
  *         manual guide offset, remembered window, GitHub Releases updater.
+ * 1.2.22: Live, movies, and series open the external player full screen.
+ *         Settings can turn that off. Game Day split screen is unchanged.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 33
-    const val VERSION_NAME: String = "1.2.21"
+    const val VERSION_CODE: Int = 34
+    const val VERSION_NAME: String = "1.2.22"
 }

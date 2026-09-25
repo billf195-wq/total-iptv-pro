@@ -25,10 +25,10 @@
             </intent-filter>
         </activity>
 
-        <!-- Player: allow portrait/landscape on phones -->
+        <!-- Player stays landscape. The rest of the phone app can rotate. -->
         <activity
             android:name=".ui.player.PlayerActivity"
-            android:screenOrientation="sensor"
+            android:screenOrientation="sensorLandscape"
             tools:replace="android:screenOrientation" />
     </application>
 </manifest>

@@ -16,6 +16,8 @@ data class SavedPrefs(
     val onboarded: Boolean = false,
     /** auto | vlc | mpv | ffplay */
     val preferredPlayer: String = "auto",
+    /** Live, movies, and series open VLC/mpv/ffplay full screen. Game Day split screen ignores this. */
+    val openPlayerFullscreen: Boolean = true,
     /** dark | light */
     val themeMode: String = "dark",
     /** Poster grid columns for Movies/Series (5, 6, or 11). Default 11. */

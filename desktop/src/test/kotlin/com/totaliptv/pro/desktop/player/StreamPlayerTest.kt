@@ -177,6 +177,44 @@ class StreamPlayerTest {
     }
 
     @Test
+    fun normalPlayOpensFullscreenAndCanBeTurnedOff() {
+        val url = "http://example.test/ep1.mp4"
+        val vlcOn = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf(url), windows = false, startPositionSeconds = 45)
+        assertTrue(vlcOn.contains("--fullscreen"))
+        assertTrue(vlcOn.contains("--audio-language=eng,en,english"))
+        assertTrue(vlcOn.contains("--start-time=45"))
+        assertEquals(url, vlcOn.last())
+
+        val vlcOff = StreamPlayer.vlcCommand(
+            "/usr/bin/vlc",
+            listOf(url),
+            windows = false,
+            startPositionSeconds = 45,
+            fullscreen = false
+        )
+        assertFalse(vlcOff.contains("--fullscreen"))
+        assertTrue(vlcOff.contains("--audio-language=eng,en,english"))
+        assertTrue(vlcOff.contains("--start-time=45"))
+
+        val mpvOn = StreamPlayer.mpvCommand("mpv", listOf(url), windows = false, startPositionSeconds = 12)
+        assertTrue(mpvOn.contains("--fullscreen"))
+        assertTrue(mpvOn.contains("--alang=eng,en,english"))
+        assertTrue(mpvOn.contains("--start=12"))
+        val mpvOff = StreamPlayer.mpvCommand("mpv", listOf(url), windows = false, fullscreen = false, startPositionSeconds = 12)
+        assertFalse(mpvOff.contains("--fullscreen"))
+        assertTrue(mpvOff.contains("--alang=eng,en,english"))
+        assertTrue(mpvOff.contains("--start=12"))
+
+        val ffOn = StreamPlayer.ffplayCommand("ffplay", url, startPositionSeconds = 8)
+        assertTrue(ffOn.contains("-fs"))
+        assertTrue(ffOn.contains("-ss"))
+        assertEquals("8", ffOn[ffOn.indexOf("-ss") + 1])
+        val ffOff = StreamPlayer.ffplayCommand("ffplay", url, startPositionSeconds = 8, fullscreen = false)
+        assertFalse(ffOff.contains("-fs"))
+        assertTrue(ffOff.contains("-ss"))
+    }
+
+    @Test
     fun liveMpvKeepsWindowOpenAndFfplaySkipsAutoexit() {
         val liveUrl = "http://hudv.net/live/u/p/84.m3u8"
         val mpv = StreamPlayer.mpvCommand("mpv.exe", listOf(liveUrl), windows = true, live = true)
