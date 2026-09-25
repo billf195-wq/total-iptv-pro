@@ -63,6 +63,7 @@ import com.totaliptv.pro.ui.components.MovieDetailSheet
 import com.totaliptv.pro.ui.components.PosterCard
 import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
+import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.ui.theme.ClassicDimens
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.tipScreenBrush
@@ -87,6 +88,7 @@ fun BrowseScreen(
     val favoriteIds = remember(favorites) { favorites.map { it.id }.toSet() }
     val railFocus = remember { FocusRequester() }
     var catalogSort by remember { mutableStateOf(CatalogSort.RECENTLY_ADDED) }
+    var showGameDay by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val appPrefs = (context.applicationContext as? TotalIptvProApp)?.preferences
@@ -244,6 +246,13 @@ fun BrowseScreen(
             Spacer(Modifier.weight(1f))
             if (section == BrowseSection.Live && onOpenGuide != null) {
                 TopBarChip(label = "TV Guide", onClick = onOpenGuide)
+            }
+            if (section == BrowseSection.Live) {
+                TopBarChip(
+                    label = "Game Day",
+                    emphasized = true,
+                    onClick = { showGameDay = true }
+                )
             }
             Text(
                 text = when (section) {
@@ -503,6 +512,13 @@ fun BrowseScreen(
             },
             onToggleFavorite = { toggleFavoriteToast(detail) },
             onDismiss = { dismissDetail(restore = true) }
+        )
+    }
+    if (showGameDay && section == BrowseSection.Live) {
+        GameDayPicker(
+            channels = repository.liveItems(),
+            initialLeft = null,
+            onDismiss = { showGameDay = false }
         )
     }
     } // Box

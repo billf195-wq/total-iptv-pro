@@ -33,5 +33,8 @@ class TotalIptvProApp : Application() {
         appScope.launch {
             preferences.recordingsDir.collect { dvr.overrideDir = it }
         }
+        appScope.launch {
+            runCatching { preferences.migrateSavedShelfHost() }
+        }
     }
 }

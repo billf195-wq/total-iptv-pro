@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.totaliptv.pro.BuildConfig
+import com.totaliptv.pro.data.update.UpdateSources
 import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.theme.AppearanceMode
@@ -103,7 +104,8 @@ class AppPreferences(private val context: Context) {
     }
 
     val updateBaseUrl: Flow<String> = context.dataStore.data.map { prefs ->
-        prefs[updateBaseUrlKey]?.trim()?.takeIf { it.isNotBlank() } ?: DEFAULT_UPDATE_BASE_URL
+        val raw = prefs[updateBaseUrlKey]?.trim()?.takeIf { it.isNotBlank() } ?: DEFAULT_UPDATE_BASE_URL
+        UpdateSources.migrateShelfHost(raw)
     }
 
     val appearanceMode: Flow<AppearanceMode> = context.dataStore.data.map { prefs ->
@@ -147,15 +149,31 @@ class AppPreferences(private val context: Context) {
         }
     }
 
-    suspend fun getUpdateBaseUrl(): String =
-        context.dataStore.data.first()[updateBaseUrlKey]?.trim()?.takeIf { it.isNotBlank() }
+    suspend fun getUpdateBaseUrl(): String {
+        val raw = context.dataStore.data.first()[updateBaseUrlKey]?.trim()?.takeIf { it.isNotBlank() }
             ?: DEFAULT_UPDATE_BASE_URL
+        return UpdateSources.migrateShelfHost(raw)
+    }
 
     suspend fun setUpdateBaseUrl(url: String) {
-        val cleaned = url.trim().let { if (it.endsWith("/")) it else "$it/" }
+        val cleaned = UpdateSources.migrateShelfHost(
+            url.trim().let { if (it.endsWith("/")) it else "$it/" }
+        )
         context.dataStore.edit { prefs ->
             prefs[updateBaseUrlKey] = cleaned.ifBlank { DEFAULT_UPDATE_BASE_URL }
         }
+    }
+
+    /** Persist a saved 192.168.4.37 shelf as 192.168.4.33. No-op when unset or already new. */
+    suspend fun migrateSavedShelfHost(): Boolean {
+        val raw = context.dataStore.data.first()[updateBaseUrlKey]?.trim().orEmpty()
+        if (raw.isBlank() || !raw.contains(UpdateSources.OLD_SHELF_HOST)) return false
+        val migrated = UpdateSources.migrateShelfHost(raw)
+        if (migrated == raw) return false
+        context.dataStore.edit { prefs ->
+            prefs[updateBaseUrlKey] = migrated
+        }
+        return true
     }
 
     suspend fun getAppearanceMode(): AppearanceMode =

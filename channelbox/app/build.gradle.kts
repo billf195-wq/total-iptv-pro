@@ -13,12 +13,12 @@ android {
         applicationId = "com.totaliptv.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 71
-        versionName = "1.4.59"
+        versionCode = 72
+        versionName = "1.4.60"
         buildConfigField(
             "String",
             "DEFAULT_UPDATE_BASE_URL",
-            "\"http://192.168.4.37:8765/\""
+            "\"http://192.168.4.33:8765/\""
         )
     }
 
@@ -27,25 +27,25 @@ android {
         create("tv") {
             dimension = "device"
             // Keep Shield / Leanback applicationId unchanged.
-            versionCode = 71
-            versionName = "1.4.59"
+            versionCode = 72
+            versionName = "1.4.60"
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",
-                "\"http://192.168.4.37:8765/\""
+                "\"http://192.168.4.33:8765/\""
             )
         }
         create("phone") {
             dimension = "device"
             applicationIdSuffix = ".phone"
             // Phone-only bump so Shield is not forced to update.
-            versionCode = 48
-            versionName = "1.4.36-phone"
+            versionCode = 49
+            versionName = "1.4.37-phone"
             resValue("string", "app_name", "Total IPTV Pro Phone")
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",
-                "\"http://192.168.4.37:8765/phone/\""
+                "\"http://192.168.4.33:8765/phone/\""
             )
         }
     }
@@ -91,6 +91,7 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.exoplayer.hls)

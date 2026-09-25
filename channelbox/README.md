@@ -20,7 +20,8 @@ Lean source snapshot imported from Bill Foster’s Bigboybill PC (main + phone +
 - Live TV Guide (Xtream `get_short_epg` / `get_simple_data_table`)
 - Favorites, continue watching, Media3 ExoPlayer
 - Personal DVR (1.4.57 / phone 1.4.34): Record Live/Guide (HLS/.ts capture + EPG schedule), download a movie or series episode from detail / player, library with type (Live / Movie / Series) on **this device** (`Android/data/…/Movies/TotalIptvPro/Recordings`)
-- In-app update check against a LAN shelf
+- Game Day split screen on Live TV and the Guide (two built-in players, one side of audio)
+- In-app update check: GitHub Releases first, then the LAN shelf at `http://192.168.4.33:8765/` (phone: `/phone/`)
 
 ## Build
 

@@ -38,6 +38,7 @@ import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.local.PreferredPlayer
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.update.AppUpdateChecker
+import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
 import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.theme.AppearanceMode
@@ -104,7 +105,7 @@ fun PhoneSettingsScreen(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "Phone channel only — does not use the TV Shield shelf.",
+            "Checks GitHub Releases first, then the phone shelf. Does not use the TV shelf.",
             color = OnCinemaMuted,
             style = MaterialTheme.typography.bodySmall
         )
@@ -196,8 +197,7 @@ fun PhoneSettingsScreen(
                         }
                         is UpdateCheckResult.Available -> {
                             pendingInstall = result
-                            updateStatus =
-                                "Update available: ${result.manifest.versionName} (code ${result.manifest.versionCode}). Tap to install."
+                            updateStatus = result.installLabel()
                             Toast.makeText(
                                 context,
                                 "Update ${result.manifest.versionName} available",

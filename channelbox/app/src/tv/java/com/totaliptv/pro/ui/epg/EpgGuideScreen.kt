@@ -73,6 +73,7 @@ import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.components.NetworkImage
 import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
+import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.CinemaBg
 import com.totaliptv.pro.ui.theme.CinemaSurfaceHigh
@@ -152,6 +153,7 @@ fun EpgGuideScreen(
     val recordLook = DvrRecordUi.appearance(dvrSnap.active, focusedChannel?.id, focusedChannel?.streamUrl)
     // Bumps on every category load so a stale click from a prior category cannot play.
     var guideLoadGen by remember { mutableStateOf(0) }
+    var showGameDay by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedCategoryId) {
         // Always rebind EPG for the visible channel set on category chip change.
@@ -241,6 +243,7 @@ fun EpgGuideScreen(
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -288,6 +291,12 @@ fun EpgGuideScreen(
                         Toast.makeText(context, "Focus a channel, then Record", Toast.LENGTH_SHORT).show()
                     }
                 }
+            )
+            Spacer(Modifier.width(8.dp))
+            TopBarChip(
+                label = "Split",
+                emphasized = true,
+                onClick = { showGameDay = true }
             )
             Spacer(Modifier.width(8.dp))
             TopBarChip(
@@ -436,6 +445,14 @@ fun EpgGuideScreen(
                 }
             }
         }
+    }
+    if (showGameDay) {
+        GameDayPicker(
+            channels = repository.liveItems(),
+            initialLeft = focusedChannel,
+            onDismiss = { showGameDay = false }
+        )
+    }
     }
 }
 

@@ -30,5 +30,10 @@
             android:name=".ui.player.PlayerActivity"
             android:screenOrientation="sensorLandscape"
             tools:replace="android:screenOrientation" />
+
+        <activity
+            android:name=".ui.player.SplitPlayerActivity"
+            android:screenOrientation="sensorLandscape"
+            tools:replace="android:screenOrientation" />
     </application>
 </manifest>

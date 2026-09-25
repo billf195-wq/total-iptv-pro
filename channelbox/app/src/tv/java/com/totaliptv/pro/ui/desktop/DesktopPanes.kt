@@ -60,7 +60,9 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.dvr.DvrRecordUi
+import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.data.update.AppUpdateChecker
+import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -258,7 +260,17 @@ fun LivePane(
     val dvrSnap by remember(context) {
         (context.applicationContext as TotalIptvProApp).dvr.snapshot
     }.collectAsState()
+    var showGameDay by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Live TV", color = TipGoldText, fontSize = TipDimens.HeadlineMediumSp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            AmberButton(label = "Game Day", onClick = { showGameDay = true })
+        }
+        Spacer(Modifier.height(TipDimens.dp(8)))
         FilterBar(
             search = search,
             onSearch = onSearch,
@@ -283,6 +295,14 @@ fun LivePane(
                 )
             }
         }
+    }
+    if (showGameDay) {
+        GameDayPicker(
+            channels = items,
+            initialLeft = null,
+            onDismiss = { showGameDay = false }
+        )
+    }
     }
 }
 
@@ -736,7 +756,7 @@ fun DesktopSettingsPane(
             color = TipGoldMuted,
             fontSize = TipDimens.BodyMediumSp
         )
-        Text("Shelf: $updateBaseUrl", color = TipGoldMuted, fontSize = TipDimens.sp(12))
+        Text("GitHub Releases, then shelf: $updateBaseUrl", color = TipGoldMuted, fontSize = TipDimens.sp(12))
         Spacer(Modifier.height(TipDimens.dp(10)))
         AmberButton(
             label = when {
@@ -780,8 +800,7 @@ fun DesktopSettingsPane(
                         }
                         is UpdateCheckResult.Available -> {
                             pendingInstall = result
-                            updateStatus =
-                                "Update available: ${result.manifest.versionName}. Tap to install."
+                            updateStatus = result.installLabel()
                             Toast.makeText(
                                 context,
                                 "Update ${result.manifest.versionName} available",

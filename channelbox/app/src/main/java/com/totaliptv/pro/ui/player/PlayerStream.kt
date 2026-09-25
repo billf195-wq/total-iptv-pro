@@ -22,6 +22,16 @@ object PlayerStream {
     const val LIVE_REBUFFER_MS = 1_500
     const val LIVE_STUCK_BUFFER_MS = 8_000L
 
+    /**
+     * Game Day runs two players. Keep each buffer smaller than single-channel live
+     * so a Shield is less likely to run out of memory.
+     */
+    const val SPLIT_MIN_BUFFER_MS = 2_000
+    const val SPLIT_MAX_BUFFER_MS = 8_000
+    const val SPLIT_PLAYBACK_BUFFER_MS = 500
+    const val SPLIT_REBUFFER_MS = 1_000
+    const val SPLIT_TARGET_BUFFER_BYTES = 6 * 1024 * 1024
+
     const val LIVE_TARGET_OFFSET_MS = C.TIME_UNSET
     const val LIVE_MIN_OFFSET_MS = C.TIME_UNSET
     const val LIVE_MAX_OFFSET_MS = C.TIME_UNSET

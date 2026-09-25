@@ -56,6 +56,7 @@ import com.totaliptv.pro.data.local.PreferredPlayer
 import com.totaliptv.pro.data.local.AppLayoutMode
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.update.AppUpdateChecker
+import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
 import com.totaliptv.pro.ui.components.FocusableCard
 import com.totaliptv.pro.ui.theme.FocusBorder
@@ -150,7 +151,7 @@ fun SettingsScreen(
                                 orientation = LinearLayout.VERTICAL
                                 setPadding(dp(4), dp(4), dp(4), dp(4))
                                 addView(TextView(ctx).apply {
-                                    text = "PC shelf URL (http.server on :8765). Example: http://192.168.4.37:8765/"
+                                    text = "PC shelf URL (http.server on :8765). Example: http://192.168.4.33:8765/"
                                     setTextColor(AndroidColor.parseColor("#B0BEC5"))
                                     textSize = 13f
                                 })
@@ -208,7 +209,7 @@ fun SettingsScreen(
                         else -> "Check for update"
                     },
                     subtitle = updateStatus
-                        ?: "Fetches version.json from your PC download shelf, then installs the APK",
+                        ?: "Checks GitHub Releases first, then version.json on the PC shelf",
                     onClick = {
                         if (updateBusy) return@FocusableCard
                         val activity = context as? Activity
@@ -250,8 +251,7 @@ fun SettingsScreen(
                                 }
                                 is UpdateCheckResult.Available -> {
                                     pendingInstall = result
-                                    updateStatus =
-                                        "Update available: ${result.manifest.versionName} (code ${result.manifest.versionCode}). Tap to install."
+                                    updateStatus = result.installLabel()
                                     Toast.makeText(
                                         context,
                                         "Update ${result.manifest.versionName} available",

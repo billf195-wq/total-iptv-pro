@@ -59,6 +59,13 @@
             android:theme="@style/Theme.TotalIPTVPro.Player" />
 
         <activity
+            android:name=".ui.player.SplitPlayerActivity"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.TotalIPTVPro.Player" />
+
+        <activity
             android:name=".ui.trailer.TrailerWebActivity"
             android:exported="false"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout"
