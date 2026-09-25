@@ -20,6 +20,10 @@ class StreamPlayerTest {
         assertTrue(cmd.contains("http://example.test/ep1.mp4"))
         assertFalse(cmd.contains("--ignore-config"))
         assertFalse(cmd.contains("--no-one-instance-when-started-from-file"))
+        assertFalse(cmd.contains("--no-started-from-file"))
+        assertFalse(cmd.contains("--rc-quiet"))
+        assertTrue(cmd.contains("--extraintf=rc"))
+        assertTrue(cmd.contains("--rc-host=127.0.0.1:4214"))
         assertEquals("http://example.test/ep1.mp4", cmd.last())
     }
 
@@ -44,6 +48,9 @@ class StreamPlayerTest {
         assertTrue(cmd.contains("--no-playlist-enqueue"))
         assertTrue(cmd.contains("--no-one-instance-when-started-from-file"))
         assertTrue(cmd.contains("--no-started-from-file"))
+        assertTrue(cmd.contains("--rc-quiet"))
+        assertTrue(cmd.contains("--extraintf=rc"))
+        assertTrue(cmd.contains("--rc-host=127.0.0.1:4214"))
         assertTrue(cmd.contains("--no-repeat"))
         assertTrue(cmd.contains("--no-loop"))
         assertEquals(urls[0], cmd.last())
@@ -174,6 +181,71 @@ class StreamPlayerTest {
         )
         assertTrue(vod.contains("--play-and-exit"))
         assertTrue(vod.contains("--audio-language=eng,en,english"))
+    }
+
+    @Test
+    fun rcQuietIsWindowsOnlyAndLinuxKeepsResumeRc() {
+        val url = "http://example.test/movie.mp4"
+        val linux = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf(url), windows = false, live = false)
+        assertFalse(linux.contains("--rc-quiet"), linux.toString())
+        assertTrue(linux.contains("--extraintf=rc"))
+        assertTrue(linux.contains("--rc-host=127.0.0.1:4214"))
+        assertFalse(linux.contains("--no-one-instance-when-started-from-file"))
+        assertFalse(linux.contains("--no-started-from-file"))
+
+        val windows = StreamPlayer.vlcCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            listOf(url),
+            windows = true,
+            live = false
+        )
+        assertTrue(windows.contains("--rc-quiet"), windows.toString())
+        assertTrue(windows.contains("--extraintf=rc"))
+        assertTrue(windows.contains("--rc-host=127.0.0.1:4214"))
+        assertTrue(windows.contains("--no-one-instance-when-started-from-file"))
+        assertTrue(windows.contains("--no-started-from-file"))
+
+        val linuxLive = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf(url), windows = false, live = true)
+        val windowsLive = StreamPlayer.vlcCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            listOf(url),
+            windows = true,
+            live = true
+        )
+        assertFalse(linuxLive.contains("--rc-quiet"))
+        assertFalse(windowsLive.contains("--rc-quiet"))
+
+        val linuxSplit = StreamPlayer.splitSideCommand(
+            "/usr/bin/vlc",
+            url,
+            windows = false,
+            x = 0,
+            y = 0,
+            width = 960,
+            height = 1080,
+            port = 4212,
+            title = "Total IPTV Pro — Left"
+        )
+        assertFalse(linuxSplit.contains("--rc-quiet"), linuxSplit.toString())
+        assertTrue(linuxSplit.contains("--extraintf=rc"))
+        assertTrue(linuxSplit.contains("--rc-host=127.0.0.1:4212"))
+        assertFalse(linuxSplit.contains("--no-one-instance-when-started-from-file"))
+        assertFalse(linuxSplit.contains("--no-started-from-file"))
+
+        val windowsSplit = StreamPlayer.splitSideCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            url,
+            windows = true,
+            x = 960,
+            y = 0,
+            width = 960,
+            height = 1080,
+            port = 4213,
+            title = "Total IPTV Pro — Right"
+        )
+        assertTrue(windowsSplit.contains("--rc-quiet"), windowsSplit.toString())
+        assertTrue(windowsSplit.contains("--extraintf=rc"))
+        assertTrue(windowsSplit.contains("--rc-host=127.0.0.1:4213"))
     }
 
     @Test

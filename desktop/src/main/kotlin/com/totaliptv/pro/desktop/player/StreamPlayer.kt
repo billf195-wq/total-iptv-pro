@@ -422,6 +422,11 @@ object StreamPlayer {
      * live window (often 5–12s of segments) as a finished item and quits 0.
      * Windows also uses `--ignore-config` so installer vlcrc one-instance cannot
      * override `--no-one-instance` (1.2.1 still replayed the same episode).
+     *
+     * `--rc-quiet` is compiled only into Windows VLC (it hides the DOS RC
+     * console). Linux VLC 3.0 rejects the option and exits immediately, so it
+     * is passed only when [windows] is true. `--extraintf=rc` and `--rc-host`
+     * stay on both platforms so resume progress still works.
      */
     internal fun vlcCommand(
         binary: String,
@@ -442,7 +447,7 @@ object StreamPlayer {
             args += "--play-and-exit"
             args += "--extraintf=rc"
             args += "--rc-host=127.0.0.1:$PROGRESS_RC_PORT"
-            args += "--rc-quiet"
+            if (windows) args += "--rc-quiet"
         }
         args += "--no-one-instance"
         args += "--no-playlist-enqueue"
@@ -501,7 +506,8 @@ object StreamPlayer {
         args += "--video-y=$y"
         args += "--extraintf=rc"
         args += "--rc-host=127.0.0.1:$port"
-        args += "--rc-quiet"
+        // Same Windows-only RC flag as [vlcCommand]. Linux keeps the RC socket.
+        if (windows) args += "--rc-quiet"
         args += "--meta-title=$title"
         args += url
         return args
