@@ -2,6 +2,7 @@ package com.totaliptv.pro.desktop.player
 
 import com.sun.jna.Native
 import com.sun.jna.Pointer
+import com.sun.jna.platform.win32.BaseTSD
 import com.sun.jna.platform.win32.User32
 import com.sun.jna.platform.win32.WinDef
 import com.sun.jna.platform.win32.WinUser
@@ -79,6 +80,15 @@ object WindowPositioner {
     fun fallbackFrameInsets(dpi: Int): FrameInsets {
         val px = resizeBorderPx(dpi)
         return FrameInsets(left = px, top = 0, right = px, bottom = px)
+    }
+
+    /**
+     * Drop [WS_CAPTION] and [WS_THICKFRAME] (and the sysmenu / min / max bits that
+     * keep a title bar alive). Bill's live split windows were style `0x9ECF0000`.
+     */
+    fun borderlessStyle(style: Long): Long {
+        val masked = style and 0xFFFFFFFFL
+        return masked and (STYLE_CLEAR.toLong().inv() and 0xFFFFFFFFL)
     }
 
     /**
@@ -225,15 +235,23 @@ object WindowPositioner {
         width: Int,
         height: Int
     ) {
+        val target = ScreenBounds(x, y, width, height)
+        val style = readStyle(user32, hwnd, GWL_STYLE)
+        val needsStrip = borderlessStyle(style) != style
+        if (!needsStrip && visibleMatches(user32, hwnd, x, y, width, height)) return
         user32.ShowWindow(hwnd, WinUser.SW_RESTORE)
-        val stripped = stripDecorations(user32, hwnd)
-        if (!stripped && visibleMatches(user32, hwnd, x, y, width, height)) return
-        val dpi = dpiFor(hwnd)
-        val outer = outerForVisibleTarget(x, y, width, height, usableInsets(measureInsets(user32, hwnd), dpi))
-        setWindowRect(user32, hwnd, outer)
-        val corrected = outerForVisibleTarget(x, y, width, height, usableInsets(measureInsets(user32, hwnd), dpi))
-        if (corrected != outer || !visibleMatches(user32, hwnd, x, y, width, height)) {
-            setWindowRect(user32, hwnd, corrected)
+        if (needsStrip) stripDecorations(user32, hwnd)
+        // Apply the style with the visible target first (0..1720 and 1720..3440 on
+        // Bill's 3440x1440 work area). SWP_FRAMECHANGED is what makes the caption go.
+        setWindowRect(user32, hwnd, target)
+        // If DWM still reports the 7px resize border, grow the outer rect so the
+        // extended frame — the visible part — lands on that same target.
+        repeat(2) {
+            if (visibleMatches(user32, hwnd, x, y, width, height)) return
+            val dpi = dpiFor(hwnd)
+            val outer = outerForVisibleTarget(x, y, width, height, usableInsets(measureInsets(user32, hwnd), dpi))
+            val current = readWindowRect(user32, hwnd)
+            if (current != outer) setWindowRect(user32, hwnd, outer)
         }
     }
 
@@ -320,21 +338,36 @@ object WindowPositioner {
         }
     }
 
-    private fun stripDecorations(user32: User32, hwnd: WinDef.HWND): Boolean {
-        val style = user32.GetWindowLong(hwnd, GWL_STYLE)
-        val ex = user32.GetWindowLong(hwnd, GWL_EXSTYLE)
-        val newStyle = style and STYLE_CLEAR.inv()
-        val newEx = ex and EXSTYLE_CLEAR.inv()
-        var changed = false
-        if (newStyle != style) {
-            user32.SetWindowLong(hwnd, GWL_STYLE, newStyle)
-            changed = true
+    private fun stripDecorations(user32: User32, hwnd: WinDef.HWND) {
+        val style = readStyle(user32, hwnd, GWL_STYLE)
+        val ex = readStyle(user32, hwnd, GWL_EXSTYLE)
+        val newStyle = borderlessStyle(style)
+        val newEx = ex and (EXSTYLE_CLEAR.toLong().inv() and 0xFFFFFFFFL)
+        if (newStyle != style) writeStyle(user32, hwnd, GWL_STYLE, newStyle)
+        if (newEx != ex) writeStyle(user32, hwnd, GWL_EXSTYLE, newEx)
+    }
+
+    /** Low 32 bits of GetWindowLongPtr. Style `0x9ECF0000` is a captioned thick frame. */
+    private fun readStyle(user32: User32, hwnd: WinDef.HWND, index: Int): Long {
+        return try {
+            val raw: BaseTSD.LONG_PTR = user32.GetWindowLongPtr(hwnd, index)
+            raw.toLong() and 0xFFFFFFFFL
+        } catch (_: Throwable) {
+            user32.GetWindowLong(hwnd, index).toLong() and 0xFFFFFFFFL
         }
-        if (newEx != ex) {
-            user32.SetWindowLong(hwnd, GWL_EXSTYLE, newEx)
-            changed = true
+    }
+
+    /**
+     * SetWindowLongPtr, not SetWindowLong. On 64-bit Windows the style lives in a
+     * pointer-sized slot, and SetWindowLongW is not exported.
+     */
+    private fun writeStyle(user32: User32, hwnd: WinDef.HWND, index: Int, style: Long) {
+        val value = BaseTSD.LONG_PTR(style and 0xFFFFFFFFL).toPointer()
+        try {
+            user32.SetWindowLongPtr(hwnd, index, value)
+        } catch (_: Throwable) {
+            user32.SetWindowLong(hwnd, index, (style and 0xFFFFFFFFL).toInt())
         }
-        return changed
     }
 
     private fun visibleWindowsForPid(user32: User32, pid: Long): List<WinDef.HWND> {

@@ -469,7 +469,8 @@ object StreamPlayer {
     /**
      * One Game Day window. Same Qt quiet flags as [vlcCommand], without fullscreen.
      * `--no-video-deco` and `--no-embedded-video` drop the title bar and the Qt
-     * frame so the two pictures can sit against each other. Windows still snaps
+     * frame. `--qt-minimal-view` hides the menu and playback controls so only
+     * the picture shows; audio and Stop stay in this app. Windows then snaps
      * the visible DWM frame onto [x]/[width]; Linux uses these coordinates directly.
      */
     internal fun splitSideCommand(
@@ -491,6 +492,7 @@ object StreamPlayer {
         args += "--no-qt-video-autoresize"
         args += "--no-video-deco"
         args += "--no-embedded-video"
+        args += "--qt-minimal-view"
         args += VLC_QT_QUIET
         args += VLC_AUDIO_LANGUAGE
         args += "--width=$width"

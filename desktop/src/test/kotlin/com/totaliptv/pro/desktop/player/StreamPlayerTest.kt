@@ -209,11 +209,13 @@ class StreamPlayerTest {
         assertTrue(split.contains("--no-qt-privacy-ask"))
         assertTrue(split.contains("--no-video-deco"))
         assertTrue(split.contains("--no-embedded-video"))
+        assertTrue(split.contains("--qt-minimal-view"))
         assertFalse(split.contains("--fullscreen"))
         assertTrue(split.contains("--audio-language=eng,en,english"))
         assertEquals(url, split.last())
         assertFalse(single.contains("--no-video-deco"))
         assertFalse(single.contains("--no-embedded-video"))
+        assertFalse(single.contains("--qt-minimal-view"))
     }
 
     @Test
