@@ -58,6 +58,7 @@ fun PhoneSettingsScreen(
     val scope = rememberCoroutineScope()
     val sources by repository.sources.collectAsState(initial = emptyList())
     val preferredPlayer by app.preferences.preferredPlayer.collectAsState(initial = PreferredPlayer.BUILTIN)
+    val autoPip by app.preferences.autoPip.collectAsState(initial = AppPreferences.defaultAutoPip())
     val appearance by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
     val accent by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
     val updateBaseUrl by app.preferences.updateBaseUrl.collectAsState(
@@ -323,6 +324,12 @@ fun PhoneSettingsScreen(
                 )
             }
         }
+        Spacer(Modifier.height(8.dp))
+        FilterChip(
+            selected = autoPip,
+            onClick = { scope.launch { app.preferences.setAutoPip(!autoPip) } },
+            label = { Text(if (autoPip) "Picture-in-Picture on Home: On" else "Picture-in-Picture on Home: Off") }
+        )
 
         Spacer(Modifier.height(24.dp))
         Text("Appearance", style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)

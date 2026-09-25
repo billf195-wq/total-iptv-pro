@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.VerticalSplit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.EpgProgram
+import com.totaliptv.pro.desktop.data.GuideKeys
 import com.totaliptv.pro.desktop.data.GuideTime
 import com.totaliptv.pro.desktop.data.LiveChannelMapping
 import com.totaliptv.pro.desktop.data.LiveEpgBinding
@@ -37,7 +39,7 @@ import com.totaliptv.pro.desktop.dvr.RecordingEntry
 /**
  * Live TV guide: category chips, channel list, and program timeline.
  * Clock, hour ticks, program ranges, and the now-line use [GuideTime]
- * (OS default zone) — no in-app timezone override.
+ * (OS default zone). Settings can add a manual hour offset on top of that.
  * Selecting a program/channel plays that live stream.
  */
 @Composable
@@ -54,6 +56,7 @@ fun GuideScreen(
     onQueryChange: (String) -> Unit = {},
     onNeedEpg: (MediaItem) -> Unit,
     onPlayChannel: (MediaItem) -> Unit,
+    onOpenSplit: (MediaItem) -> Unit = {},
     onStop: () -> Unit,
     recordingTitle: String? = null,
     activeRecording: RecordingEntry? = null,
@@ -109,7 +112,7 @@ fun GuideScreen(
             onValueChange = onQueryChange,
             placeholder = { Text("Filter channels…") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().trackTextInputFocus(),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = TipBlue,
                 unfocusedBorderColor = TipSurfaceAlt,
@@ -215,7 +218,7 @@ fun GuideScreen(
             // Program panel + mini timeline for nearby channels
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 if (selected != null) {
-                    val sid = selected.xtreamStreamId
+                    val sid = GuideKeys.of(selected)
                     val epg = sid?.let { epgByStreamId[it] }
                     val loading = sid != null && sid in epgLoadingIds
                     val programs = LiveEpgBinding.bindForDisplay(
@@ -262,6 +265,16 @@ fun GuideScreen(
                             Icon(Icons.Default.PlayArrow, null, tint = TipOnAmber)
                             Spacer(Modifier.width(6.dp))
                             Text("Watch", color = TipOnAmber, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(
+                            onClick = { onOpenSplit(selected) },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TipOnBg),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, TipBlue)
+                        ) {
+                            Icon(Icons.Default.VerticalSplit, contentDescription = null, tint = TipBlue)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Split", color = TipOnBg)
                         }
                         Spacer(Modifier.width(8.dp))
                         RecordControlButton(
@@ -473,7 +486,7 @@ private fun ClassicGuideGrid(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items(visible, key = { it.id }) { ch ->
-                val sid = ch.xtreamStreamId
+                val sid = GuideKeys.of(ch)
                 val programs = LiveEpgBinding.bindForDisplay(
                     channel = ch,
                     programs = sid?.let { epgByStreamId[it]?.programs }.orEmpty(),

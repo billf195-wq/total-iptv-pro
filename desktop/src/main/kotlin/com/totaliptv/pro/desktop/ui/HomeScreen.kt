@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -326,7 +327,8 @@ private fun ContinueCard(
         cardWidth = cardWidth,
         onClick = onClick,
         showPlayBadge = true,
-        ratingScore = media?.ratingScore() ?: 0.0
+        ratingScore = media?.ratingScore() ?: 0.0,
+        progressPercent = entry.progressPercent.takeIf { entry.hasProgress }
     )
 }
 
@@ -358,7 +360,8 @@ private fun HomePosterCard(
     cardWidth: androidx.compose.ui.unit.Dp = 140.dp,
     onClick: () -> Unit,
     showPlayBadge: Boolean = false,
-    ratingScore: Double = 0.0
+    ratingScore: Double = 0.0,
+    progressPercent: Int? = null
 ) {
     Column(
         Modifier
@@ -383,6 +386,18 @@ private fun HomePosterCard(
                 score = ratingScore,
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
             )
+            val watched = progressPercent?.takeIf { it in 1..94 }
+            if (watched != null) {
+                LinearProgressIndicator(
+                    progress = { watched / 100f },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(4.dp),
+                    color = TipAccent,
+                    trackColor = TipSurfaceAlt
+                )
+            }
             if (showPlayBadge) {
                 Box(
                     Modifier

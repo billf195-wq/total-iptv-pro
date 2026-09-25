@@ -6,10 +6,13 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
 import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
@@ -41,6 +44,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.local.WatchProgressStore
@@ -50,6 +54,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -121,10 +126,14 @@ class PlayerActivity : ComponentActivity() {
     private var playbackUrl: String = ""
     private var triedAlternateLiveUrl = false
     private var bufferWatchJob: Job? = null
+    private var aspectRatioBtn: Button? = null
+    private var currentResizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT
+    private var autoPipEnabled: Boolean = AppPreferences.defaultAutoPip()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        enterImmersiveFullscreen()
 
         streamUrl = intent.getStringExtra(EXTRA_URL).orEmpty()
         mediaTitle = intent.getStringExtra(EXTRA_TITLE) ?: "Playback"
@@ -135,6 +144,12 @@ class PlayerActivity : ComponentActivity() {
         mediaLogo = intent.getStringExtra(EXTRA_LOGO)
         // Re-bind via playableFrom so Xtream LIVE URL is rebuilt from stream_id (never num / stale extra).
         watchProgressStore = (application as TotalIptvProApp).watchProgress
+        scope.launch(Dispatchers.IO) {
+            val enabled = runCatching {
+                (application as TotalIptvProApp).preferences.getAutoPip()
+            }.getOrDefault(AppPreferences.defaultAutoPip())
+            withContext(Dispatchers.Main) { autoPipEnabled = enabled }
+        }
         startOver = intent.getBooleanExtra(EXTRA_START_OVER, false)
         catalogId = intent.getStringExtra(EXTRA_CATALOG_ID)?.takeIf { it.isNotBlank() }
         // Fallbacks so Continue watching / detail Resume can map posters by catalog id.
@@ -246,6 +261,12 @@ class PlayerActivity : ComponentActivity() {
             }
         }
         controls.addView(controlBtn("Audio") { showAudioMenu() })
+        controls.addView(controlBtn("Subtitles") { showSubtitleMenu() })
+        aspectRatioBtn = controlBtn("Aspect") { cycleAspectRatio() }
+        controls.addView(aspectRatioBtn)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            controls.addView(controlBtn("PiP") { enterPipMode() })
+        }
         controls.addView(controlBtn("Retry") { retryPlayback() })
         controls.addView(controlBtn("Play with VLC") { openInVlc() })
         controls.addView(controlBtn("Favorite") { toggleFavorite() })
@@ -1031,6 +1052,155 @@ class PlayerActivity : ComponentActivity() {
             if (exo.playbackState == Player.STATE_BUFFERING && !exo.isPlaying) {
                 tryAlternateLiveUrl("Live still buffering — trying other URL…")
             }
+        }
+    }
+
+    /** Hide status and navigation bars and keep the video edge to edge. */
+    private fun enterImmersiveFullscreen() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+            window.insetsController?.let { controller ->
+                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    or View.SYSTEM_UI_FLAG_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                )
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && !isInPictureInPictureMode) {
+            enterImmersiveFullscreen()
+        }
+    }
+
+    private fun cycleAspectRatio() {
+        val nextMode = when (currentResizeMode) {
+            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            AspectRatioFrameLayout.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+        currentResizeMode = nextMode
+        playerView?.resizeMode = nextMode
+        val label = when (nextMode) {
+            AspectRatioFrameLayout.RESIZE_MODE_FIT -> "Fit (Normal)"
+            AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch (Fill)"
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom (Crop)"
+            AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH -> "16:9"
+            else -> "Fit"
+        }
+        Toast.makeText(this, "Aspect: $label", Toast.LENGTH_SHORT).show()
+        aspectRatioBtn?.text = "Aspect: $label"
+    }
+
+    private data class SubtitleTrackOption(
+        val groupIndex: Int,
+        val trackIndex: Int,
+        val group: TrackGroup,
+        val label: String,
+        val selected: Boolean
+    )
+
+    private fun listSubtitleOptions(): List<SubtitleTrackOption> {
+        val exo = player ?: return emptyList()
+        val options = mutableListOf<SubtitleTrackOption>()
+        exo.currentTracks.groups.forEachIndexed { groupIndex, group ->
+            if (group.type != C.TRACK_TYPE_TEXT || group.length == 0) return@forEachIndexed
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                val lang = format.language?.uppercase(Locale.US)
+                val label = format.label ?: lang ?: "Track ${trackIndex + 1}"
+                options += SubtitleTrackOption(
+                    groupIndex = groupIndex,
+                    trackIndex = trackIndex,
+                    group = group.mediaTrackGroup,
+                    label = label,
+                    selected = group.isTrackSelected(trackIndex)
+                )
+            }
+        }
+        return options
+    }
+
+    private fun showSubtitleMenu() {
+        val exo = player ?: return
+        val options = listSubtitleOptions()
+        if (options.isEmpty()) {
+            Toast.makeText(this, "No subtitles found in this stream", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val items = mutableListOf("Off (Disable)")
+        options.forEach { opt ->
+            items.add((if (opt.selected) "✓ " else "") + opt.label)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Subtitles / Closed Captions")
+            .setItems(items.toTypedArray()) { _, which ->
+                if (which == 0) {
+                    exo.trackSelectionParameters = exo.trackSelectionParameters
+                        .buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                        .build()
+                    Toast.makeText(this, "Subtitles: Off", Toast.LENGTH_SHORT).show()
+                } else {
+                    val opt = options[which - 1]
+                    val override = TrackSelectionOverride(opt.group, listOf(opt.trackIndex))
+                    exo.trackSelectionParameters = exo.trackSelectionParameters
+                        .buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .setOverrideForType(override)
+                        .build()
+                    Toast.makeText(this, "Subtitles: ${opt.label}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun enterPipMode() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val params = android.app.PictureInPictureParams.Builder()
+                .setAspectRatio(android.util.Rational(16, 9))
+                .build()
+            try {
+                enterPictureInPictureMode(params)
+            } catch (_: Exception) {
+                Toast.makeText(this, "PiP not supported on this device", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(this, "PiP requires Android 8.0+", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (!autoPipEnabled) return
+        if (player?.isPlaying == true && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            enterPipMode()
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: android.content.res.Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) {
+            overlay?.isVisible = false
+            playerView?.useController = false
+        } else {
+            playerView?.useController = true
+            showOverlayTemporarily()
         }
     }
 

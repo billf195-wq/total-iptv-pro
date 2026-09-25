@@ -69,7 +69,7 @@ object AppUpdatePaths {
             val local = System.getenv("LOCALAPPDATA")
                 ?.takeIf { it.isNotBlank() }
                 ?: Path.of(System.getProperty("user.home"), "AppData", "Local").toString()
-            Path.of(local, "total-iptv-pro", "app")
+            UpdateSources.windowsInstallRoot(local)
         }
         else -> Path.of(System.getProperty("user.home"), ".local", "share", "total-iptv-pro", "app")
     }
@@ -82,12 +82,12 @@ object AppUpdatePaths {
             val local = System.getenv("LOCALAPPDATA")
                 ?.takeIf { it.isNotBlank() }
                 ?: Path.of(System.getProperty("user.home"), "AppData", "Local").toString()
-            Path.of(local, "total-iptv-pro", "updates")
+            Path.of(local, "TotalIptvPro", "updates")
         }
         else -> Path.of(System.getProperty("user.home"), ".cache", "total-iptv-pro", "updates")
     }
 
-    const val DEFAULT_SHELF = "http://192.168.4.39:8767/"
+    const val DEFAULT_SHELF = UpdateSources.GITHUB_RELEASES_PAGE
     const val TARBALL_NAME = "TotalIptvPro-linux.tar.gz"
     const val WINDOWS_ZIP_NAME = "TotalIptvPro-windows.zip"
 
@@ -122,6 +122,9 @@ class AppUpdateManager {
         val localCode = AppVersion.VERSION_CODE
         val localName = AppVersion.VERSION_NAME
         val baseNorm = normalizeShelf(shelfBaseUrl)
+        if (UpdateSources.usesGithubReleases(baseNorm)) {
+            return checkGithub(localCode, localName, baseNorm)
+        }
         val url = baseNorm + "version.json"
         return try {
             val body = httpGetString(url)
@@ -200,8 +203,13 @@ class AppUpdateManager {
         val localCode = AppVersion.VERSION_CODE
         val localName = AppVersion.VERSION_NAME
         val baseNorm = normalizeShelf(shelfBaseUrl)
-        val fileName = remote.artifactForCurrentOs().trim().substringAfterLast('/')
-        val url = baseNorm + fileName
+        val artifact = remote.artifactForCurrentOs().trim()
+        val fileName = artifact.substringAfterLast('/')
+        val url = if (artifact.startsWith("https://") || artifact.startsWith("http://")) {
+            artifact
+        } else {
+            baseNorm + fileName
+        }
         return try {
             if (!isSupportedArchive(fileName)) {
                 throw IllegalStateException("Unsupported archive for this OS: $fileName")
@@ -226,18 +234,29 @@ class AppUpdateManager {
             val appDir = findAppDir(staging)
                 ?: throw IllegalStateException("Could not find app binary inside archive")
 
-            val installRoot = AppUpdatePaths.installRoot
-            if (Files.exists(installRoot)) deleteRecursive(installRoot)
-            Files.createDirectories(installRoot.parent)
-            copyTree(appDir, installRoot)
-
-            val binary = findBinary(installRoot)
-                ?: throw IllegalStateException("Installed app has no runnable binary")
-            if (!AppPaths.isWindows) {
-                binary.toFile().setExecutable(true, false)
-                updateDesktopEntry(binary)
+            val binary = if (AppPaths.isWindows) {
+                // Running exe/jars in the install folder are locked. Stage the new tree
+                // and swap it after this process exits.
+                val stagedDir = AppUpdatePaths.cacheDir.resolve("staged-update")
+                if (Files.exists(stagedDir)) deleteRecursive(stagedDir)
+                Files.createDirectories(stagedDir)
+                copyTree(appDir, stagedDir)
+                deleteRecursive(staging)
+                val script = AppUpdatePaths.cacheDir.resolve("apply-update.bat")
+                Files.writeString(script, windowsSwapScript())
+                AppUpdatePaths.installRoot.resolve("TotalIptvPro.exe")
+            } else {
+                val installRoot = AppUpdatePaths.installRoot
+                if (Files.exists(installRoot)) deleteRecursive(installRoot)
+                Files.createDirectories(installRoot.parent)
+                copyTree(appDir, installRoot)
+                val installed = findBinary(installRoot)
+                    ?: throw IllegalStateException("Installed app has no runnable binary")
+                installed.toFile().setExecutable(true, false)
+                updateDesktopEntry(installed)
+                deleteRecursive(staging)
+                installed
             }
-            deleteRecursive(staging)
 
             UpdateUiState(
                 phase = UpdatePhase.ReadyToRestart,
@@ -261,6 +280,30 @@ class AppUpdateManager {
     }
 
     fun restartNow(binaryPath: String?) {
+        if (AppPaths.isWindows) {
+            val script = AppUpdatePaths.cacheDir.resolve("apply-update.bat")
+            val stagedDir = AppUpdatePaths.cacheDir.resolve("staged-update")
+            val installRoot = AppUpdatePaths.installRoot
+            val targetExe = binaryPath?.takeIf { it.isNotBlank() }
+                ?: installRoot.resolve("TotalIptvPro.exe").toAbsolutePath().toString()
+            if (Files.exists(script) && Files.exists(stagedDir)) {
+                ProcessBuilder(
+                    "cmd.exe", "/c", "start", "",
+                    script.toAbsolutePath().toString(),
+                    stagedDir.toAbsolutePath().toString(),
+                    installRoot.toAbsolutePath().toString(),
+                    targetExe
+                ).start()
+                Thread {
+                    try {
+                        Thread.sleep(300)
+                    } catch (_: InterruptedException) {
+                    }
+                    kotlin.system.exitProcess(0)
+                }.start()
+                return
+            }
+        }
         val bin = binaryPath?.takeIf { it.isNotBlank() && File(it).exists() }
             ?: findBinary(AppUpdatePaths.installRoot)?.toAbsolutePath()?.toString()
             ?: throw IllegalStateException("No installed binary to relaunch")
@@ -283,10 +326,77 @@ class AppUpdateManager {
 
     companion object {
         fun normalizeShelf(url: String): String {
-            val t = url.trim().ifBlank { AppUpdatePaths.DEFAULT_SHELF }
+            val t = UpdateSources.shelfForCheck(url)
             return if (t.endsWith("/")) t else "$t/"
         }
     }
+
+    private fun checkGithub(localCode: Int, localName: String, baseNorm: String): UpdateUiState {
+        return try {
+            val body = httpGetString(UpdateSources.GITHUB_LATEST_API)
+                ?: return UpdateUiState(
+                    phase = UpdatePhase.Error,
+                    message = "Could not reach GitHub Releases",
+                    localVersionName = localName,
+                    localVersionCode = localCode,
+                    shelfBaseUrl = baseNorm
+                )
+            val remote = GithubRelease.parse(body, localName, localCode)
+                ?: return UpdateUiState(
+                    phase = UpdatePhase.Error,
+                    message = "Latest GitHub release has no desktop package yet",
+                    localVersionName = localName,
+                    localVersionCode = localCode,
+                    shelfBaseUrl = baseNorm
+                )
+            if (remote.versionCode > localCode || UpdateSources.isNewerName(remote.versionName, localName)) {
+                UpdateUiState(
+                    phase = UpdatePhase.Available,
+                    message = "Update available: ${remote.versionName} (${remote.versionCode})",
+                    localVersionName = localName,
+                    localVersionCode = localCode,
+                    remote = remote,
+                    shelfBaseUrl = baseNorm
+                )
+            } else {
+                UpdateUiState(
+                    phase = UpdatePhase.UpToDate,
+                    message = "Up to date — $localName ($localCode)",
+                    localVersionName = localName,
+                    localVersionCode = localCode,
+                    remote = remote,
+                    shelfBaseUrl = baseNorm
+                )
+            }
+        } catch (t: Throwable) {
+            UpdateUiState(
+                phase = UpdatePhase.Error,
+                message = "Check failed: ${t.message ?: t.javaClass.simpleName}",
+                localVersionName = localName,
+                localVersionCode = localCode,
+                shelfBaseUrl = baseNorm
+            )
+        }
+    }
+
+    private fun windowsSwapScript(): String = """
+        @echo off
+        setlocal
+        set "SRC=%~1"
+        set "DEST=%~2"
+        set "EXE=%~3"
+        timeout /t 2 /nobreak >nul 2>&1
+        for /l %%i in (1,1,10) do (
+            2>nul ( >>"%DEST%\TotalIptvPro.exe" (call ) ) && goto :ready
+            timeout /t 1 /nobreak >nul 2>&1
+        )
+        :ready
+        robocopy "%SRC%" "%DEST%" /E /IS /IT /NP /NJH /NJS >nul
+        start "" "%EXE%"
+        rd /s /q "%SRC%" >nul 2>&1
+        exit /b 0
+    """.trimIndent()
+
 
     private fun isSupportedArchive(name: String): Boolean {
         val n = name.trim().substringAfterLast('/')

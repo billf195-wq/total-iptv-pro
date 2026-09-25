@@ -69,6 +69,7 @@ class LiveEpgBindingTest {
         assertTrue(repo.contains("xtreamApi.fetchShortEpg"))
         assertTrue(repo.contains("LiveEpgBinding.bindForDisplay"))
         assertFalse(repo.contains("fetchShortEpg(creds, item.epgChannelId"))
+        assertFalse(repo.contains("epgChannelId.hashCode"), "never key guide data by a hash of epg_channel_id")
         val api = java.io.File("src/main/java/com/totaliptv/pro/data/xtream/XtreamApi.kt").readText()
         assertTrue(api.contains("\"stream_id\" to streamId.toString()"))
         assertTrue(api.contains("parseServerInfoZone"))

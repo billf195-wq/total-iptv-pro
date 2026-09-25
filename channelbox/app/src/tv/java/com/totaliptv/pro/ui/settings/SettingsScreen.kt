@@ -81,6 +81,7 @@ fun SettingsScreen(
     var refreshNote by remember { mutableStateOf<String?>(null) }
     val app = context.applicationContext as TotalIptvProApp
     val preferredPlayer by app.preferences.preferredPlayer.collectAsState(initial = PreferredPlayer.BUILTIN)
+    val autoPip by app.preferences.autoPip.collectAsState(initial = AppPreferences.defaultAutoPip())
     val appearanceMode by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
     val accentPreset by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
     val appLayoutMode by app.preferences.appLayoutMode.collectAsState(initial = AppLayoutMode.CLASSIC)
@@ -418,6 +419,23 @@ fun SettingsScreen(
                             val next = PreferredPlayer.next(preferredPlayer)
                             app.preferences.setPreferredPlayer(next)
                             Toast.makeText(context, "Preferred player: ${next.label}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
+            }
+            item {
+                FocusableCard(
+                    title = if (autoPip) "Picture-in-Picture on Home: On" else "Picture-in-Picture on Home: Off",
+                    subtitle = "Off by default on TV. When on, pressing Home shrinks playback into a small window.",
+                    onClick = {
+                        scope.launch {
+                            val next = !autoPip
+                            app.preferences.setAutoPip(next)
+                            Toast.makeText(
+                                context,
+                                if (next) "Home button enters Picture-in-Picture" else "Home button leaves playback",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                     }
                 )

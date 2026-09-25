@@ -52,7 +52,9 @@
         <activity
             android:name=".ui.player.PlayerActivity"
             android:exported="false"
-            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.TotalIPTVPro.Player" />
 

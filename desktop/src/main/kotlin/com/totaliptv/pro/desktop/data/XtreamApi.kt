@@ -37,6 +37,9 @@ class XtreamApi(
     /** From `server_info.timezone` / `time_now` on the last successful login probe. */
     @Volatile
     internal var providerZone: ZoneId? = null
+
+    /** Cached even when the probe has no zone / a zero offset, so EPG lookups do not re-download login. */
+    internal val serverInfoMemory = ServerInfoMemory()
     @Serializable
     data class XtreamCategory(
         @SerialName("category_id") val categoryId: String = "",
@@ -119,10 +122,38 @@ class XtreamApi(
         if (probe.contains("\"auth\":0") || probe.contains("\"auth\": 0")) {
             error("Xtream login rejected (auth=0). Check URL/user/pass.")
         }
-        providerZone = parseServerInfoZone(probe)
+        serverInfoMemory.remember(parseServerInfoZone(probe))
+        providerZone = serverInfoMemory.zone
 
-        val liveCatsRaw = getList<XtreamCategory>(host, username, password, "get_live_categories")
-        val liveStreams = getList<LiveStream>(host, username, password, "get_live_streams")
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(6)
+        val liveCatsFuture = java.util.concurrent.CompletableFuture.supplyAsync({
+            getList<XtreamCategory>(host, username, password, "get_live_categories")
+        }, pool)
+        val liveStreamsFuture = java.util.concurrent.CompletableFuture.supplyAsync({
+            getList<LiveStream>(host, username, password, "get_live_streams")
+        }, pool)
+        val vodCatsFuture = java.util.concurrent.CompletableFuture.supplyAsync({
+            getList<XtreamCategory>(host, username, password, "get_vod_categories")
+        }, pool)
+        val vodStreamsFuture = java.util.concurrent.CompletableFuture.supplyAsync({
+            getList<VodStream>(host, username, password, "get_vod_streams")
+        }, pool)
+        val seriesCatsFuture = java.util.concurrent.CompletableFuture.supplyAsync({
+            getList<XtreamCategory>(host, username, password, "get_series_categories")
+        }, pool)
+        val seriesStreamsFuture = java.util.concurrent.CompletableFuture.supplyAsync({
+            getList<SeriesStream>(host, username, password, "get_series")
+        }, pool)
+
+        val liveCatsRaw: List<XtreamCategory>
+        val liveStreams: List<LiveStream>
+        try {
+            liveCatsRaw = liveCatsFuture.join()
+            liveStreams = liveStreamsFuture.join()
+        } catch (t: Throwable) {
+            pool.shutdownNow()
+            throw t
+        }
         val liveCategories = liveCatsRaw.map {
             Category(
                 id = "live-${it.categoryId}",
@@ -138,6 +169,7 @@ class XtreamApi(
             )
         )
         if (liveItems.isEmpty()) {
+            pool.shutdownNow()
             error("No live channels returned. Check credentials or server.")
         }
 
@@ -145,8 +177,8 @@ class XtreamApi(
         var vodCategories: List<Category> = emptyList()
         var vodItems: List<MediaItem> = emptyList()
         try {
-            val vodCatsRaw = getList<XtreamCategory>(host, username, password, "get_vod_categories")
-            val vodStreams = getList<VodStream>(host, username, password, "get_vod_streams")
+            val vodCatsRaw = vodCatsFuture.join()
+            val vodStreams = vodStreamsFuture.join()
             vodCategories = vodCatsRaw.map {
                 Category(
                     id = "vod-${it.categoryId}",
@@ -187,8 +219,8 @@ class XtreamApi(
         var seriesCategories: List<Category> = emptyList()
         var seriesItems: List<MediaItem> = emptyList()
         try {
-            val seriesCatsRaw = getList<XtreamCategory>(host, username, password, "get_series_categories")
-            val seriesList = getList<SeriesStream>(host, username, password, "get_series")
+            val seriesCatsRaw = seriesCatsFuture.join()
+            val seriesList = seriesStreamsFuture.join()
             seriesCategories = seriesCatsRaw.map {
                 Category(
                     id = "series-${it.categoryId}",
@@ -227,6 +259,7 @@ class XtreamApi(
             warnings += "Series load failed (${t.message}). Live/Movies still available."
         }
 
+        pool.shutdown()
         return Catalog(
             liveCategories = liveCategories,
             vodCategories = vodCategories,

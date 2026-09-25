@@ -74,7 +74,7 @@ fun OnboardingScreen(
                             label = { Text("Server URL") },
                             placeholder = { Text("http://host:port") },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().trackTextInputFocus(),
                             colors = tipFieldColors()
                         )
                         OutlinedTextField(
@@ -82,7 +82,7 @@ fun OnboardingScreen(
                             onValueChange = { user = it },
                             label = { Text("Username") },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().trackTextInputFocus(),
                             colors = tipFieldColors()
                         )
                         OutlinedTextField(
@@ -96,7 +96,7 @@ fun OnboardingScreen(
                                     Text(if (showPass) "Hide" else "Show", color = TipMuted)
                                 }
                             },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().trackTextInputFocus(),
                             colors = tipFieldColors()
                         )
                     } else {
@@ -106,7 +106,7 @@ fun OnboardingScreen(
                             label = { Text("M3U playlist URL") },
                             placeholder = { Text("https://…/playlist.m3u") },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().trackTextInputFocus(),
                             colors = tipFieldColors()
                         )
                     }

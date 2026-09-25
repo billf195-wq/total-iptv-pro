@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.VerticalSplit
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -101,6 +102,12 @@ fun BrowseScreen(
     resumeEntries: List<ResumeStore.ResumeEntry>,
     favoriteEntries: List<FavoritesStore.FavoriteEntry>,
     onPlay: (MediaItem) -> Unit,
+    onPlayAt: (MediaItem, Long?) -> Unit = { item, _ -> onPlay(item) },
+    splitActive: Boolean = false,
+    splitAudioLeft: Boolean = true,
+    onOpenGameDay: (MediaItem?) -> Unit = {},
+    onSplitAudioLeft: (Boolean) -> Unit = {},
+    onStopSplit: () -> Unit = {},
     onOpenSeries: (MediaItem) -> Unit,
     onCloseSeries: () -> Unit,
     onOpenVod: (MediaItem) -> Unit,
@@ -172,6 +179,10 @@ fun BrowseScreen(
                 playingStreamUrl = playingStreamUrl,
                 onToggleFavorite = { seriesMedia?.let(onToggleFavorite) },
                 onPlayEpisode = onPlay,
+                onResumeEpisode = onPlayAt,
+                episodeProgress = resume?.let {
+                    ResumeStore.progressForEpisode(it.seriesId, it.episodeId, resumeEntries)
+                },
                 onRecordEpisode = { ep -> onRecordNow(ep, ep.name, null) },
                 activeRecording = dvrSnapshot.active,
                 onBack = onCloseSeries,
@@ -194,6 +205,15 @@ fun BrowseScreen(
                 isFavorite = vodMedia?.let { favoriteKeys.contains(it.id) } == true,
                 onToggleFavorite = { vodMedia?.let(onToggleFavorite) },
                 onPlay = { vodMedia?.let(onPlay) },
+                onResume = {
+                    val media = vodMedia ?: return@VodDetailPane
+                    val entry = ResumeStore.forVod(vodDetail?.streamId, vodDetail?.catalogId, resumeEntries)
+                    val seconds = entry?.takeIf { it.hasProgress }?.positionMs?.div(1000)
+                    if (seconds != null && seconds > 0) onPlayAt(media, seconds) else onPlay(media)
+                },
+                resumePercent = ResumeStore.forVod(vodDetail?.streamId, vodDetail?.catalogId, resumeEntries)
+                    ?.takeIf { it.hasProgress }
+                    ?.progressPercent,
                 onRecord = { vodMedia?.let { onRecordNow(it, it.name, null) } },
                 activeRecording = dvrSnapshot.active,
                 onBack = onCloseVod,
@@ -274,6 +294,16 @@ fun BrowseScreen(
                     Text(recordingTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, color = TipAccent)
                     TextButton(onClick = onStopRecording) { Text("Stop recording") }
                 }
+                if (splitActive) {
+                    Text("Game Day", style = MaterialTheme.typography.bodyMedium, color = TipBlue)
+                    TextButton(onClick = { onSplitAudioLeft(true) }) {
+                        Text(if (splitAudioLeft) "Audio: Left" else "Audio left", color = TipOnBg)
+                    }
+                    TextButton(onClick = { onSplitAudioLeft(false) }) {
+                        Text(if (!splitAudioLeft) "Audio: Right" else "Audio right", color = TipOnBg)
+                    }
+                    TextButton(onClick = onStopSplit) { Text("Stop split") }
+                }
                 if (playingTitle != null) {
                     Text("Playing", style = MaterialTheme.typography.bodyMedium)
                     Text(playingTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, color = TipAccent)
@@ -345,6 +375,7 @@ fun BrowseScreen(
                         onQueryChange = { query = it },
                         onNeedEpg = onNeedEpg,
                         onPlayChannel = onPlay,
+                        onOpenSplit = { onOpenGameDay(it) },
                         onStop = onStop,
                         recordingTitle = recordingTitle,
                         activeRecording = dvrSnapshot.active,
@@ -407,6 +438,7 @@ fun BrowseScreen(
                         onOpenSeries = onOpenSeries,
                         onOpenVod = onOpenVod,
                         onToggleFavorite = onToggleFavorite,
+                        onOpenGameDay = onOpenGameDay,
                         onRecordNow = if (kind == ContentKind.LIVE) { item -> onRecordNow(item, null, null) } else null,
                         activeRecording = dvrSnapshot.active
                     )
@@ -471,6 +503,7 @@ private fun BrowseContentPane(
     onOpenSeries: (MediaItem) -> Unit,
     onOpenVod: (MediaItem) -> Unit,
     onToggleFavorite: (MediaItem) -> Unit,
+    onOpenGameDay: (MediaItem?) -> Unit = {},
     onRecordNow: ((MediaItem) -> Unit)? = null,
     activeRecording: RecordingEntry? = null
 ) {
@@ -524,6 +557,17 @@ private fun BrowseContentPane(
                 style = MaterialTheme.typography.bodyMedium,
                 color = TipMuted
             )
+            if (kind == ContentKind.LIVE) {
+                Spacer(Modifier.width(12.dp))
+                Button(
+                    onClick = { onOpenGameDay(null) },
+                    colors = ButtonDefaults.buttonColors(containerColor = TipBlue, contentColor = TipOnAmber)
+                ) {
+                    Icon(Icons.Default.VerticalSplit, contentDescription = null, tint = TipOnAmber)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Game Day", color = TipOnAmber, fontWeight = FontWeight.Bold)
+                }
+            }
         }
         if (!statusMessage.isNullOrBlank()) {
             Spacer(Modifier.height(4.dp))
@@ -544,7 +588,7 @@ private fun BrowseContentPane(
                 )
             },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().trackTextInputFocus(),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = TipBlue,
                 unfocusedBorderColor = TipSurfaceAlt,
@@ -698,7 +742,7 @@ private fun FavoritesPane(
             leadingIcon = { Icon(Icons.Default.Search, null) },
             placeholder = { Text("Search favorites…") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().trackTextInputFocus(),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = TipBlue,
                 unfocusedBorderColor = TipSurfaceAlt,
@@ -826,6 +870,8 @@ private fun VodDetailPane(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onPlay: () -> Unit,
+    onResume: () -> Unit = onPlay,
+    resumePercent: Int? = null,
     onRecord: () -> Unit = {},
     activeRecording: RecordingEntry? = null,
     onBack: () -> Unit,
@@ -912,7 +958,49 @@ private fun VodDetailPane(
                             Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                         }
                         Spacer(Modifier.height(20.dp))
+                        if (resumePercent != null) {
+                            Text(
+                                "Resume playback · $resumePercent%",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TipAccent,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { resumePercent.coerceIn(1, 94) / 100f },
+                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                                color = TipAccent,
+                                trackColor = TipSurfaceAlt
+                            )
+                            Spacer(Modifier.height(12.dp))
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (resumePercent != null) {
+                                Button(
+                                    onClick = onResume,
+                                    enabled = detail.streamUrl.isNotBlank(),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = TipAccent,
+                                        contentColor = TipOnAmber,
+                                        disabledContainerColor = TipSurfaceAlt,
+                                        disabledContentColor = TipMuted
+                                    )
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, null, Modifier.size(20.dp), tint = TipOnAmber)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Resume ($resumePercent%)", color = TipOnAmber, fontWeight = FontWeight.Bold)
+                                }
+                                OutlinedButton(
+                                    onClick = onPlay,
+                                    enabled = detail.streamUrl.isNotBlank(),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TipOnBg),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, TipBlue)
+                                ) {
+                                    Icon(Icons.Default.Refresh, null, Modifier.size(18.dp), tint = TipBlue)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Play from Start", color = TipOnBg)
+                                }
+                            } else {
                             Button(
                                 onClick = onPlay,
                                 enabled = detail.streamUrl.isNotBlank(),
@@ -926,6 +1014,7 @@ private fun VodDetailPane(
                                 Icon(Icons.Default.PlayArrow, null, Modifier.size(20.dp), tint = TipOnAmber)
                                 Spacer(Modifier.width(6.dp))
                                 Text("Play", color = TipOnAmber, fontWeight = FontWeight.Bold)
+                            }
                             }
                             RecordControlButton(
                                 active = activeRecording,
@@ -977,6 +1066,8 @@ private fun SeriesDetailPane(
     playingStreamUrl: String? = null,
     onToggleFavorite: () -> Unit,
     onPlayEpisode: (MediaItem) -> Unit,
+    onResumeEpisode: (MediaItem, Long?) -> Unit = { item, _ -> onPlayEpisode(item) },
+    episodeProgress: ResumeStore.ResumeEntry? = null,
     onRecordEpisode: (MediaItem) -> Unit = {},
     activeRecording: RecordingEntry? = null,
     onBack: () -> Unit,
@@ -1087,24 +1178,50 @@ private fun SeriesDetailPane(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (continueEp != null) {
-                                Button(
-                                    onClick = {
-                                        onPlayEpisode(continueEp.toMediaItem(detail.name, detail.seriesId))
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = TipBlue,
-                                        contentColor = TipOnAmber
-                                    )
-                                ) {
-                                    Text(
-                                        if (hasResume) {
-                                            "Continue S${continueEp.season}E${continueEp.episodeNum}"
-                                        } else {
-                                            "Play first episode"
-                                        },
-                                        color = TipOnAmber,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                val continueMedia = continueEp.toMediaItem(detail.name, detail.seriesId)
+                                val resumeThis = episodeProgress?.takeIf { entry ->
+                                    entry.hasProgress && (
+                                        entry.episodeId.isNullOrBlank() ||
+                                            SeriesPlayback.matchesEpisodeId(continueEp, entry.episodeId)
+                                        )
+                                }
+                                val pct = resumeThis?.progressPercent
+                                if (pct != null && pct in 1..94) {
+                                    val seconds = resumeThis.positionMs?.div(1000)?.takeIf { it > 0 }
+                                    Button(
+                                        onClick = { onResumeEpisode(continueMedia, seconds) },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = TipAccent,
+                                            contentColor = TipOnAmber
+                                        )
+                                    ) {
+                                        Text("Resume ($pct%)", color = TipOnAmber, fontWeight = FontWeight.Bold)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { onPlayEpisode(continueMedia) },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TipOnBg),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, TipBlue)
+                                    ) {
+                                        Text("Play from Start", color = TipOnBg)
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = { onPlayEpisode(continueMedia) },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = TipBlue,
+                                            contentColor = TipOnAmber
+                                        )
+                                    ) {
+                                        Text(
+                                            if (hasResume) {
+                                                "Continue S${continueEp.season}E${continueEp.episodeNum}"
+                                            } else {
+                                                "Play first episode"
+                                            },
+                                            color = TipOnAmber,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
                             if (nextEp != null) {

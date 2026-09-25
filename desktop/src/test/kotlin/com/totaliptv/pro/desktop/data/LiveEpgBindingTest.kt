@@ -65,12 +65,17 @@ class LiveEpgBindingTest {
         val repo = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/data/CatalogRepository.kt").readText()
         assertTrue(repo.contains("xtreamApi.loadShortEpg"))
         assertTrue(repo.contains("streamId"))
-        assertFalse(repo.contains("epgChannelId"))
+        assertFalse(
+            repo.contains("epgChannelId.hashCode"),
+            "never key the guide cache by a hash of epg_channel_id"
+        )
+        assertTrue(repo.contains("item.xtreamStreamId?.takeIf { it > 0 }"))
         val api = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/data/XtreamApi.kt").readText()
         assertTrue(api.contains("\"stream_id\" to streamId.toString()"))
         val guide = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/ui/GuideScreen.kt").readText()
         assertTrue(guide.contains("LiveEpgBinding.bindForDisplay"))
-        assertTrue(guide.contains("selected.xtreamStreamId"))
+        assertTrue(guide.contains("GuideKeys.of"))
+        assertFalse(guide.contains("epgChannelId.hashCode"))
     }
 
     @Test

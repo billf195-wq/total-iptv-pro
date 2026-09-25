@@ -177,6 +177,113 @@ class StreamPlayerTest {
     }
 
     @Test
+    fun vlcNeverAsksToContinueAndSkipsThePrivacyDialog() {
+        val url = "http://example.test/movie.mp4"
+        val single = StreamPlayer.vlcCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            listOf(url),
+            windows = true,
+            startPositionSeconds = 30
+        )
+        assertTrue(single.contains("--qt-continue=0"))
+        assertTrue(single.contains("--no-qt-privacy-ask"))
+        assertFalse(single.contains("--no-qt-error-dialogs"))
+        assertFalse(single.any { it.contains("qt-updates-notif") })
+        assertTrue(single.contains("--fullscreen"))
+        assertTrue(single.contains("--audio-language=eng,en,english"))
+        assertTrue(single.contains("--start-time=30"))
+        assertEquals(url, single.last())
+
+        val split = StreamPlayer.splitSideCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            url,
+            windows = true,
+            x = 0,
+            y = 0,
+            width = 960,
+            height = 1080,
+            port = 4212,
+            title = "Total IPTV Pro — Left"
+        )
+        assertTrue(split.contains("--qt-continue=0"))
+        assertTrue(split.contains("--no-qt-privacy-ask"))
+        assertTrue(split.contains("--no-video-deco"))
+        assertTrue(split.contains("--no-embedded-video"))
+        assertTrue(split.contains("--qt-minimal-view"))
+        assertFalse(split.contains("--fullscreen"))
+        assertTrue(split.contains("--audio-language=eng,en,english"))
+        assertEquals(url, split.last())
+        assertFalse(single.contains("--no-video-deco"))
+        assertFalse(single.contains("--no-embedded-video"))
+        assertFalse(single.contains("--qt-minimal-view"))
+    }
+
+    @Test
+    fun gameDayHalvesMeetAtTheMiddleOnAnyWidth() {
+        val bounds = WindowPositioner.ScreenBounds(0, 0, 1920, 1080)
+        val (left, right) = WindowPositioner.splitHalves(bounds)
+        assertEquals(0, left.x)
+        assertEquals(960, left.width)
+        assertEquals(960, right.x)
+        assertEquals(960, right.width)
+        assertEquals(1080, left.height)
+        assertEquals(bounds.width, left.width + right.width)
+        assertEquals(left.x + left.width, right.x)
+
+        val odd = WindowPositioner.splitHalves(WindowPositioner.ScreenBounds(0, 0, 1921, 1000))
+        assertEquals(960, odd.first.width)
+        assertEquals(961, odd.second.width)
+        assertEquals(960, odd.second.x)
+        assertEquals(1921, odd.first.width + odd.second.width)
+
+        val work = WindowPositioner.splitHalves(WindowPositioner.ScreenBounds(10, 40, 1900, 1000))
+        assertEquals(10, work.first.x)
+        assertEquals(40, work.first.y)
+        assertEquals(950, work.first.width)
+        assertEquals(960, work.second.x)
+        assertEquals(950, work.second.width)
+        assertEquals(1000, work.first.height)
+    }
+
+    @Test
+    fun normalPlayOpensFullscreenAndCanBeTurnedOff() {
+        val url = "http://example.test/ep1.mp4"
+        val vlcOn = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf(url), windows = false, startPositionSeconds = 45)
+        assertTrue(vlcOn.contains("--fullscreen"))
+        assertTrue(vlcOn.contains("--audio-language=eng,en,english"))
+        assertTrue(vlcOn.contains("--start-time=45"))
+        assertEquals(url, vlcOn.last())
+
+        val vlcOff = StreamPlayer.vlcCommand(
+            "/usr/bin/vlc",
+            listOf(url),
+            windows = false,
+            startPositionSeconds = 45,
+            fullscreen = false
+        )
+        assertFalse(vlcOff.contains("--fullscreen"))
+        assertTrue(vlcOff.contains("--audio-language=eng,en,english"))
+        assertTrue(vlcOff.contains("--start-time=45"))
+
+        val mpvOn = StreamPlayer.mpvCommand("mpv", listOf(url), windows = false, startPositionSeconds = 12)
+        assertTrue(mpvOn.contains("--fullscreen"))
+        assertTrue(mpvOn.contains("--alang=eng,en,english"))
+        assertTrue(mpvOn.contains("--start=12"))
+        val mpvOff = StreamPlayer.mpvCommand("mpv", listOf(url), windows = false, fullscreen = false, startPositionSeconds = 12)
+        assertFalse(mpvOff.contains("--fullscreen"))
+        assertTrue(mpvOff.contains("--alang=eng,en,english"))
+        assertTrue(mpvOff.contains("--start=12"))
+
+        val ffOn = StreamPlayer.ffplayCommand("ffplay", url, startPositionSeconds = 8)
+        assertTrue(ffOn.contains("-fs"))
+        assertTrue(ffOn.contains("-ss"))
+        assertEquals("8", ffOn[ffOn.indexOf("-ss") + 1])
+        val ffOff = StreamPlayer.ffplayCommand("ffplay", url, startPositionSeconds = 8, fullscreen = false)
+        assertFalse(ffOff.contains("-fs"))
+        assertTrue(ffOff.contains("-ss"))
+    }
+
+    @Test
     fun liveMpvKeepsWindowOpenAndFfplaySkipsAutoexit() {
         val liveUrl = "http://hudv.net/live/u/p/84.m3u8"
         val mpv = StreamPlayer.mpvCommand("mpv.exe", listOf(liveUrl), windows = true, live = true)

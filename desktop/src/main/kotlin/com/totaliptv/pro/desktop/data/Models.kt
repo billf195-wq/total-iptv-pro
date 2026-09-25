@@ -16,6 +16,8 @@ data class SavedPrefs(
     val onboarded: Boolean = false,
     /** auto | vlc | mpv | ffplay */
     val preferredPlayer: String = "auto",
+    /** Live, movies, and series open VLC/mpv/ffplay full screen. Game Day split screen ignores this. */
+    val openPlayerFullscreen: Boolean = true,
     /** dark | light */
     val themeMode: String = "dark",
     /** Poster grid columns for Movies/Series (5, 6, or 11). Default 11. */
@@ -26,11 +28,20 @@ data class SavedPrefs(
      * HTTP shelf base for in-app desktop updates (version.json + tarball).
      * Keep separate from Xtream login. Editable in Settings.
      */
-    val updateShelfUrl: String = "http://192.168.4.39:8767/",
+    val updateShelfUrl: String = "https://github.com/billf195-wq/total-iptv-pro/releases/latest",
     /**
      * TV Guide layout: "current" (timeline + detail) or "classic" (channel list + schedule list).
      */
     val guideStyle: String = "current",
+    val windowWidth: Int = 1280,
+    val windowHeight: Int = 800,
+    val windowX: Int? = null,
+    val windowY: Int? = null,
+    val windowMaximized: Boolean = false,
+    /**
+     * Extra hours added to guide times. 0 = Auto (existing OS / provider clock, no shift).
+     */
+    val epgTimeOffsetHours: Int = 0,
     /**
      * Optional recordings folder on **this** machine only. Blank = OS default
      * (Windows %LOCALAPPDATA%\TotalIptvPro\Recordings, Linux ~/Videos/TotalIptvPro/Recordings).
@@ -181,7 +192,9 @@ data class Catalog(
     val liveItems: List<MediaItem> = emptyList(),
     val vodItems: List<MediaItem> = emptyList(),
     val seriesItems: List<MediaItem> = emptyList(),
-    val warnings: List<String> = emptyList()
+    val warnings: List<String> = emptyList(),
+    /** `url-tvg` / `x-tvg-url` from an M3U header, when the playlist ships XMLTV. */
+    val xmltvUrl: String? = null
 )
 
 /** One EPG program listing for a live channel. */

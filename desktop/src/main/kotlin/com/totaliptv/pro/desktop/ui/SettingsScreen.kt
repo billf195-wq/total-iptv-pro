@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.desktop.AppVersion
 import com.totaliptv.pro.desktop.util.AppPaths
+import com.totaliptv.pro.desktop.data.EpgUserOffset
 import com.totaliptv.pro.desktop.data.SavedPrefs
 import com.totaliptv.pro.desktop.data.SourceType
 import com.totaliptv.pro.desktop.player.StreamPlayer
@@ -47,6 +48,7 @@ fun SettingsScreen(
 ) {
     val available = remember { StreamPlayer.availablePlayers() }
     var player by remember(prefs.preferredPlayer) { mutableStateOf(prefs.preferredPlayer) }
+    var openFullscreen by remember(prefs.openPlayerFullscreen) { mutableStateOf(prefs.openPlayerFullscreen) }
     var theme by remember(prefs.themeMode) { mutableStateOf(prefs.themeMode) }
     var columns by remember(prefs.posterColumns) {
         mutableStateOf(prefs.posterColumns.let { if (it in setOf(5, 6, 8, 11)) it else 6 })
@@ -54,13 +56,12 @@ fun SettingsScreen(
     var guideStyle by remember(prefs.guideStyle) {
         mutableStateOf(prefs.guideStyle.let { if (it == "classic") "classic" else "current" })
     }
+    var epgOffset by remember(prefs.epgTimeOffsetHours) { mutableStateOf(prefs.epgTimeOffsetHours) }
 
     val scope = rememberCoroutineScope()
     val updater = remember { AppUpdateManager() }
     var shelfUrl by remember(prefs.updateShelfUrl) {
-        mutableStateOf(
-            prefs.updateShelfUrl.ifBlank { AppUpdatePaths.DEFAULT_SHELF }
-        )
+        mutableStateOf(AppUpdateManager.normalizeShelf(prefs.updateShelfUrl))
     }
     var updateState by remember {
         mutableStateOf(
@@ -77,13 +78,17 @@ fun SettingsScreen(
         nextColumns: Int = columns,
         nextShelf: String = shelfUrl,
         nextGuide: String = guideStyle,
-        nextRecordingsDir: String = prefs.recordingsDir
+        nextRecordingsDir: String = prefs.recordingsDir,
+        nextEpg: Int = epgOffset,
+        nextFullscreen: Boolean = openFullscreen
     ) {
         player = nextPlayer
         theme = nextTheme
         columns = nextColumns
         shelfUrl = nextShelf
         guideStyle = if (nextGuide == "classic") "classic" else "current"
+        epgOffset = nextEpg
+        openFullscreen = nextFullscreen
         onSavePrefs(
             prefs.copy(
                 preferredPlayer = nextPlayer,
@@ -91,7 +96,9 @@ fun SettingsScreen(
                 posterColumns = nextColumns,
                 updateShelfUrl = AppUpdateManager.normalizeShelf(nextShelf),
                 guideStyle = guideStyle,
-                recordingsDir = nextRecordingsDir
+                recordingsDir = nextRecordingsDir,
+                epgTimeOffsetHours = nextEpg,
+                openPlayerFullscreen = nextFullscreen
             )
         )
     }
@@ -203,6 +210,21 @@ fun SettingsScreen(
             } else {
                 Text("Detected: ${available.joinToString(", ")}", style = MaterialTheme.typography.bodyMedium)
             }
+            Spacer(Modifier.height(14.dp))
+            Text("Open player full screen", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
+            Text(
+                "Live TV, movies, and series open VLC, mpv, or ffplay full screen. Game Day split screen stays side by side.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TipChoiceChip(selected = openFullscreen, label = "On") {
+                    persist(nextFullscreen = true)
+                }
+                TipChoiceChip(selected = !openFullscreen, label = "Off") {
+                    persist(nextFullscreen = false)
+                }
+            }
             Spacer(Modifier.height(10.dp))
             Text("Series next episode", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
             Text(
@@ -299,6 +321,20 @@ fun SettingsScreen(
                     persist(nextGuide = "classic")
                 }
             }
+            Spacer(Modifier.height(14.dp))
+            Text("Guide time", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
+            Text(
+                "Auto keeps the guide on this computer’s time zone. Pick an hour offset only if a provider’s listings are shifted.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                EpgUserOffset.CHOICES.forEach { (hours, label) ->
+                    TipChoiceChip(selected = epgOffset == hours, label = label) {
+                        persist(nextEpg = hours)
+                    }
+                }
+            }
         }
 
         Spacer(Modifier.height(12.dp))
@@ -310,7 +346,7 @@ fun SettingsScreen(
                 color = TipOnBg
             )
             Text(
-                "Works on Bigboybill (Windows) and GTR (Linux). Use the same LAN shelf URL; Shield updates from Settings → App updates on the TV.",
+                "Windows and Linux check GitHub Releases for billf195-wq/total-iptv-pro. A saved local network shelf is ignored.",
                 style = MaterialTheme.typography.bodyMedium
             )
             Spacer(Modifier.height(10.dp))
@@ -319,7 +355,7 @@ fun SettingsScreen(
                 onValueChange = { shelfUrl = it },
                 label = { Text("Update shelf URL") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().trackTextInputFocus(),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = TipBlue,
                     cursorColor = TipBlue
