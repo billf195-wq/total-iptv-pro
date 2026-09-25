@@ -13,7 +13,7 @@ IPTV player for **Android TV / phone** and **Desktop** (Linux & Windows).
 
 ### Desktop (v1.2.22)
 - **Windows:** [TotalIptvPro-Desktop-1.2.22-windows.zip](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.22/TotalIptvPro-Desktop-1.2.22-windows.zip)
-- **Linux:** coming shortly — the tar.gz will be attached to the [v1.2.22 release](https://github.com/billf195-wq/total-iptv-pro/releases/tag/v1.2.22)
+- **Linux:** [TotalIptvPro-Desktop-1.2.22-linux.tar.gz](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.22/TotalIptvPro-Desktop-1.2.22-linux.tar.gz)
 
 ### Android (release v1.4.59)
 - **Android TV (1.4.59):** [TotalIPTVPro-android-tv-1.4.59-debug.apk](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.4.59/TotalIPTVPro-android-tv-1.4.59-debug.apk)
