@@ -20,6 +20,7 @@ import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.MediaItem
 import com.totaliptv.pro.desktop.data.PreferencesStore
 import com.totaliptv.pro.desktop.data.FavoritesStore
+import com.totaliptv.pro.desktop.data.GuideKeys
 import com.totaliptv.pro.desktop.data.ResumeStore
 import com.totaliptv.pro.desktop.data.SavedPrefs
 import com.totaliptv.pro.desktop.data.SeriesDetail
@@ -38,6 +39,8 @@ import com.totaliptv.pro.desktop.dvr.RecordingEntry
 import com.totaliptv.pro.desktop.dvr.ScheduledRecording
 import com.totaliptv.pro.desktop.player.PlaybackAdvance
 import com.totaliptv.pro.desktop.player.PlaybackDebugLog
+import com.totaliptv.pro.desktop.player.SplitSession
+import com.totaliptv.pro.desktop.player.SplitSide
 import com.totaliptv.pro.desktop.player.StreamPlayer
 import com.totaliptv.pro.desktop.update.AppUpdateManager
 import com.totaliptv.pro.desktop.util.AppPaths
@@ -70,6 +73,9 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     var epgByStreamId by remember { mutableStateOf<Map<Int, ChannelEpg>>(emptyMap()) }
     var epgLoadingIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var resumeEntries by remember { mutableStateOf(ResumeStore.load()) }
+    var splitSession by remember { mutableStateOf<SplitSession?>(null) }
+    var splitDialogOpen by remember { mutableStateOf(false) }
+    var splitDialogInitial by remember { mutableStateOf<MediaItem?>(null) }
     var favoriteEntries by remember { mutableStateOf(FavoritesStore.load()) }
 
     var vodDetail by remember { mutableStateOf<VodDetail?>(null) }
@@ -337,7 +343,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         return SeriesPlayContext(all = episodes, name = name, id = id)
     }
 
-    fun playItem(item: MediaItem, reason: String = "play") {
+    fun playItem(item: MediaItem, reason: String = "play", startPositionSeconds: Long? = null) {
         if (AppShutdown.isExiting()) return
         if (!item.playable || item.streamUrl.isBlank()) {
             openSeries(item)
@@ -406,9 +412,27 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 if (urls.isEmpty()) error("No stream URL for ${item.name}")
                 val live = startWithSeries.kind == ContentKind.LIVE ||
                     StreamPlayer.isLiveStreamUrl(urls.first())
+                val progressKey = if (live) null else ResumeStore.progressKeyFor(startWithSeries)
                 val binary = withContext(Dispatchers.IO) {
-                    StreamPlayer.playQueue(urls, playerPref, live = live)
+                    StreamPlayer.playQueue(
+                        urls,
+                        playerPref,
+                        live = live,
+                        startPositionSeconds = if (live) null else startPositionSeconds,
+                        scope = scope,
+                        onProgress = if (progressKey == null) {
+                            null
+                        } else {
+                            { pos, dur, pct ->
+                                val updated = ResumeStore.updateProgress(progressKey, pos, dur, pct)
+                                scope.launch(Dispatchers.Main) {
+                                    if (seq == playSeq.get()) resumeEntries = updated
+                                }
+                            }
+                        }
+                    )
                 }
+                splitSession = null
                 val launchedAtMs = StreamPlayer.lastLaunchAtMs
                 PlaybackDebugLog.record(
                     episodeId = plan.currentEpisode?.id ?: startWithSeries.id,
@@ -605,7 +629,31 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         StreamPlayer.stop()
         playingTitle = null
         playingItem = null
+        splitSession = null
         setSeriesSession(null)
+    }
+
+    fun playSplit(left: MediaItem, right: MediaItem) {
+        scope.launch {
+            try {
+                val playerPref = PreferencesStore.load().preferredPlayer
+                val session = withContext(Dispatchers.IO) {
+                    StreamPlayer.playSplitScreen(scope, left, right, playerPref)
+                }
+                splitSession = session
+                playingTitle = "${left.name}  |  ${right.name}"
+                playingItem = null
+                error = null
+            } catch (t: Throwable) {
+                error = t.message ?: StreamPlayer.SPLIT_NEEDS_VLC
+                splitSession = null
+            }
+        }
+    }
+
+    fun switchSplitAudio(side: SplitSide) {
+        StreamPlayer.switchSplitAudio(side)
+        splitSession = StreamPlayer.splitSession
     }
 
     fun playRecording(entry: RecordingEntry) {
@@ -659,6 +707,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 if (entry.streamUrl.isNotBlank()) {
                     lastSeriesId = entry.seriesId ?: lastSeriesId
                     lastSeriesName = entry.name
+                    val progress = ResumeStore.progressForEpisode(entry.seriesId, entry.episodeId, resumeEntries)
+                    val seconds = progress?.takeIf { it.hasProgress }?.positionMs?.div(1000)?.takeIf { it > 0 }
                     playItem(
                         MediaItem(
                             id = entry.episodeId?.let { "ep-$it" } ?: "ep-resume",
@@ -671,8 +721,10 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                             parentSeriesId = entry.seriesId,
                             parentSeriesName = entry.name,
                             season = entry.season,
-                            episodeNum = entry.episodeNum
-                        )
+                            episodeNum = entry.episodeNum,
+                            xtreamStreamId = entry.xtreamStreamId
+                        ),
+                        startPositionSeconds = seconds
                     )
                 } else if (series != null) {
                     openSeries(series)
@@ -682,13 +734,13 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     }
 
     fun needEpg(item: MediaItem) {
-        val sid = item.xtreamStreamId ?: return
+        val sid = GuideKeys.of(item) ?: return
         if (sid in epgByStreamId || sid in epgLoadingIds) return
         scope.launch {
             epgLoadingIds = epgLoadingIds + sid
             try {
                 val saved = PreferencesStore.load()
-                val epg = withContext(Dispatchers.IO) { repo.loadChannelEpg(saved, sid) }
+                val epg = withContext(Dispatchers.IO) { repo.loadChannelEpg(saved, item) }
                 epgByStreamId = epgByStreamId + (sid to epg)
             } catch (_: Throwable) {
                 epgByStreamId = epgByStreamId + (sid to ChannelEpg(sid, emptyList()))
@@ -852,6 +904,17 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     playingEpisodeId = seriesSession?.current?.id,
                     playingStreamUrl = seriesSession?.current?.streamUrl,
                     onPlay = { playItem(it) },
+                    onPlayAt = { media, seconds -> playItem(media, startPositionSeconds = seconds) },
+                    splitActive = splitSession != null,
+                    splitAudioLeft = splitSession?.activeAudio != SplitSide.RIGHT,
+                    onOpenGameDay = { initial ->
+                        splitDialogInitial = initial
+                        splitDialogOpen = true
+                    },
+                    onSplitAudioLeft = { left ->
+                        switchSplitAudio(if (left) SplitSide.LEFT else SplitSide.RIGHT)
+                    },
+                    onStopSplit = { stopPlayback() },
                     onOpenSeries = { openSeries(it) },
                     onCloseSeries = {
                         seriesDetail = null
@@ -892,6 +955,21 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     onDeleteRecording = { deleteRecording(it) },
                     onCancelSchedule = { cancelSchedule(it) }
                 )
+                if (splitDialogOpen) {
+                    SplitScreenDialog(
+                        liveChannels = catalog!!.liveItems,
+                        initialLeft = splitDialogInitial,
+                        onDismiss = {
+                            splitDialogOpen = false
+                            splitDialogInitial = null
+                        },
+                        onLaunch = { left, right ->
+                            splitDialogOpen = false
+                            splitDialogInitial = null
+                            playSplit(left, right)
+                        }
+                    )
+                }
             }
             else -> {
                 Box(Modifier.fillMaxSize().background(TipBg), contentAlignment = Alignment.Center) {

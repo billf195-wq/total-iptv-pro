@@ -1,6 +1,12 @@
 package com.totaliptv.pro.desktop.player
 
+import com.totaliptv.pro.desktop.data.MediaItem
 import com.totaliptv.pro.desktop.util.AppPaths
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -24,7 +30,23 @@ import java.io.File
  * Supported Next: in-app Next, always-on-top Next, Ctrl+Right / Media Next
  * (OS-wide on Windows; when this app is focused on Linux). Auto-advance at EOF.
  */
+enum class SplitSide { LEFT, RIGHT }
+
+data class SplitSession(
+    val leftItem: MediaItem,
+    val rightItem: MediaItem,
+    var activeAudio: SplitSide = SplitSide.LEFT,
+    var leftProcess: Process? = null,
+    var rightProcess: Process? = null,
+    val leftRcPort: Int = 4212,
+    val rightRcPort: Int = 4213,
+    val player: String = "vlc"
+)
+
 object StreamPlayer {
+    const val SPLIT_NEEDS_VLC =
+        "Game Day split screen needs VLC so you can switch which side has audio. Install VLC and try again."
+
     /** VLC language preference order when multiple audio tracks exist. */
     internal const val VLC_AUDIO_LANGUAGE = "--audio-language=eng,en,english"
     /** mpv language preference order when multiple audio tracks exist. */
@@ -50,6 +72,15 @@ object StreamPlayer {
     var lastPlaybackDurationMs: Long = 0L
         private set
 
+    @Volatile
+    var splitSession: SplitSession? = null
+        private set
+
+    @Volatile
+    private var progressJob: Job? = null
+
+    private const val PROGRESS_RC_PORT = 4214
+
     /** Windows Quit: kill every player image we launch, not only the last binary. */
     internal val WINDOWS_QUIT_IMAGES: List<String> = listOf("vlc.exe", "mpv.exe", "ffplay.exe")
 
@@ -62,14 +93,28 @@ object StreamPlayer {
      *
      * [live] omits VLC `--play-and-exit` / ffplay `-autoexit` so a valid HLS
      * window is not treated as a finished VOD item (Windows 1.2.9 died in 5–12s).
+     *
+     * [startPositionSeconds] is applied only when a single URL is launched.
+     * A later episode in a queue must not inherit `--start-time`.
      */
-    fun playQueue(urls: List<String>, preferredPlayer: String = "auto", live: Boolean = false): String {
+    fun playQueue(
+        urls: List<String>,
+        preferredPlayer: String = "auto",
+        live: Boolean = false,
+        startPositionSeconds: Long? = null,
+        scope: CoroutineScope? = null,
+        onProgress: ((positionMs: Long, durationMs: Long?, percent: Int?) -> Unit)? = null
+    ): String {
         val clean = urls.map { it.trim() }.filter { it.isNotBlank() }
         require(clean.isNotEmpty()) { "No stream URL to play" }
         stoppedByUser = false
+        progressJob?.cancel()
+        progressJob = null
+        stopSplitScreen()
         stopProcessOnly()
         val treatLive = live || isLiveStreamUrl(clean.first())
-        val resolved = resolvePlayerCommand(clean, preferredPlayer, treatLive)
+        val resumeAt = if (treatLive) null else startPositionSeconds
+        val resolved = resolvePlayerCommand(clean, preferredPlayer, treatLive, resumeAt)
             ?: error(
                 if (AppPaths.isWindows) {
                     "No media player found. Install VLC (recommended), or add mpv/ffplay to PATH."
@@ -83,16 +128,144 @@ object StreamPlayer {
             killWindowsPlayerTree(resolved.command.first())
         }
         markLaunch()
-        current = ProcessBuilder(resolved.command)
+        val proc = ProcessBuilder(resolved.command)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .start()
+        current = proc
+        if (onProgress != null && scope != null && !treatLive && resolved.command.first().contains("vlc", ignoreCase = true)) {
+            progressJob = scope.launch(Dispatchers.IO) {
+                delay(2000)
+                while (proc.isAlive) {
+                    val prog = VlcControl.queryProgress(PROGRESS_RC_PORT)
+                    if (prog != null && prog.totalLengthSeconds > 0) {
+                        onProgress(
+                            prog.currentTimeSeconds * 1000L,
+                            prog.totalLengthSeconds * 1000L,
+                            prog.percent
+                        )
+                    }
+                    delay(2000)
+                }
+            }
+        }
         return resolved.command.first()
+    }
+
+    fun isSplitActive(): Boolean {
+        val session = splitSession ?: return false
+        return session.leftProcess?.isAlive == true || session.rightProcess?.isAlive == true
+    }
+
+    /**
+     * Two live pictures side by side. Audio switching uses VLC's remote-control
+     * interface, so mpv and ffplay are not used (ffplay would start one side
+     * with audio stripped and could not unmute it).
+     */
+    fun playSplitScreen(
+        scope: CoroutineScope,
+        left: MediaItem,
+        right: MediaItem,
+        preferredPlayer: String = "auto",
+        initialAudio: SplitSide = SplitSide.LEFT
+    ): SplitSession {
+        require(left.streamUrl.isNotBlank()) { "Left channel stream URL is empty" }
+        require(right.streamUrl.isNotBlank()) { "Right channel stream URL is empty" }
+        val vlc = resolveVlcBinary() ?: error(SPLIT_NEEDS_VLC)
+        if (preferredPlayer.trim().lowercase() == "mpv" || preferredPlayer.trim().lowercase() == "ffplay") {
+            // Still require VLC. The preferred player cannot switch audio after launch.
+            if (resolveVlcBinary() == null) error(SPLIT_NEEDS_VLC)
+        }
+        stop()
+        stoppedByUser = false
+
+        val bounds = WindowPositioner.getPrimaryScreenBounds()
+        val halfWidth = (bounds.width / 2).coerceAtLeast(320)
+        val fullHeight = bounds.height.coerceAtLeast(240)
+        val xLeft = bounds.x
+        val xRight = bounds.x + halfWidth
+        val y = bounds.y
+
+        fun sideCommand(item: MediaItem, x: Int, port: Int, title: String): List<String> {
+            val args = mutableListOf(vlc)
+            if (AppPaths.isWindows) args += "--ignore-config"
+            args += "--no-one-instance"
+            args += "--no-playlist-enqueue"
+            args += "--no-video-title-show"
+            args += "--no-qt-video-autoresize"
+            args += VLC_AUDIO_LANGUAGE
+            args += "--width=$halfWidth"
+            args += "--height=$fullHeight"
+            args += "--video-x=$x"
+            args += "--video-y=$y"
+            args += "--extraintf=rc"
+            args += "--rc-host=127.0.0.1:$port"
+            args += "--rc-quiet"
+            args += "--meta-title=$title"
+            args += item.streamUrl
+            return args
+        }
+
+        val leftCmd = sideCommand(left, xLeft, 4212, "Total IPTV Pro — Left")
+        val rightCmd = sideCommand(right, xRight, 4213, "Total IPTV Pro — Right")
+        val leftProc = ProcessBuilder(leftCmd)
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            .start()
+        val rightProc = ProcessBuilder(rightCmd)
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            .start()
+        val session = SplitSession(
+            leftItem = left,
+            rightItem = right,
+            activeAudio = initialAudio,
+            leftProcess = leftProc,
+            rightProcess = rightProc
+        )
+        splitSession = session
+        WindowPositioner.snapWindowAsync(scope, leftProc, leftProc.pid(), xLeft, y, halfWidth, fullHeight)
+        WindowPositioner.snapWindowAsync(scope, rightProc, rightProc.pid(), xRight, y, halfWidth, fullHeight)
+        scope.launch(Dispatchers.IO) {
+            for (waitMs in listOf(500L, 1200L, 2000L, 3000L)) {
+                delay(waitMs)
+                applySplitVolumes(session)
+            }
+        }
+        return session
+    }
+
+    fun switchSplitAudio(side: SplitSide) {
+        val session = splitSession ?: return
+        session.activeAudio = side
+        applySplitVolumes(session)
+    }
+
+    private fun applySplitVolumes(session: SplitSession) {
+        if (session.activeAudio == SplitSide.LEFT) {
+            VlcControl.setVolume(session.leftRcPort, 256)
+            VlcControl.setVolume(session.rightRcPort, 0)
+        } else {
+            VlcControl.setVolume(session.leftRcPort, 0)
+            VlcControl.setVolume(session.rightRcPort, 256)
+        }
+    }
+
+    fun stopSplitScreen() {
+        val session = splitSession ?: return
+        VlcControl.stopPlayer(session.leftRcPort)
+        VlcControl.stopPlayer(session.rightRcPort)
+        session.leftProcess?.destroyForcibly()
+        session.rightProcess?.destroyForcibly()
+        splitSession = null
     }
 
     fun stop() {
         stoppedByUser = true
+        progressJob?.cancel()
+        progressJob = null
         stopProcessOnly()
+        stopSplitScreen()
         if (AppPaths.isWindows) {
             killWindowsPlayerTree(currentBinaryHint())
         }
@@ -105,7 +278,7 @@ object StreamPlayer {
 
     private fun currentBinaryHint(): String? = lastBinary
 
-    fun isPlaying(): Boolean = current?.isAlive == true
+    fun isPlaying(): Boolean = current?.isAlive == true || isSplitActive()
 
     /**
      * Block until the current player process exits.
@@ -169,7 +342,8 @@ object StreamPlayer {
     internal fun resolvePlayerCommand(
         urls: List<String>,
         preferred: String,
-        live: Boolean = false
+        live: Boolean = false,
+        startPositionSeconds: Long? = null
     ): ResolvedCommand? {
         val pref = preferred.trim().lowercase()
         val ordered = when (pref) {
@@ -180,7 +354,7 @@ object StreamPlayer {
         }
         val treatLive = live || isLiveStreamUrl(urls.firstOrNull().orEmpty())
         for (name in ordered) {
-            commandFor(name, urls, live = treatLive)?.let { return it }
+            commandFor(name, urls, live = treatLive, startPositionSeconds = startPositionSeconds)?.let { return it }
         }
         return null
     }
@@ -189,26 +363,27 @@ object StreamPlayer {
         name: String,
         urls: List<String>,
         windows: Boolean = AppPaths.isWindows,
-        live: Boolean = false
+        live: Boolean = false,
+        startPositionSeconds: Long? = null
     ): ResolvedCommand? {
         return when (name) {
             "vlc" -> {
                 val vlc = resolveVlcBinary() ?: return null
                 ResolvedCommand(
-                    vlcCommand(vlc, urls, windows, live),
+                    vlcCommand(vlc, urls, windows, live, startPositionSeconds),
                     playlist = treatsLaunchAsPlaylist("vlc", urls.size, windows)
                 )
             }
             "mpv" -> {
                 val bin = resolveOnPath("mpv") ?: return null
                 ResolvedCommand(
-                    mpvCommand(bin, urls, windows, live),
+                    mpvCommand(bin, urls, windows, live, startPositionSeconds),
                     playlist = treatsLaunchAsPlaylist("mpv", urls.size, windows)
                 )
             }
             "ffplay" -> {
                 val bin = resolveOnPath("ffplay") ?: return null
-                ResolvedCommand(ffplayCommand(bin, urls.first(), live), playlist = false)
+                ResolvedCommand(ffplayCommand(bin, urls.first(), live, startPositionSeconds), playlist = false)
             }
             else -> null
         }
@@ -234,7 +409,8 @@ object StreamPlayer {
         binary: String,
         urls: List<String>,
         windows: Boolean = AppPaths.isWindows,
-        live: Boolean = false
+        live: Boolean = false,
+        startPositionSeconds: Long? = null
     ): List<String> {
         val args = mutableListOf(binary)
         if (windows) {
@@ -244,6 +420,9 @@ object StreamPlayer {
         args += VLC_AUDIO_LANGUAGE
         if (!live) {
             args += "--play-and-exit"
+            args += "--extraintf=rc"
+            args += "--rc-host=127.0.0.1:$PROGRESS_RC_PORT"
+            args += "--rc-quiet"
         }
         args += "--no-one-instance"
         args += "--no-playlist-enqueue"
@@ -258,6 +437,10 @@ object StreamPlayer {
             args += "--live-caching=3000"
             args += "--http-reconnect"
         }
+        // --start-time applies to every item in a VLC playlist. Only the resumed URL gets it.
+        if (urls.size == 1 && startPositionSeconds != null && startPositionSeconds > 0) {
+            args += "--start-time=$startPositionSeconds"
+        }
         args += "--meta-title=Total IPTV Pro"
         args += urls.first()
         return args
@@ -268,7 +451,8 @@ object StreamPlayer {
         binary: String,
         urls: List<String>,
         windows: Boolean = AppPaths.isWindows,
-        live: Boolean = false
+        live: Boolean = false,
+        startPositionSeconds: Long? = null
     ): List<String> {
         val args = mutableListOf(binary, "--fullscreen", "--force-window=yes", "--title=Total IPTV Pro")
         args += MPV_AUDIO_LANGUAGE
@@ -279,6 +463,9 @@ object StreamPlayer {
         } else {
             args += "--keep-open=no"
         }
+        if (urls.size == 1 && startPositionSeconds != null && startPositionSeconds > 0) {
+            args += "--start=$startPositionSeconds"
+        }
         args += urls.first()
         return args
     }
@@ -288,11 +475,20 @@ object StreamPlayer {
      * HLS + VOD without probing tracks first. Leave the argv unchanged so
      * live/VOD play-and-exit behavior stays intact.
      */
-    internal fun ffplayCommand(binary: String, url: String, live: Boolean = false): List<String> {
+    internal fun ffplayCommand(
+        binary: String,
+        url: String,
+        live: Boolean = false,
+        startPositionSeconds: Long? = null
+    ): List<String> {
         val args = mutableListOf(binary, "-fs")
         if (!live) args += "-autoexit"
         args += "-window_title"
         args += "Total IPTV Pro"
+        if (startPositionSeconds != null && startPositionSeconds > 0) {
+            args += "-ss"
+            args += startPositionSeconds.toString()
+        }
         args += url
         return args
     }

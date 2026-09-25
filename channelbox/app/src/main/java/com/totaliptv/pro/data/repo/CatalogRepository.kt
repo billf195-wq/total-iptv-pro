@@ -5,6 +5,7 @@ import com.totaliptv.pro.data.LiveChannelMapping
 import com.totaliptv.pro.data.LiveEpgBinding
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.m3u.M3uParser
+import com.totaliptv.pro.data.m3u.XmltvParser
 import com.totaliptv.pro.data.model.Category
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.EpgChannelRow
@@ -65,6 +66,16 @@ class CatalogRepository(
     private val posterCache = mutableMapOf<Int, String?>()
     /** Per-stream short/simple EPG cache so category switches reuse already-fetched programs. */
     private val epgCache = ConcurrentHashMap<Int, List<EpgProgram>>()
+    /**
+     * M3U XMLTV listings keyed by the channel id string (tvg-id / display name).
+     * Never store these under a hash of epg_channel_id — that mixed unrelated channels.
+     */
+    private val xmltvByChannel = ConcurrentHashMap<String, List<EpgProgram>>()
+    @Volatile
+    private var xmltvUrl: String? = null
+    @Volatile
+    private var xmltvLoaded: Boolean = false
+    private val xmltvLock = Any()
     /** Matches [com.totaliptv.pro.ui.epg.GuideEpgLoad.PARALLEL]; do not storm get_short_epg. */
     private val epgFetchSemaphore = Semaphore(10)
 
@@ -124,6 +135,7 @@ class CatalogRepository(
             loadedForSourceId = null
             activeXtreamCreds = null
             epgCache.clear()
+            clearXmltv()
             bumpRevision()
         }
     }
@@ -140,6 +152,7 @@ class CatalogRepository(
         lastWarning = null
         posterCache.clear()
         epgCache.clear()
+        clearXmltv()
         bumpRevision()
     }
 
@@ -176,12 +189,15 @@ class CatalogRepository(
                                 _vodLoading.value = false
                                 activeXtreamCreds = null
                                 val url = source.m3uUrl ?: error("Missing M3U URL")
-                                val body = downloadText(url)
-                                if (body.isBlank()) error("Playlist download was empty")
-                                val parsed = M3uParser.parse(body)
+                                val parsed = downloadM3u(url)
                                 if (parsed.items.isEmpty()) error("Playlist contained no channels")
                                 cachedCategories = parsed.categories
                                 cachedItems = parsed.items
+                                clearXmltv()
+                                xmltvUrl = parsed.xmltvUrl
+                                if (!parsed.xmltvUrl.isNullOrBlank()) {
+                                    repoScope.launch { ensureXmltvLoaded() }
+                                }
                                 lastWarning = null
                                 loadedForSourceId = source.id
                                 bumpRevision()
@@ -193,6 +209,7 @@ class CatalogRepository(
                                 val live = xtreamApi.loadLiveCatalog(base, user, pass)
                                 activeXtreamCreds = XtreamApi.Credentials(base, user, pass)
                                 epgCache.clear()
+                                clearXmltv()
                                 // Publish live immediately — do not wait on VOD.
                                 cachedCategories = live.categories
                                 cachedItems = live.items
@@ -746,7 +763,7 @@ class CatalogRepository(
         maxChannels: Int = Int.MAX_VALUE
     ): List<EpgChannelRow> = withContext(Dispatchers.IO) {
         val slice = if (maxChannels == Int.MAX_VALUE) channels else channels.take(maxChannels)
-        if (activeXtreamCreds == null) {
+        if (activeXtreamCreds == null && xmltvUrl.isNullOrBlank()) {
             return@withContext slice.map {
                 EpgChannelRow(channel = it, programs = emptyList(), nowNext = EpgNowNext())
             }
@@ -755,7 +772,14 @@ class CatalogRepository(
     }
 
     private fun loadPrograms(item: MediaItem): List<EpgProgram> {
-        val creds = activeXtreamCreds ?: return emptyList()
+        val creds = activeXtreamCreds
+        if (creds == null) {
+            ensureXmltvLoaded()
+            val id = item.epgChannelId?.trim()?.takeIf { it.isNotEmpty() }
+            val named = item.name.trim().takeIf { it.isNotEmpty() }
+            val raw = (id?.let { xmltvByChannel[it] } ?: named?.let { xmltvByChannel[it] }).orEmpty()
+            return LiveEpgBinding.bindForDisplay(item, raw, liveSiblings())
+        }
         // Always key EPG by Xtream stream_id — never channel num / list index / epg_channel_id string.
         val sid = item.xtreamStreamId ?: return emptyList()
         epgCache[sid]?.let { cached ->
@@ -796,6 +820,37 @@ class CatalogRepository(
     }
 
     suspend fun isFavorite(id: String): Boolean = prefs.isFavorite(id)
+
+    private fun downloadM3u(url: String): M3uParser.Result {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "TotalIPTVPro/1.1")
+            .get()
+            .build()
+        return http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) error("Failed to download playlist: HTTP " + response.code)
+            val stream = response.body?.byteStream() ?: error("Playlist download was empty")
+            stream.bufferedReader(Charsets.UTF_8).use { reader -> M3uParser.parse(reader) }
+        }
+    }
+
+    private fun ensureXmltvLoaded() {
+        val url = xmltvUrl?.takeIf { it.isNotBlank() } ?: return
+        if (xmltvLoaded) return
+        synchronized(xmltvLock) {
+            if (xmltvLoaded) return
+            runCatching {
+                xmltvByChannel.putAll(XmltvParser.loadFromUrl(url))
+            }
+            xmltvLoaded = true
+        }
+    }
+
+    private fun clearXmltv() {
+        xmltvUrl = null
+        xmltvLoaded = false
+        xmltvByChannel.clear()
+    }
 
     private fun downloadText(url: String): String {
         val request = Request.Builder()

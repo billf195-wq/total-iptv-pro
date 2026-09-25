@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -68,6 +69,7 @@ class AppPreferences(private val context: Context) {
     private val appLayoutKey = stringPreferencesKey("app_layout_mode")
     private val posterColumnsKey = intPreferencesKey("poster_columns")
     private val recordingsDirKey = stringPreferencesKey("recordings_dir")
+    private val autoPipKey = booleanPreferencesKey("auto_pip")
 
     companion object {
         /** Flavor-specific: TV root shelf vs phone /phone/ channel. */
@@ -75,6 +77,9 @@ class AppPreferences(private val context: Context) {
             get() = BuildConfig.DEFAULT_UPDATE_BASE_URL
 
         val POSTER_COLUMN_OPTIONS: List<Int> = listOf(5, 6, 8, 11)
+
+        /** Home-button PiP is on for the phone app and off for Android TV until the user turns it on. */
+        fun defaultAutoPip(): Boolean = !BuildConfig.FLAVOR.equals("tv", ignoreCase = true)
 
         fun normalizePosterColumns(raw: Int?): Int =
             when (raw) {
@@ -121,6 +126,10 @@ class AppPreferences(private val context: Context) {
     /** Optional recordings folder on this device. Blank = app Movies/TotalIptvPro/Recordings. */
     val recordingsDir: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[recordingsDirKey]?.trim().orEmpty()
+    }
+
+    val autoPip: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[autoPipKey] ?: defaultAutoPip()
     }
 
     suspend fun getSources(): List<PlaylistSource> = sources.first()
@@ -182,6 +191,15 @@ class AppPreferences(private val context: Context) {
     suspend fun setPosterColumns(columns: Int) {
         context.dataStore.edit { prefs ->
             prefs[posterColumnsKey] = normalizePosterColumns(columns)
+        }
+    }
+
+    suspend fun getAutoPip(): Boolean =
+        context.dataStore.data.first()[autoPipKey] ?: defaultAutoPip()
+
+    suspend fun setAutoPip(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[autoPipKey] = enabled
         }
     }
 

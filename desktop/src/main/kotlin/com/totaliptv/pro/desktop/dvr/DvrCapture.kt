@@ -1,5 +1,6 @@
 package com.totaliptv.pro.desktop.dvr
 
+import com.totaliptv.pro.desktop.player.FfmpegLocator
 import com.totaliptv.pro.desktop.util.AppPaths
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -41,7 +42,8 @@ object DvrCapture {
 
     fun detectEngine(
         windows: Boolean = AppPaths.isWindows,
-        ffmpegExists: Boolean = commandExists("ffmpeg") || (windows && commandExists("ffmpeg.exe")),
+        ffmpegExists: Boolean = FfmpegLocator.resolveForCaller() != null ||
+            commandExists("ffmpeg") || (windows && commandExists("ffmpeg.exe")),
         vlcBinary: String? = resolveVlcBinary(windows)
     ): Engine {
         return when {
@@ -108,7 +110,9 @@ object DvrCapture {
         val engine = detectEngine(windows)
         return when (engine.kind) {
             Engine.Kind.FFMPEG -> {
-                val bin = resolveOnPath("ffmpeg") ?: if (windows) "ffmpeg.exe" else "ffmpeg"
+                val bin = FfmpegLocator.resolveForCaller()
+                    ?: resolveOnPath("ffmpeg")
+                    ?: if (windows) "ffmpeg.exe" else "ffmpeg"
                 val proc = ProcessBuilder(ffmpegCommand(bin, url, output, durationSec))
                     .redirectError(ProcessBuilder.Redirect.DISCARD)
                     .redirectOutput(ProcessBuilder.Redirect.DISCARD)
@@ -156,6 +160,8 @@ object DvrCapture {
     }
 
     fun fallbackHint(windows: Boolean = AppPaths.isWindows): String {
+        // Settings and the recordings pane call this from the UI thread.
+        // resolveForCaller() will not walk WinGet folders on that thread.
         val engine = detectEngine(windows)
         return when (engine.kind) {
             Engine.Kind.FFMPEG -> "Recording with ffmpeg (copy MPEG-TS)."

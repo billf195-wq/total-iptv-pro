@@ -16,8 +16,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.jetbrains.skia.Paint
+import org.jetbrains.skia.Rect
+import org.jetbrains.skia.Surface
 import org.jetbrains.skia.Image as SkiaImage
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 private val imageClient = OkHttpClient.Builder()
@@ -26,7 +28,48 @@ private val imageClient = OkHttpClient.Builder()
     .followRedirects(true)
     .build()
 
-private val bitmapCache = ConcurrentHashMap<String, ImageBitmap>()
+/** Bounded thread-safe LRU cache preventing OutOfMemory on huge IPTV catalogs. */
+private class LruBitmapCache(private val maxSize: Int = 300) {
+    private val lock = Any()
+    private val map = object : LinkedHashMap<String, ImageBitmap>(maxSize, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean {
+            return size > maxSize
+        }
+    }
+
+    operator fun get(key: String): ImageBitmap? = synchronized(lock) { map[key] }
+
+    operator fun set(key: String, value: ImageBitmap) = synchronized(lock) {
+        map[key] = value
+    }
+}
+
+/** Negative cache preventing repeated network retries for 404 or broken image URLs. */
+private class NegativeCache(private val maxEntries: Int = 500) {
+    private val lock = Any()
+    private val set = object : LinkedHashMap<String, Long>(maxEntries, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean {
+            return size > maxEntries
+        }
+    }
+
+    fun isFailed(url: String): Boolean = synchronized(lock) {
+        val time = set[url] ?: return false
+        if (System.currentTimeMillis() - time > 120_000L) {
+            set.remove(url)
+            false
+        } else {
+            true
+        }
+    }
+
+    fun markFailed(url: String) = synchronized(lock) {
+        set[url] = System.currentTimeMillis()
+    }
+}
+
+private val bitmapCache = LruBitmapCache(maxSize = 350)
+private val negativeCache = NegativeCache()
 
 @Composable
 fun RemoteArtwork(
@@ -47,6 +90,10 @@ fun RemoteArtwork(
             bitmap = it
             return@LaunchedEffect
         }
+        if (negativeCache.isFailed(u)) {
+            bitmap = null
+            return@LaunchedEffect
+        }
         bitmap = withContext(Dispatchers.IO) {
             runCatching {
                 val req = Request.Builder()
@@ -55,14 +102,43 @@ fun RemoteArtwork(
                     .get()
                     .build()
                 imageClient.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) return@runCatching null
-                    val bytes = resp.body?.bytes() ?: return@runCatching null
-                    if (bytes.isEmpty()) return@runCatching null
-                    SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap().also {
+                    if (!resp.isSuccessful) {
+                        negativeCache.markFailed(u)
+                        return@runCatching null
+                    }
+                    val bytes = resp.body?.bytes() ?: run {
+                        negativeCache.markFailed(u)
+                        return@runCatching null
+                    }
+                    if (bytes.isEmpty()) {
+                        negativeCache.markFailed(u)
+                        return@runCatching null
+                    }
+                    val rawSkia = SkiaImage.makeFromEncoded(bytes)
+                    val maxDim = 600
+                    val (w, h) = rawSkia.width to rawSkia.height
+                    val sampledSkia = if (w > maxDim || h > maxDim) {
+                        val scale = maxDim.toFloat() / maxOf(w, h)
+                        val dstW = (w * scale).toInt().coerceAtLeast(1)
+                        val dstH = (h * scale).toInt().coerceAtLeast(1)
+                        val surface = Surface.makeRasterN32Premul(dstW, dstH)
+                        val canvas = surface.canvas
+                        val paint = Paint().apply { isAntiAlias = true }
+                        val srcRect = Rect.makeWH(w.toFloat(), h.toFloat())
+                        val dstRect = Rect.makeWH(dstW.toFloat(), dstH.toFloat())
+                        canvas.drawImageRect(rawSkia, srcRect, dstRect, paint)
+                        surface.makeImageSnapshot()
+                    } else {
+                        rawSkia
+                    }
+                    sampledSkia.toComposeImageBitmap().also {
                         bitmapCache[u] = it
                     }
                 }
-            }.getOrNull()
+            }.getOrElse {
+                negativeCache.markFailed(u)
+                null
+            }
         }
     }
 

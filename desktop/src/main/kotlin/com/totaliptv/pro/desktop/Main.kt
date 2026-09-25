@@ -16,20 +16,36 @@ import androidx.compose.ui.res.useResource
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.totaliptv.pro.desktop.data.PreferencesStore
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
 import com.totaliptv.pro.desktop.input.WindowsTopMost
 import com.totaliptv.pro.desktop.player.StreamPlayer
 import com.totaliptv.pro.desktop.ui.AppRoot
 import com.totaliptv.pro.desktop.ui.SeriesNextHost
 import com.totaliptv.pro.desktop.ui.SplashBranding
+import com.totaliptv.pro.desktop.ui.TextInputFocus
 import java.awt.Dimension
 
 fun main() = application(exitProcessOnExit = true) {
     val seriesNextHost = remember { SeriesNextHost() }
     var windowsOpen by remember { mutableStateOf(true) }
-    val state = rememberWindowState(size = DpSize(1280.dp, 800.dp))
+    val initialPrefs = remember { PreferencesStore.load() }
+    val initialWidth = if (initialPrefs.windowWidth >= 960) initialPrefs.windowWidth.dp else 1280.dp
+    val initialHeight = if (initialPrefs.windowHeight >= 600) initialPrefs.windowHeight.dp else 800.dp
+    val initialPosition = if (initialPrefs.windowX != null && initialPrefs.windowY != null) {
+        WindowPosition(initialPrefs.windowX.dp, initialPrefs.windowY.dp)
+    } else {
+        WindowPosition.PlatformDefault
+    }
+    val state = rememberWindowState(
+        placement = if (initialPrefs.windowMaximized) WindowPlacement.Maximized else WindowPlacement.Floating,
+        position = initialPosition,
+        size = DpSize(initialWidth, initialHeight)
+    )
     val appIcon = runCatching {
         BitmapPainter(useResource("icon.png") { loadImageBitmap(it) })
     }.getOrNull()
@@ -53,13 +69,29 @@ fun main() = application(exitProcessOnExit = true) {
     // second `Window {}` here would keep the JVM alive after this frame closes.
     if (windowsOpen && !AppShutdown.isExiting()) {
         Window(
-            onCloseRequest = { quit() },
+            onCloseRequest = {
+                runCatching {
+                    val cur = PreferencesStore.load()
+                    val absolute = state.position as? WindowPosition.Absolute
+                    PreferencesStore.save(
+                        cur.copy(
+                            windowWidth = state.size.width.value.toInt().coerceAtLeast(960),
+                            windowHeight = state.size.height.value.toInt().coerceAtLeast(600),
+                            windowX = absolute?.x?.value?.toInt(),
+                            windowY = absolute?.y?.value?.toInt(),
+                            windowMaximized = state.placement == WindowPlacement.Maximized
+                        )
+                    )
+                }
+                quit()
+            },
             title = SplashBranding.windowTitle(AppVersion.VERSION_NAME),
             state = state,
             icon = appIcon,
             onPreviewKeyEvent = { event ->
+                val keyDown = event.type == KeyEventType.KeyDown
                 val quitKey = AppShutdown.isQuitCombo(
-                    keyDown = event.type == KeyEventType.KeyDown,
+                    keyDown = keyDown,
                     ctrlOrMeta = event.isCtrlPressed || event.isMetaPressed,
                     isQ = event.key == Key.Q
                 )
@@ -70,6 +102,22 @@ fun main() = application(exitProcessOnExit = true) {
                     }
                     SeriesNextHotkeys.isLocalNextKey(event) -> {
                         SeriesNextHotkeys.requestNext()
+                        true
+                    }
+                    keyDown && event.key == Key.F11 -> {
+                        state.placement = if (state.placement == WindowPlacement.Fullscreen) {
+                            WindowPlacement.Floating
+                        } else {
+                            WindowPlacement.Fullscreen
+                        }
+                        true
+                    }
+                    keyDown && event.key == Key.Escape && state.placement == WindowPlacement.Fullscreen -> {
+                        state.placement = WindowPlacement.Floating
+                        true
+                    }
+                    keyDown && event.key == Key.Spacebar && !TextInputFocus.isActive() && StreamPlayer.isPlaying() -> {
+                        StreamPlayer.stop()
                         true
                     }
                     else -> false

@@ -21,8 +21,10 @@ package com.totaliptv.pro.desktop
  * 1.2.13: DVR opt-in only; series Record controls; last-episode banner auto-dismiss.
  * 1.2.14: Record stays lit for the active item; last-episode banner 4s dismiss on Windows+Linux.
  * 1.2.15: Prefer English audio on VLC/mpv when a stream has multiple tracks.
+ * 1.2.21: Game Day split screen (VLC), resume position, M3U XMLTV guide,
+ *         manual guide offset, remembered window, GitHub Releases updater.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 27
-    const val VERSION_NAME: String = "1.2.15"
+    const val VERSION_CODE: Int = 33
+    const val VERSION_NAME: String = "1.2.21"
 }
