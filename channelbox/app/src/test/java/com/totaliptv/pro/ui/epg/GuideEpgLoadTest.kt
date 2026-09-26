@@ -60,7 +60,7 @@ class GuideEpgLoadTest {
         fun live(id: String, name: String) = MediaItem(
             id = id,
             name = name,
-            streamUrl = "http://hudv.net/live/u/p/$id.ts",
+            streamUrl = "http://example.test/live/u/p/$id.ts",
             categoryId = "live-1",
             kind = ContentKind.LIVE,
             xtreamStreamId = id.removePrefix("ch-").toInt()
