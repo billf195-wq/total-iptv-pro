@@ -45,6 +45,79 @@ object WindowPositioner {
      */
     fun linuxPlaybackMonitor(): ScreenBounds = monitorOrFallback(readAppMonitor(), defaultMonitorBounds())
 
+    /** Monitor the player was placed on: the one holding the app window. */
+    fun playbackMonitor(): ScreenBounds = linuxPlaybackMonitor()
+
+    /**
+     * Index into [GraphicsEnvironment.getScreenDevices] for Qt
+     * `--qt-fullscreen-screennumber`. Java and Qt both list the primary
+     * display first on Windows; on Linux this is the same AWT order, so the
+     * app window's monitor is the screen VLC fullscreens onto (a saved
+     * `[FullScreen] screen` in vlc-qt-interface.conf would otherwise win).
+     * Empty list is -1 (omit the flag). A point in a gap uses the nearest screen.
+     */
+    internal fun qtScreenIndex(centerX: Int, centerY: Int, screens: List<ScreenBounds>): Int {
+        if (screens.isEmpty()) return -1
+        val hit = screens.indexOfFirst { containsPoint(it, centerX, centerY) }
+        if (hit >= 0) return hit
+        return screens.indices.minBy { i ->
+            val b = screens[i]
+            val dx = (b.x + b.width / 2L) - centerX
+            val dy = (b.y + b.height / 2L) - centerY
+            dx * dx + dy * dy
+        }
+    }
+
+    /**
+     * Screen index of the app window, or 0 when there is only one display
+     * and the window is not attached yet. -1 when unknown.
+     */
+    fun qtFullscreenScreenNumber(): Int {
+        return try {
+            if (SwingUtilities.isEventDispatchThread()) {
+                readQtScreenIndex()
+            } else {
+                val future = CompletableFuture<Int>()
+                SwingUtilities.invokeLater {
+                    future.complete(runCatching { readQtScreenIndex() }.getOrDefault(-1))
+                }
+                future.get(500, TimeUnit.MILLISECONDS)
+            }
+        } catch (_: Throwable) {
+            -1
+        }
+    }
+
+    private fun readQtScreenIndex(): Int {
+        val devices = try {
+            GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
+        } catch (_: Throwable) {
+            return -1
+        }
+        if (devices.isEmpty()) return -1
+        val window = appWindow
+        if (window == null || !window.isDisplayable) {
+            return if (devices.size == 1) 0 else -1
+        }
+        val bounds = window.bounds
+        val rects = devices.map { device ->
+            val r = device.defaultConfiguration.bounds
+            ScreenBounds(r.x, r.y, r.width, r.height)
+        }
+        return qtScreenIndex(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, rects)
+    }
+
+    /** UI scale of the app window's monitor. Call on the EDT. */
+    fun playbackUiScale(): Double {
+        val window = appWindow ?: return 1.0
+        val scale = try {
+            window.graphicsConfiguration?.defaultTransform?.scaleX
+        } catch (_: Throwable) {
+            null
+        }
+        return scale?.takeIf { it > 0.0 } ?: 1.0
+    }
+
     internal fun monitorOrFallback(appMonitor: ScreenBounds?, fallback: ScreenBounds): ScreenBounds =
         appMonitor ?: fallback
 

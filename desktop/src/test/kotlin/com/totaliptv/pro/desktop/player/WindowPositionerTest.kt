@@ -148,6 +148,19 @@ class WindowPositionerTest {
     }
 
     @Test
+    fun qtScreenIndexFollowsTheMonitorUnderThePoint() {
+        val ultra = WindowPositioner.ScreenBounds(0, 0, 3440, 1440)
+        assertEquals(0, WindowPositioner.qtScreenIndex(1720, 720, listOf(ultra)))
+        assertEquals(-1, WindowPositioner.qtScreenIndex(0, 0, emptyList()))
+
+        val primary = WindowPositioner.ScreenBounds(0, 0, 1920, 1080)
+        val second = WindowPositioner.ScreenBounds(1920, 0, 1920, 1080)
+        assertEquals(0, WindowPositioner.qtScreenIndex(10, 10, listOf(primary, second)))
+        assertEquals(1, WindowPositioner.qtScreenIndex(2000, 100, listOf(primary, second)))
+        assertEquals(1, WindowPositioner.qtScreenIndex(2500, -10, listOf(primary, second)))
+    }
+
+    @Test
     fun windowsMonitorFollowsTheAppWindowCenter() {
         val left = WindowPositioner.MonitorRects(
             full = WindowPositioner.ScreenBounds(0, 0, 1920, 1080),

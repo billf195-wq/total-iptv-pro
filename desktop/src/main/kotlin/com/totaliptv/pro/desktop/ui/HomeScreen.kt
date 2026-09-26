@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Movie
@@ -15,7 +16,12 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,10 +29,18 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.totaliptv.pro.desktop.artwork.ArtworkSettings
+import com.totaliptv.pro.desktop.artwork.RatingOrder
+import com.totaliptv.pro.desktop.artwork.RatingSortKey
+import com.totaliptv.pro.desktop.artwork.TmdbRatingStore
+import com.totaliptv.pro.desktop.artwork.TmdbRatings
 import com.totaliptv.pro.desktop.data.Catalog
 import com.totaliptv.pro.desktop.data.ContentKind
 import com.totaliptv.pro.desktop.data.MediaItem
 import com.totaliptv.pro.desktop.data.ResumeStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 private const val TOP_N = 11
 /** Enough titles to honestly claim a filtered row label. */
@@ -113,58 +127,98 @@ fun isLikelyNew(
 }
 
 /**
- * Home movies row: pool = new American when thick enough; rank by rating desc.
+ * Home movies row: pool = new American when thick enough; rank by a snapshotted rating.
  * Labels stay honest — never say "American" / "new" unless that filter was applied.
+ * [rank] defaults to the provider score with bogus 10.0s removed. Home passes TMDB rank when a key is on.
+ * The rank function is read once per title before sorting, never from inside the comparator.
  */
-fun pickTopRatedMovies(catalog: Catalog): TopRatedRow {
-    val rated = catalog.vodItems.filter { it.ratingScore() > 0.0 }
-    val pool = rated.ifEmpty { catalog.vodItems }
-
-    fun byRating(list: List<MediaItem>) =
-        list.sortedByDescending { it.ratingScore() }.take(TOP_N)
-
-    val americanNew = byRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) })
-    if (americanNew.size >= MIN_FILTERED) {
-        return TopRatedRow("Top rated new American movies", americanNew)
-    }
-
-    val newOnly = byRating(pool.filter { isLikelyNew(it) })
-    if (newOnly.size >= MIN_FILTERED) {
-        return TopRatedRow("Top rated new movies", newOnly)
-    }
-
-    val overall = byRating(pool)
-    return TopRatedRow(
-        "Top rated movies",
-        overall.ifEmpty { catalog.vodItems.sortedByDescending { it.addedEpoch }.take(TOP_N) }
-    )
-}
+fun pickTopRatedMovies(
+    catalog: Catalog,
+    resume: List<ResumeStore.ResumeEntry> = emptyList(),
+    shownElsewhere: List<MediaItem> = emptyList(),
+    resolvedId: (MediaItem) -> String? = HomeDedupe::providerTmdbId,
+    rank: (MediaItem) -> Double = { TmdbRatings.providerScore(it) }
+): TopRatedRow = pickTopRated(
+    items = catalog.vodItems,
+    rank = rank,
+    resume = resume,
+    shownElsewhere = shownElsewhere,
+    resolvedId = resolvedId,
+    american = "Top rated new American movies",
+    newer = "Top rated new movies",
+    overall = "Top rated movies"
+)
 
 /**
  * Home series row: same rules as movies — prefer new American, then new, then overall by rating.
  * Labels stay honest — never say "American" / "new" unless that filter was applied.
  */
-fun pickTopRatedSeries(catalog: Catalog): TopRatedRow {
-    val rated = catalog.seriesItems.filter { it.ratingScore() > 0.0 }
-    val pool = rated.ifEmpty { catalog.seriesItems }
+fun pickTopRatedSeries(
+    catalog: Catalog,
+    resume: List<ResumeStore.ResumeEntry> = emptyList(),
+    shownElsewhere: List<MediaItem> = emptyList(),
+    resolvedId: (MediaItem) -> String? = HomeDedupe::providerTmdbId,
+    rank: (MediaItem) -> Double = { TmdbRatings.providerScore(it) }
+): TopRatedRow = pickTopRated(
+    items = catalog.seriesItems,
+    rank = rank,
+    resume = resume,
+    shownElsewhere = shownElsewhere,
+    resolvedId = resolvedId,
+    american = "Top rated new American series",
+    newer = "Top rated new series",
+    overall = "Top rated series"
+)
 
-    fun byRating(list: List<MediaItem>) =
-        list.sortedByDescending { it.ratingScore() }.take(TOP_N)
-
-    val americanNew = byRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) })
-    if (americanNew.size >= MIN_FILTERED) {
-        return TopRatedRow("Top rated new American series", americanNew)
+private fun pickTopRated(
+    items: List<MediaItem>,
+    rank: (MediaItem) -> Double,
+    resume: List<ResumeStore.ResumeEntry>,
+    shownElsewhere: List<MediaItem>,
+    resolvedId: (MediaItem) -> String?,
+    american: String,
+    newer: String,
+    overall: String
+): TopRatedRow {
+    val catalogIndex = items.withIndex().associate { it.value.id to it.index }
+    val keyed = items.map { item ->
+        val raw = try {
+            rank(item)
+        } catch (t: Exception) {
+            RatingOrder.logFailure(t)
+            0.0
+        }
+        item to RatingOrder.key(item, raw)
     }
+    val eligible = keyed.filter { it.second.voteEligible }
+    val pool = eligible.ifEmpty { keyed }
 
-    val newOnly = byRating(pool.filter { isLikelyNew(it) })
-    if (newOnly.size >= MIN_FILTERED) {
-        return TopRatedRow("Top rated new series", newOnly)
-    }
+    fun top(list: List<Pair<MediaItem, RatingSortKey>>): List<MediaItem> =
+        HomeDedupe.dedupe(
+            RatingOrder.sortKeyed(list),
+            catalogIndex = catalogIndex,
+            resume = resume,
+            shownElsewhere = shownElsewhere,
+            resolvedId = resolvedId
+        ).take(TOP_N)
 
-    val overall = byRating(pool)
+    val americanNew = top(pool.filter { isLikelyAmerican(it.first) && isLikelyNew(it.first) })
+    if (americanNew.size >= MIN_FILTERED) return TopRatedRow(american, americanNew)
+
+    val newOnly = top(pool.filter { isLikelyNew(it.first) })
+    if (newOnly.size >= MIN_FILTERED) return TopRatedRow(newer, newOnly)
+
+    val all = top(pool)
+    if (all.isNotEmpty()) return TopRatedRow(overall, all)
     return TopRatedRow(
-        "Top rated series",
-        overall.ifEmpty { catalog.seriesItems.sortedByDescending { it.addedEpoch }.take(TOP_N) }
+        overall,
+        HomeDedupe.dedupe(
+            RatingOrder.sortRecent(items),
+            catalogIndex = catalogIndex,
+            resume = resume,
+            shownElsewhere = shownElsewhere,
+            resolvedId = resolvedId
+        ).take(TOP_N)
     )
 }
 
@@ -199,12 +253,68 @@ fun HomeScreen(
 ) {
     val columns = posterColumns.let { if (it in setOf(5, 6, 8, 11)) it else 11 }
     val continuePairs = remember(resumeEntries, catalog, columns) {
-        resolveContinueItems(resumeEntries, catalog).take(columns)
+        HomeDedupe.dedupeContinue(resolveContinueItems(resumeEntries, catalog)).take(columns)
     }
-    val movieRow = remember(catalog) { pickTopRatedMovies(catalog) }
-    val seriesRow = remember(catalog) { pickTopRatedSeries(catalog) }
+    val continueShown = remember(continuePairs) {
+        continuePairs.map { (entry, media) -> media ?: HomeDedupe.placeholder(entry) }
+    }
+    val ratingsOn = ArtworkSettings.ratingsActive()
+    // Bumped once per visit, after the visible batch settles or the 10s cap.
+    // Later rating batches update badges only; they do not reshuffle this row.
+    var sortGeneration by remember { mutableIntStateOf(0) }
+    val homeListState = rememberLazyListState()
+    val movieRow = remember(catalog, sortGeneration, ratingsOn, resumeEntries, continueShown) {
+        val cache = TmdbRatingStore.snapshot()
+        runCatching {
+            pickTopRatedMovies(
+                catalog,
+                resume = resumeEntries,
+                shownElsewhere = continueShown,
+                resolvedId = { TmdbRatingStore.resolvedId(it, cache) }
+            ) { TmdbRatingStore.rankScore(it, cache) }
+        }.getOrElse {
+            RatingOrder.logFailure(it)
+            TopRatedRow("Top rated movies", emptyList())
+        }
+    }
+    val seriesRow = remember(catalog, sortGeneration, ratingsOn, resumeEntries, continueShown) {
+        val cache = TmdbRatingStore.snapshot()
+        runCatching {
+            pickTopRatedSeries(
+                catalog,
+                resume = resumeEntries,
+                shownElsewhere = continueShown,
+                resolvedId = { TmdbRatingStore.resolvedId(it, cache) }
+            ) { TmdbRatingStore.rankScore(it, cache) }
+        }.getOrElse {
+            RatingOrder.logFailure(it)
+            TopRatedRow("Top rated series", emptyList())
+        }
+    }
+    LaunchedEffect(catalog, ratingsOn) {
+        if (!ratingsOn) return@LaunchedEffect
+        val visible = movieRow.items + seriesRow.items + continuePairs.mapNotNull { it.second }
+        TmdbRatingStore.enqueue(visible, front = true)
+        val rest = catalog.vodItems + catalog.seriesItems
+        withContext(Dispatchers.Default) {
+            TmdbRatingStore.enqueue(rest, front = false)
+        }
+        val deadline = System.currentTimeMillis() + RatingOrder.SORT_MIN_INTERVAL_MS
+        while (!TmdbRatingStore.isSettled(visible)) {
+            if (System.currentTimeMillis() >= deadline) break
+            delay(250)
+        }
+        sortGeneration += 1
+    }
+    LaunchedEffect(sortGeneration) {
+        if (sortGeneration == 0 || !ratingsOn) return@LaunchedEffect
+        val visible = movieRow.items + seriesRow.items + continuePairs.mapNotNull { it.second }
+        TmdbRatingStore.enqueue(visible, front = true)
+    }
 
+    CompositionLocalProvider(LocalArtworkPage provides "Home") {
     LazyColumn(
+        state = homeListState,
         modifier = modifier.fillMaxSize().tvContentBackground().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
@@ -251,9 +361,11 @@ fun HomeScreen(
                             posterUrl = item.artworkUrl(),
                             subtitle = item.year?.toString(),
                             kind = ContentKind.VOD,
+                            tmdbId = item.tmdbId,
+                            year = item.year,
                             cardWidth = cardWidth,
                             onClick = { onOpenVod(item) },
-                            ratingScore = item.ratingScore()
+                            ratingScore = rememberRatingScore(item)
                         )
                     }
                 }
@@ -272,9 +384,11 @@ fun HomeScreen(
                             posterUrl = item.artworkUrl(),
                             subtitle = item.year?.toString(),
                             kind = ContentKind.SERIES,
+                            tmdbId = item.tmdbId,
+                            year = item.year,
                             cardWidth = cardWidth,
                             onClick = { onOpenSeries(item) },
-                            ratingScore = item.ratingScore()
+                            ratingScore = rememberRatingScore(item)
                         )
                     }
                 }
@@ -282,6 +396,7 @@ fun HomeScreen(
         }
 
         item { Spacer(Modifier.height(24.dp)) }
+    }
     }
 }
 
@@ -324,10 +439,12 @@ private fun ContinueCard(
         posterUrl = poster,
         subtitle = subtitle,
         kind = if (entry.kind == ContentKind.SERIES.name) ContentKind.SERIES else ContentKind.VOD,
+        tmdbId = media?.tmdbId,
+        year = media?.year,
         cardWidth = cardWidth,
         onClick = onClick,
         showPlayBadge = true,
-        ratingScore = media?.ratingScore() ?: 0.0,
+        ratingScore = if (media != null) rememberRatingScore(media) else 0.0,
         progressPercent = entry.progressPercent.takeIf { entry.hasProgress }
     )
 }
@@ -357,6 +474,8 @@ private fun HomePosterCard(
     posterUrl: String?,
     subtitle: String?,
     kind: ContentKind,
+    tmdbId: String? = null,
+    year: Int? = null,
     cardWidth: androidx.compose.ui.unit.Dp = 140.dp,
     onClick: () -> Unit,
     showPlayBadge: Boolean = false,
@@ -375,6 +494,10 @@ private fun HomePosterCard(
             RemoteArtwork(
                 url = posterUrl,
                 contentDescription = title,
+                tmdbId = tmdbId,
+                title = title,
+                year = year,
+                contentKind = kind,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)

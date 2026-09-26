@@ -77,7 +77,9 @@ class XtreamApi(
         @SerialName("country") val country: String? = null,
         @SerialName("year") val year: JsonElement? = null,
         @SerialName("plot") val plot: String? = null,
-        @SerialName("genre") val genre: String? = null
+        @SerialName("genre") val genre: String? = null,
+        @SerialName("tmdb") val tmdb: JsonElement? = null,
+        @SerialName("tmdb_id") val tmdbId: JsonElement? = null
     )
 
     @Serializable
@@ -96,7 +98,9 @@ class XtreamApi(
         @SerialName("rating_5based") val rating5Based: JsonElement? = null,
         @SerialName("country") val country: String? = null,
         @SerialName("year") val year: JsonElement? = null,
-        @SerialName("genre") val genre: String? = null
+        @SerialName("genre") val genre: String? = null,
+        @SerialName("tmdb") val tmdb: JsonElement? = null,
+        @SerialName("tmdb_id") val tmdbId: JsonElement? = null
     )
 
     @Serializable
@@ -208,7 +212,8 @@ class XtreamApi(
                     country = s.country?.takeIf { it.isNotBlank() },
                     year = yearFromJson(s.year),
                     plot = s.plot?.takeIf { it.isNotBlank() },
-                    genre = s.genre?.takeIf { it.isNotBlank() }
+                    genre = s.genre?.takeIf { it.isNotBlank() },
+                    tmdbId = tmdbIdOf(s.tmdbId, s.tmdb)
                 )
             }
             if (vodItems.isEmpty()) warnings += "VOD list empty. Live TV still available."
@@ -251,7 +256,8 @@ class XtreamApi(
                     country = s.country?.takeIf { it.isNotBlank() },
                     year = yearFromJson(s.year),
                     plot = s.plot?.takeIf { it.isNotBlank() },
-                    genre = s.genre?.takeIf { it.isNotBlank() }
+                    genre = s.genre?.takeIf { it.isNotBlank() },
+                    tmdbId = tmdbIdOf(s.tmdbId, s.tmdb)
                 )
             }
             if (seriesItems.isEmpty()) warnings += "Series list empty."
@@ -403,7 +409,8 @@ class XtreamApi(
             rating = rating,
             year = year,
             genre = genre,
-            episodes = episodes
+            episodes = episodes,
+            tmdbId = tmdbIdOf(info?.get("tmdb_id"), info?.get("tmdb"))
         )
     }
 
@@ -516,7 +523,8 @@ class XtreamApi(
             backdropUrl = backdrop,
             streamUrl = streamUrl,
             catalogId = catalogId.ifBlank { "vod-$streamId" },
-            categoryId = categoryId
+            categoryId = categoryId,
+            tmdbId = tmdbIdOf(info?.get("tmdb_id"), info?.get("tmdb"), movieData?.get("tmdb_id"), movieData?.get("tmdb"))
         )
     }
 
@@ -689,6 +697,15 @@ class XtreamApi(
         }
     }
 
+
+    private fun tmdbIdOf(vararg elements: JsonElement?): String? {
+        for (el in elements) {
+            val raw = stringFromJson(el) ?: continue
+            val id = raw.substringBefore('.').filter { it.isDigit() }
+            if (id.isNotEmpty() && id != "0") return id
+        }
+        return null
+    }
 
     private fun stringFromJson(el: JsonElement?): String? {
         if (el == null || el is kotlinx.serialization.json.JsonNull) return null

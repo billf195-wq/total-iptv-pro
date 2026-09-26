@@ -45,6 +45,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.totaliptv.pro.desktop.artwork.ArtworkRole
+import com.totaliptv.pro.desktop.artwork.RatingOrder
 import com.totaliptv.pro.desktop.data.Catalog
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
@@ -117,7 +119,7 @@ fun BrowseScreen(
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
     onSavePrefs: (SavedPrefs) -> Unit,
-    onNeedEpg: (MediaItem) -> Unit,
+    onNeedEpg: (MediaItem, Int) -> Unit,
     onResumeEntry: (ResumeStore.ResumeEntry, MediaItem?) -> Unit,
     playingSeriesId: Int? = null,
     playingSeason: Int? = null,
@@ -543,7 +545,7 @@ private fun BrowseContentPane(
         if (kind == ContentKind.LIVE) {
             LiveChannelMapping.filterLiveChannels(allItems, selectedCategoryId, query)
         } else {
-            val base = allItems.asSequence()
+            val base = HomeDedupe.dropIdenticalIds(allItems).asSequence()
                 .filter { selectedCategoryId == null || it.categoryId == selectedCategoryId }
                 .filter {
                     query.isBlank() || it.name.contains(query, ignoreCase = true) ||
@@ -551,17 +553,18 @@ private fun BrowseContentPane(
                 }
                 .toList()
             when (browseSort) {
-                BrowseSort.AZ -> base.sortedBy { it.name.lowercase() }
-                BrowseSort.ZA -> base.sortedByDescending { it.name.lowercase() }
-                BrowseSort.RECENT -> base.sortedWith(
-                    compareByDescending<MediaItem> { it.addedEpoch }
-                        .thenByDescending { it.xtreamStreamId ?: 0 }
-                        .thenBy { it.name.lowercase() }
-                )
+                BrowseSort.AZ -> RatingOrder.sortByTitle(base, descending = false)
+                BrowseSort.ZA -> RatingOrder.sortByTitle(base, descending = true)
+                BrowseSort.RECENT -> RatingOrder.sortRecent(base)
             }
         }
     }
 
+    CompositionLocalProvider(LocalArtworkPage provides when (kind) {
+        ContentKind.VOD -> "Movies"
+        ContentKind.SERIES -> "Series"
+        else -> "Live"
+    }) {
     Column(Modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -711,6 +714,7 @@ private fun BrowseContentPane(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -750,6 +754,7 @@ private fun FavoritesPane(
         }
     }
 
+    CompositionLocalProvider(LocalArtworkPage provides "Favorites") {
     Column(modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Text("Favorites", style = MaterialTheme.typography.headlineMedium, color = TipOnBg)
         Text(
@@ -818,6 +823,7 @@ private fun FavoritesPane(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -840,6 +846,10 @@ private fun PosterCard(
             RemoteArtwork(
                 url = item.artworkUrl(),
                 contentDescription = item.name,
+                tmdbId = item.tmdbId,
+                title = item.name,
+                year = item.year,
+                contentKind = item.kind,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)
@@ -852,7 +862,7 @@ private fun PosterCard(
                 contentScale = ContentScale.Crop
             )
             RatingBadge(
-                score = item.ratingScore(),
+                score = rememberRatingScore(item),
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
             )
             IconButton(
@@ -937,6 +947,11 @@ private fun VodDetailPane(
                     RemoteArtwork(
                         url = detail.posterUrl ?: detail.backdropUrl,
                         contentDescription = detail.name,
+                        role = if (detail.posterUrl.isNullOrBlank()) ArtworkRole.BACKDROP else ArtworkRole.POSTER,
+                        tmdbId = detail.tmdbId,
+                        title = detail.name,
+                        year = detail.year,
+                        contentKind = ContentKind.VOD,
                         modifier = Modifier
                             .width(220.dp)
                             .aspectRatio(2f / 3f)
@@ -953,7 +968,7 @@ private fun VodDetailPane(
                         Spacer(Modifier.height(8.dp))
                         val meta = listOfNotNull(
                             detail.year?.toString(),
-                            detail.rating?.takeIf { it.isNotBlank() }?.let { "★ $it" },
+                            formatRating(rememberDetailRating(ContentKind.VOD, detail.tmdbId, detail.rating)),
                             detail.genre?.takeIf { it.isNotBlank() }
                         ).joinToString("  ·  ")
                         if (meta.isNotBlank()) {
@@ -1140,13 +1155,18 @@ private fun SeriesDetailPane(
                     RemoteArtwork(
                         url = detail.posterUrl ?: detail.backdropUrl,
                         contentDescription = detail.name,
+                        role = if (detail.posterUrl.isNullOrBlank()) ArtworkRole.BACKDROP else ArtworkRole.POSTER,
+                        tmdbId = detail.tmdbId,
+                        title = detail.name,
+                        year = detail.year,
+                        contentKind = ContentKind.SERIES,
                         modifier = Modifier.width(100.dp).height(150.dp).clip(RoundedCornerShape(10.dp)),
                         fallbackIcon = Icons.Default.Tv
                     )
                     Column(Modifier.weight(1f)) {
                         val meta = listOfNotNull(
                             detail.year?.toString(),
-                            detail.rating?.takeIf { it.isNotBlank() }?.let { "★ $it" },
+                            formatRating(rememberDetailRating(ContentKind.SERIES, detail.tmdbId, detail.rating)),
                             detail.genre?.takeIf { it.isNotBlank() }
                         ).joinToString("  ·  ")
                         if (meta.isNotBlank()) {
@@ -1413,6 +1433,11 @@ private fun MediaRow(
         RemoteArtwork(
             url = item.artworkUrl(),
             contentDescription = item.name,
+            role = if (item.kind == ContentKind.LIVE) ArtworkRole.LOGO else ArtworkRole.POSTER,
+            tmdbId = item.tmdbId,
+            title = item.name,
+            year = item.year,
+            contentKind = item.kind,
             modifier = Modifier
                 .width(thumbSize)
                 .height(if (item.kind == ContentKind.LIVE) thumbSize else 84.dp)

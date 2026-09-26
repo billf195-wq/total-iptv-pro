@@ -25,10 +25,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.totaliptv.pro.desktop.artwork.ArtworkRole
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.EpgProgram
 import com.totaliptv.pro.desktop.data.GuideKeys
+import com.totaliptv.pro.desktop.data.GuideSpan
 import com.totaliptv.pro.desktop.data.GuideTime
 import com.totaliptv.pro.desktop.data.LiveChannelMapping
 import com.totaliptv.pro.desktop.data.LiveEpgBinding
@@ -54,7 +56,7 @@ fun GuideScreen(
     onCategoryChange: (String?) -> Unit = {},
     query: String = "",
     onQueryChange: (String) -> Unit = {},
-    onNeedEpg: (MediaItem) -> Unit,
+    onNeedEpg: (MediaItem, Int) -> Unit,
     onPlayChannel: (MediaItem) -> Unit,
     onOpenSplit: (MediaItem) -> Unit = {},
     onStop: () -> Unit,
@@ -75,7 +77,6 @@ fun GuideScreen(
     val selected = filtered.find { it.id == selectedChannelId } ?: filtered.firstOrNull()
     LaunchedEffect(selected?.id) {
         selectedChannelId = selected?.id
-        selected?.let { onNeedEpg(it) }
     }
 
     var tick by remember { mutableStateOf(0) }
@@ -160,10 +161,7 @@ fun GuideScreen(
                 epgLoadingIds = epgLoadingIds,
                 liveNow = liveNow,
                 selectedChannelId = selected?.id,
-                onSelectChannel = { ch ->
-                    selectedChannelId = ch.id
-                    onNeedEpg(ch)
-                },
+                onSelectChannel = { ch -> selectedChannelId = ch.id },
                 onNeedEpg = onNeedEpg,
                 onPlayChannel = onPlayChannel
             )
@@ -188,14 +186,12 @@ fun GuideScreen(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (sel) TipBlue.copy(alpha = 0.25f) else TipSurfaceAlt)
-                            .clickable {
-                                selectedChannelId = ch.id
-                                onNeedEpg(ch)
-                            }
+                            .clickable { selectedChannelId = ch.id }
                             .padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RemoteArtwork(
+                            role = ArtworkRole.LOGO,
                             url = ch.logoUrl,
                             contentDescription = ch.name,
                             modifier = Modifier.size(36.dp).clip(RoundedCornerShape(6.dp)),
@@ -215,8 +211,22 @@ fun GuideScreen(
                 }
             }
 
-            // Program panel + mini timeline for nearby channels
-            Column(Modifier.weight(1f).fillMaxHeight()) {
+            // Program panel + timeline. Width is the measured column, so a
+            // 1920 screen and a 3440 ultrawide both fill with as many hours as fit.
+            BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+                var extended by remember { mutableStateOf(false) }
+                val span = GuideSpan.timeline(liveNow, maxWidth.value, extended)
+                val listingLimit = GuideSpan.listingLimit(span.aheadMs, extended)
+                val scroll = rememberScrollState()
+                LaunchedEffect(selected?.id, listingLimit) {
+                    selected?.let { onNeedEpg(it, listingLimit) }
+                }
+                LaunchedEffect(scroll) {
+                    snapshotFlow { scroll.value to scroll.maxValue }.collect { (value, max) ->
+                        if (GuideSpan.shouldExtend(value, max)) extended = true
+                    }
+                }
+                Column(Modifier.fillMaxSize()) {
                 if (selected != null) {
                     val sid = GuideKeys.of(selected)
                     val epg = sid?.let { epgByStreamId[it] }
@@ -237,6 +247,7 @@ fun GuideScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RemoteArtwork(
+                            role = ArtworkRole.LOGO,
                             url = selected.logoUrl,
                             contentDescription = selected.name,
                             modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
@@ -314,14 +325,11 @@ fun GuideScreen(
                         }
                         else -> {
                             if (!classic) {
-                                // Current: horizontal timeline strip for selected channel
-                                val windowStart = liveNow - 30 * 60_000L
-                                val windowEnd = liveNow + 3 * 60 * 60_000L
+                                val windowStart = span.startMs
+                                val windowEnd = span.endMs
                                 val windowPrograms = programs.filter { it.endMs > windowStart && it.startMs < windowEnd }
-                                val scroll = rememberScrollState()
-                                val pxPerMin = 2.2f
-                                val totalMin = ((windowEnd - windowStart) / 60_000L).toFloat().coerceAtLeast(1f)
-                                val timelineWidth = (totalMin * pxPerMin).dp
+                                val pxPerMin = span.dpPerMin
+                                val timelineWidth = span.widthDp.dp
 
                                 Column(
                                     Modifier
@@ -422,6 +430,7 @@ fun GuideScreen(
                         }
                     }
                 }
+                }
             }
         }
     }
@@ -437,25 +446,30 @@ private fun ClassicGuideGrid(
     liveNow: Long,
     selectedChannelId: String?,
     onSelectChannel: (MediaItem) -> Unit,
-    onNeedEpg: (MediaItem) -> Unit,
+    onNeedEpg: (MediaItem, Int) -> Unit,
     onPlayChannel: (MediaItem) -> Unit
 ) {
-    val windowStart = liveNow - 15 * 60_000L
-    val windowEnd = liveNow + 3 * 60 * 60_000L
-    val pxPerMin = 2.8f
-    val totalMin = ((windowEnd - windowStart) / 60_000L).toFloat().coerceAtLeast(1f)
-    val timelineWidth = (totalMin * pxPerMin).dp
+    var extended by remember { mutableStateOf(false) }
     val hScroll = rememberScrollState()
     val visible = channels
-
-    // Prefetch EPG for first rows
-    LaunchedEffect(visible.map { it.id }.joinToString()) {
-        visible.take(24).forEach { onNeedEpg(it) }
+    LaunchedEffect(hScroll) {
+        snapshotFlow { hScroll.value to hScroll.maxValue }.collect { (value, max) ->
+            if (GuideSpan.shouldExtend(value, max)) extended = true
+        }
     }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Channel names take a fixed 200dp; the rest is the hour strip.
+        val span = GuideSpan.timeline(liveNow, (maxWidth - 200.dp).value, extended)
+        val listingLimit = GuideSpan.listingLimit(span.aheadMs, extended)
+        val windowStart = span.startMs
+        val windowEnd = span.endMs
+        val pxPerMin = span.dpPerMin
+        val timelineWidth = span.widthDp.dp
 
     Column(Modifier.fillMaxSize()) {
         Text(
-            "Classic grid — scroll sideways for the next 3 hours. Tap a show to watch.",
+            "Classic grid — scroll sideways to see more of the day. Tap a show to watch.",
             color = TipMuted,
             style = MaterialTheme.typography.bodyMedium
         )
@@ -486,6 +500,7 @@ private fun ClassicGuideGrid(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items(visible, key = { it.id }) { ch ->
+                LaunchedEffect(ch.id, listingLimit) { onNeedEpg(ch, listingLimit) }
                 val sid = GuideKeys.of(ch)
                 val programs = LiveEpgBinding.bindForDisplay(
                     channel = ch,
@@ -512,6 +527,7 @@ private fun ClassicGuideGrid(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RemoteArtwork(
+                            role = ArtworkRole.LOGO,
                             url = ch.logoUrl,
                             contentDescription = ch.name,
                             modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp)),
@@ -593,6 +609,7 @@ private fun ClassicGuideGrid(
                 }
             }
         }
+    }
     }
 }
 

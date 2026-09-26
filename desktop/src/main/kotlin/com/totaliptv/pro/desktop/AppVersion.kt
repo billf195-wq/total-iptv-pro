@@ -25,8 +25,14 @@ package com.totaliptv.pro.desktop
  *         manual guide offset, remembered window, GitHub Releases updater.
  * 1.2.22: Live, movies, and series open the external player full screen.
  *         Settings can turn that off. Game Day windows meet with no gap.
+ * 1.2.23: Update check lists GitHub releases and uses the newest one that
+ *         has this OS's desktop package, skipping Android-only releases.
+ * 1.2.24: Next-episode banner measures its text so the label is not clipped,
+ *         including GNOME text scaling and HiDPI.
+ * 1.2.25: TV guide fills the measured width (12–24h). Linux playback enters
+ *         VLC fullscreen on the app's monitor so the Qt chrome stays hidden.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 34
-    const val VERSION_NAME: String = "1.2.22"
+    const val VERSION_CODE: Int = 37
+    const val VERSION_NAME: String = "1.2.25"
 }
