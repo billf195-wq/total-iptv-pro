@@ -324,8 +324,36 @@ object LinuxX11WindowPlacer {
     }
 
     /**
-     * A large window whose center is on [monitor]. Fullscreen success also
-     * requires the `_NET_WM_STATE_FULLSCREEN` atom; this only checks geometry.
+     * Windows the window manager is actually managing. `_NET_CLIENT_LIST` omits
+     * VLC's hidden "Qt Selection Owner" window, which is otherwise the largest
+     * candidate and gets resized instead of the video window.
+     * A null list means the property is unavailable, so [owned] is kept.
+     * An empty list means the WM published nothing yet, so wait.
+     */
+    internal fun wmManagedWindows(owned: List<Long>, clientList: Set<Long>?): List<Long> {
+        if (clientList == null) return owned
+        return owned.filter { it in clientList }
+    }
+
+    /**
+     * Fullscreen is done only when two reads in a row have `_NET_WM_STATE_FULLSCREEN`
+     * and match the whole monitor, not the work-area size VLC opens at.
+     */
+    internal fun fullscreenSettled(
+        firstFullscreen: Boolean,
+        firstBounds: ScreenBounds?,
+        secondFullscreen: Boolean,
+        secondBounds: ScreenBounds?,
+        monitor: ScreenBounds
+    ): Boolean {
+        if (!firstFullscreen || !secondFullscreen) return false
+        if (firstBounds == null || secondBounds == null) return false
+        return geometryMatches(firstBounds, monitor) && geometryMatches(secondBounds, monitor)
+    }
+
+    /**
+     * A large window whose center is on [monitor]. Not the fullscreen success
+     * check: a 1920x1043 window still passes this.
      */
     internal fun fullscreenCoversMonitor(actual: ScreenBounds, monitor: ScreenBounds): Boolean {
         val centerX = actual.x + actual.width / 2
@@ -395,7 +423,9 @@ object LinuxX11WindowPlacer {
                 val how = if (xresOrNull() == null && !sawXres) "xres-missing and no _NET_WM_PID" else "pid not on any window"
                 return PlaceResult.NotYet(how)
             }
-            val video = chooseVideo(x11, dpy, mine) ?: return PlaceResult.NotYet("no video-sized window")
+            val candidates = wmManagedWindows(mine, netClientList(x11, dpy, root))
+            if (candidates.isEmpty()) return PlaceResult.NotYet("no managed window yet")
+            val video = chooseVideo(x11, dpy, candidates) ?: return PlaceResult.NotYet("no video-sized window")
             val source = pidSource(x11, dpy, video, pid)
             val target = resolveWorkAreaHalf(x11, dpy, root, requested)
             if (!moveWindow(x11, dpy, root, video, target)) {
@@ -424,14 +454,19 @@ object LinuxX11WindowPlacer {
             if (windows.isEmpty()) return PlaceResult.NotYet("no top-level windows")
             val mine = windows.filter { pidSource(x11, dpy, it, pid) != "none" }
             if (mine.isEmpty()) return PlaceResult.NotYet("pid not on any window")
-            val video = chooseVideo(x11, dpy, mine) ?: return PlaceResult.NotYet("no video-sized window")
+            val candidates = wmManagedWindows(mine, netClientList(x11, dpy, root))
+            if (candidates.isEmpty()) return PlaceResult.NotYet("no managed window yet")
+            val video = chooseVideo(x11, dpy, candidates) ?: return PlaceResult.NotYet("no video-sized window")
             val source = pidSource(x11, dpy, video, pid)
             val current = windowBounds(x11, dpy, root, video)
-            if (current != null &&
-                stateHas(x11, dpy, video, "_NET_WM_STATE_FULLSCREEN") &&
-                fullscreenCoversMonitor(current, monitor)
-            ) {
-                return PlaceResult.Placed(video, source, current)
+            val currentFullscreen = stateHas(x11, dpy, video, "_NET_WM_STATE_FULLSCREEN")
+            if (current != null && currentFullscreen && geometryMatches(current, monitor)) {
+                val again = windowBounds(x11, dpy, root, video)
+                val againFullscreen = stateHas(x11, dpy, video, "_NET_WM_STATE_FULLSCREEN")
+                if (fullscreenSettled(currentFullscreen, current, againFullscreen, again, monitor)) {
+                    return PlaceResult.Placed(video, source, again ?: current)
+                }
+                return PlaceResult.NotYet("fullscreen geometry not stable")
             }
             val desktop = currentDesktop(x11, dpy, root)
             val anchor = usableWorkArea(
@@ -454,13 +489,6 @@ object LinuxX11WindowPlacer {
             }
             addNetWmState(x11, dpy, root, video, "_NET_WM_STATE_FULLSCREEN")
             x11.XSync(dpy, 0)
-            val after = windowBounds(x11, dpy, root, video)
-            if (after != null &&
-                stateHas(x11, dpy, video, "_NET_WM_STATE_FULLSCREEN") &&
-                fullscreenCoversMonitor(after, monitor)
-            ) {
-                return PlaceResult.Placed(video, source, after)
-            }
             return PlaceResult.NotYet("fullscreen requested on ${boundsText(monitor)}")
         } finally {
             runCatching { x11.XCloseDisplay(dpy) }
@@ -578,6 +606,12 @@ object LinuxX11WindowPlacer {
         val atom = intern(x11, dpy, "_NET_WM_PID") ?: return null
         val values = readProperty(x11, dpy, window, atom, XA_CARDINAL, 4)
         return values.firstOrNull()?.takeIf { it > 0 }
+    }
+
+    /** Null when `_NET_CLIENT_LIST` is not on the root; empty when the WM has published none yet. */
+    private fun netClientList(x11: X11Lib, dpy: Pointer, root: Long): Set<Long>? {
+        val atom = intern(x11, dpy, "_NET_CLIENT_LIST", onlyIfExists = true) ?: return null
+        return readProperty(x11, dpy, root, atom, XA_WINDOW, 4096).toSet()
     }
 
     private fun topLevelWindows(x11: X11Lib, dpy: Pointer, root: Long): List<Long> {

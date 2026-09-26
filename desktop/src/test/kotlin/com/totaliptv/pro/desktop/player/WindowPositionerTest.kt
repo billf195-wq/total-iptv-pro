@@ -138,12 +138,56 @@ class WindowPositionerTest {
         )
 
         assertTrue(LinuxX11WindowPlacer.fullscreenCoversMonitor(WindowPositioner.ScreenBounds(0, 0, 1920, 1080), hdmi))
-        assertTrue(LinuxX11WindowPlacer.fullscreenCoversMonitor(WindowPositioner.ScreenBounds(0, 0, 1920, 1043), hdmi))
         assertFalse(LinuxX11WindowPlacer.fullscreenCoversMonitor(dp1, hdmi))
         assertFalse(LinuxX11WindowPlacer.fullscreenCoversMonitor(WindowPositioner.ScreenBounds(0, 0, 800, 600), hdmi))
         assertEquals(
             WindowPositioner.ScreenBounds(1920, 40, 1920, 993),
             LinuxX11WindowPlacer.usableWorkArea(dp1, gtk, null)
+        )
+    }
+
+    @Test
+    fun fullscreenIgnoresTheHiddenQtWindowAndRequiresTheFullMonitor() {
+        val hidden = 0x1L
+        val video = 0x2L
+        val owned = listOf(hidden, video)
+        assertEquals(listOf(video), LinuxX11WindowPlacer.wmManagedWindows(owned, setOf(video)))
+        assertEquals(emptyList(), LinuxX11WindowPlacer.wmManagedWindows(owned, emptySet()))
+        assertEquals(owned, LinuxX11WindowPlacer.wmManagedWindows(owned, null))
+
+        val hdmi = WindowPositioner.ScreenBounds(0, 0, 1920, 1080)
+        val dp1 = WindowPositioner.ScreenBounds(1920, 0, 1920, 1080)
+        val hdmiFull = WindowPositioner.ScreenBounds(0, 0, 1920, 1080)
+        val dpFull = WindowPositioner.ScreenBounds(1920, 0, 1920, 1080)
+        assertTrue(
+            LinuxX11WindowPlacer.fullscreenSettled(true, hdmiFull, true, hdmiFull, hdmi)
+        )
+        assertTrue(
+            LinuxX11WindowPlacer.fullscreenSettled(true, dpFull, true, WindowPositioner.ScreenBounds(1922, 2, 1918, 1078), dp1)
+        )
+        assertFalse(
+            LinuxX11WindowPlacer.fullscreenSettled(
+                true,
+                WindowPositioner.ScreenBounds(0, 37, 1920, 1043),
+                true,
+                WindowPositioner.ScreenBounds(0, 37, 1920, 1043),
+                hdmi
+            )
+        )
+        assertFalse(
+            LinuxX11WindowPlacer.fullscreenSettled(
+                true,
+                WindowPositioner.ScreenBounds(1920, 77, 1920, 956),
+                true,
+                WindowPositioner.ScreenBounds(1920, 77, 1920, 956),
+                dp1
+            )
+        )
+        assertFalse(
+            LinuxX11WindowPlacer.fullscreenSettled(true, hdmiFull, false, hdmiFull, hdmi)
+        )
+        assertFalse(
+            LinuxX11WindowPlacer.fullscreenSettled(true, hdmiFull, true, dpFull, hdmi)
         )
     }
 
