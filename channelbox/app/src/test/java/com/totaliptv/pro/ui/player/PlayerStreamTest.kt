@@ -9,9 +9,9 @@ import kotlin.test.assertTrue
 
 class PlayerStreamTest {
 
-    private val hls = "http://hudv.net:80/live/u/p/341.m3u8"
-    private val ts = "http://hudv.net:80/live/u/p/341.ts"
-    private val vod = "http://hudv.net:80/movie/u/p/9.mp4"
+    private val hls = "http://example.test:80/live/u/p/341.m3u8"
+    private val ts = "http://example.test:80/live/u/p/341.ts"
+    private val vod = "http://example.test:80/movie/u/p/9.mp4"
 
     @Test
     fun streamUserAgentIsVlcNotExoPlayer() {
