@@ -44,6 +44,7 @@ import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
 import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.theme.AppearanceMode
+import com.totaliptv.pro.ui.components.PhonePageHeader
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.tipScreenBrush
@@ -83,15 +84,13 @@ fun PhoneSettingsScreen(
             .fillMaxSize()
             .background(tipScreenBrush())
             .padding(contentPadding)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Text(
-            text = "Settings",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = OnCinema
-        )
+        PhonePageHeader(title = "Settings")
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+        ) {
         Spacer(Modifier.height(8.dp))
         Text(
             "Total IPTV Pro Phone ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
@@ -415,5 +414,6 @@ fun PhoneSettingsScreen(
             Text("Clear all data & sources")
         }
         Spacer(Modifier.height(24.dp))
+        }
     }
 }

@@ -60,7 +60,10 @@ import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.update.AppUpdateChecker
 import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
+import com.totaliptv.pro.ui.components.ClassicBrandBar
+import com.totaliptv.pro.ui.components.ClassicPageTitle
 import com.totaliptv.pro.ui.components.FocusableCard
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.theme.FocusBorder
 import com.totaliptv.pro.ui.theme.AppearanceMode
 import com.totaliptv.pro.ui.theme.AccentPreset
@@ -112,13 +115,22 @@ fun SettingsScreen(
         return
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-        Button(onClick = onBack) { Text("Back") }
-        Text(
-            "Settings",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(vertical = 16.dp)
-        )
+    Column(modifier = Modifier.fillMaxSize()) {
+        ClassicBrandBar()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = 24.dp,
+                    end = 24.dp,
+                    top = HomeShelfFit.pageTopOffset,
+                    bottom = 24.dp
+                )
+        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = onBack) { Text("Back") }
+            ClassicPageTitle("Settings", Modifier.padding(start = 12.dp))
+        }
 
         LazyColumn(
             contentPadding = PaddingValues(vertical = 8.dp),
@@ -569,6 +581,7 @@ fun SettingsScreen(
                     Text("Clear all data")
                 }
             }
+        }
         }
     }
 }

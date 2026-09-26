@@ -78,9 +78,12 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.dvr.DvrRecordUi
+import com.totaliptv.pro.ui.components.ClassicBrandBar
+import com.totaliptv.pro.ui.components.ClassicPageTitle
 import com.totaliptv.pro.ui.components.NetworkImage
 import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
+import com.totaliptv.pro.ui.desktop.PaneTitle
 import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.ui.theme.BrandBlue
@@ -92,6 +95,7 @@ import com.totaliptv.pro.ui.theme.Hairline
 import com.totaliptv.pro.ui.theme.SoftOverlay
 import com.totaliptv.pro.ui.theme.LiveMarker
 import com.totaliptv.pro.ui.theme.OnCinema
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -112,7 +116,9 @@ fun EpgGuideScreen(
     initialCategoryId: String? = null,
     onCategoryChange: (String?) -> Unit = {},
     onRecordNow: ((MediaItem) -> Unit)? = null,
-    onSchedule: ((MediaItem, EpgProgram) -> Unit)? = null
+    onSchedule: ((MediaItem, EpgProgram) -> Unit)? = null,
+    /** False when a parent shell already applied [HomeShelfFit.pageTopOffset]. */
+    applyPageInset: Boolean = true
 ) {
     BackHandler { onBack() }
 
@@ -301,27 +307,36 @@ fun EpgGuideScreen(
             .fillMaxSize()
             .background(CinemaBg)
     ) {
+        if (applyPageInset) {
+            ClassicBrandBar()
+            ClassicPageTitle(
+                "TV Guide",
+                Modifier.padding(
+                    start = 12.dp,
+                    end = 12.dp,
+                    top = HomeShelfFit.pageTopOffset
+                )
+            )
+        } else {
+            PaneTitle("TV Guide")
+        }
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
         Row(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+            modifier = Modifier.padding(horizontal = if (applyPageInset) 12.dp else 0.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TopBarChip(label = "← Back", onClick = onBack, emphasized = true)
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Spacer(Modifier.width(12.dp))
+            status?.let {
                 Text(
-                    "Live TV Guide",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = OnCinema
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OnCinemaMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                status?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = OnCinemaMuted
-                    )
-                }
-                run {
+            }
+            run {
                     val row = rows.find { it.channel.id == focusedChannelId }
                     val programs = row?.let {
                         if (it.programs.isNotEmpty()) it.programs
@@ -337,7 +352,6 @@ fun EpgGuideScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                }
             }
             TopBarChip(
                 label = recordLook.label,
@@ -392,7 +406,7 @@ fun EpgGuideScreen(
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
+                .padding(horizontal = if (applyPageInset) 16.dp else 0.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
         ) {

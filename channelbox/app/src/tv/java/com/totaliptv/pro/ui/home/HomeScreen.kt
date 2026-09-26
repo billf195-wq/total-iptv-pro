@@ -655,7 +655,12 @@ fun HomeScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .padding(
+                                    start = 12.dp,
+                                    top = HomeShelfFit.classicContentPadTop,
+                                    end = 12.dp,
+                                    bottom = HomeShelfFit.classicContentPadBottom
+                                )
                         ) {
                             when (hubTab) {
                                 HubTab.Live -> LiveMainPane(

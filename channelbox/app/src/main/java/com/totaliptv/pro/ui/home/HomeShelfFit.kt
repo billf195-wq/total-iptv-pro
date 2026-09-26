@@ -12,14 +12,21 @@ import androidx.compose.ui.unit.dp
 object HomeShelfFit {
     const val SHIELD_1080P_HEIGHT_DP = 540
 
-    val desktopContentPadTop = 4.dp
+    /**
+     * Top of every desktop page (Home, Live, Movies, Series, TV Guide,
+     * Favorites, Recordings, Settings). No banner sits above this.
+     */
+    val pageTopOffset = 4.dp
+    val desktopContentPadTop = pageTopOffset
     val desktopContentPadBottom = 4.dp
     val desktopRowGap = 6.dp
     val desktopRowHeader = 16.dp
     val desktopPosterImage = 104.dp
     val desktopPosterTitle = 22.dp
 
-    val classicNav = 40.dp
+    /** Phone page header. Content on every phone page starts under this bar. */
+    val phoneTopOffset = 40.dp
+    val classicNav = phoneTopOffset
     val classicLogo = 28.dp
     val classicContentPadTop = 4.dp
     val classicContentPadBottom = 4.dp

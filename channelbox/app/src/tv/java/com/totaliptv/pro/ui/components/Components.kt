@@ -954,6 +954,37 @@ fun ErrorText(message: String, modifier: Modifier = Modifier) {
 }
 
 
+/**
+ * Logo row shared by classic pages that are not inside [AppTopNav].
+ * Same height and logo as the hub nav, so every classic page starts at the same offset.
+ */
+@Composable
+fun ClassicBrandBar(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(HomeShelfFit.classicNav)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AppBannerArt(Modifier.height(HomeShelfFit.classicLogo))
+    }
+}
+
+/** Single-line page title used under [ClassicBrandBar]. Matches classic Home row headers. */
+@Composable
+fun ClassicPageTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        color = OnCinema,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier.height(HomeShelfFit.classicRowHeader)
+    )
+}
+
 /** Global top nav: brand + Search/Home/Live/Movies/Series + settings (TIP chrome). */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

@@ -266,15 +266,7 @@ fun HomePane(
 
 @Composable
 private fun HomeShelfHeader(text: String) {
-    Text(
-        text,
-        color = TipGoldText,
-        fontSize = TipDimens.sp(13),
-        fontWeight = FontWeight.SemiBold,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.height(HomeShelfFit.desktopRowHeader)
-    )
+    PaneTitle(text)
 }
 
 @Composable
@@ -341,13 +333,8 @@ fun LivePane(
             .fillMaxSize()
             .focusProperties { canFocus = !showGameDay }
     ) {
-        Text(
-            "Live TV",
-            color = TipGoldText,
-            fontSize = TipDimens.HeadlineMediumSp,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(Modifier.height(TipDimens.dp(8)))
+        PaneTitle("Live")
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
         FilterBar(
             search = search,
             onSearch = onSearch,
@@ -520,6 +507,7 @@ fun BrowseGridPane(
     }
     Column(Modifier.fillMaxSize()) {
         PaneTitle(title)
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
         FilterBar(
             search = search,
             onSearch = onSearch,
@@ -531,7 +519,7 @@ fun BrowseGridPane(
             onEditingChange = { editingSearch = it }
         )
         Text("${filtered.size} titles", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
-        Spacer(Modifier.height(TipDimens.dp(12)))
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
         LazyVerticalGrid(
             columns = GridCells.Fixed(AppPreferences.normalizePosterColumns(columns)),
             state = gridState,
@@ -635,7 +623,7 @@ fun FavoritesPane(
             color = TipGoldMuted,
             fontSize = TipDimens.BodyMediumSp
         )
-        Spacer(Modifier.height(TipDimens.dp(12)))
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
         if (favorites.isEmpty()) {
             Box(
                 Modifier
@@ -701,7 +689,8 @@ fun GuidePane(
         onPlay = onPlay,
         onBack = onBack,
         initialCategoryId = categoryId,
-        onCategoryChange = onCategory
+        onCategoryChange = onCategory,
+        applyPageInset = false
     )
 }
 
@@ -747,7 +736,7 @@ fun DesktopSettingsPane(
         sources.firstOrNull()?.let { src ->
             Text("Source: ${src.name} (${src.type})", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
         }
-        Spacer(Modifier.height(TipDimens.dp(16)))
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
 
         val appearance by (app?.preferences?.appearanceMode ?: kotlinx.coroutines.flow.flowOf(AppearanceMode.DARK))
             .collectAsState(initial = AppearanceMode.DARK)

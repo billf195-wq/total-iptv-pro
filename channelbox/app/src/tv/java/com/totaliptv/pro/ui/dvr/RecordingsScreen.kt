@@ -5,8 +5,10 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,11 +20,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import androidx.compose.ui.window.Dialog
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -32,7 +36,10 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.dvr.DvrActions
 import com.totaliptv.pro.dvr.DvrKind
 import com.totaliptv.pro.dvr.RecordingEntry
+import com.totaliptv.pro.ui.components.ClassicBrandBar
+import com.totaliptv.pro.ui.components.ClassicPageTitle
 import com.totaliptv.pro.ui.components.FocusableCard
+import com.totaliptv.pro.ui.desktop.PaneTitle
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import java.text.SimpleDateFormat
@@ -43,7 +50,9 @@ import java.util.Locale
 @Composable
 fun RecordingsScreen(
     onPlay: (MediaItem) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    /** False when a parent shell already applied [HomeShelfFit.pageTopOffset]. */
+    applyPageInset: Boolean = true
 ) {
     var pendingDelete by remember { mutableStateOf<RecordingEntry?>(null) }
     var focusReturnId by remember { mutableStateOf<String?>(null) }
@@ -100,17 +109,38 @@ fun RecordingsScreen(
             }
         }
     }
-    Column(Modifier.fillMaxSize().padding(24.dp)) {
-        androidx.tv.material3.Button(
-            onClick = onBack,
-            modifier = Modifier.focusRequester(backFocus)
-        ) { Text("Back") }
-        Text(
-            "Recordings",
-            style = MaterialTheme.typography.headlineMedium,
-            color = OnCinema,
-            modifier = Modifier.padding(vertical = 12.dp)
-        )
+    Column(Modifier.fillMaxSize()) {
+        if (applyPageInset) {
+            ClassicBrandBar()
+        }
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(
+                    start = if (applyPageInset) 16.dp else 0.dp,
+                    end = if (applyPageInset) 16.dp else 0.dp,
+                    top = if (applyPageInset) HomeShelfFit.pageTopOffset else 0.dp,
+                    bottom = 8.dp
+                )
+        ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (applyPageInset) {
+                androidx.tv.material3.Button(
+                    onClick = onBack,
+                    modifier = Modifier.focusRequester(backFocus)
+                ) { Text("Back") }
+                ClassicPageTitle(
+                    "Recordings",
+                    Modifier.padding(start = 12.dp).weight(1f)
+                )
+            } else {
+                PaneTitle("Recordings", Modifier.weight(1f))
+            }
+        }
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
         Text(
             "Saved on this TV only — ${snapshot.recordingsDir}",
             color = OnCinemaMuted,
@@ -171,6 +201,7 @@ fun RecordingsScreen(
                     )
                 }
             }
+        }
         }
     }
 }

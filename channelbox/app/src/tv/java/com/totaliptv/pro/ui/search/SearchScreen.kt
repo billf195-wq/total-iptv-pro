@@ -16,7 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.totaliptv.pro.ui.components.ClassicBrandBar
+import com.totaliptv.pro.ui.components.ClassicPageTitle
 import com.totaliptv.pro.ui.components.DpadSearchField
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -184,8 +187,19 @@ fun SearchScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(tipScreenBrush())
-            .padding(horizontal = 24.dp, vertical = 12.dp)
     ) {
+        ClassicBrandBar()
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(
+                    start = 24.dp,
+                    top = HomeShelfFit.pageTopOffset,
+                    end = 24.dp,
+                    bottom = 12.dp
+                )
+        ) {
         // Stable top chrome — always composed, never keyed by query/results.
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -201,12 +215,7 @@ fun SearchScreen(
                     .focusRequester(closeFocus)
                     .focusProperties { canFocus = !fieldFocused }
             )
-            Text(
-                text = "Search",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = OnCinema
-            )
+            ClassicPageTitle("Search")
             Spacer(Modifier.weight(1f))
             Text(
                 text = when {
@@ -358,6 +367,7 @@ fun SearchScreen(
                     }
                 }
             }
+        }
         }
     }
 

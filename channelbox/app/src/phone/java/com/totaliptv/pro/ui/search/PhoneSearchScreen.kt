@@ -24,14 +24,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.ui.components.PhoneDetailSheet
+import com.totaliptv.pro.ui.components.PhonePageHeader
 import com.totaliptv.pro.ui.components.PhoneLiveRow
-import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.tipScreenBrush
 import kotlinx.coroutines.Dispatchers
@@ -70,13 +69,7 @@ fun PhoneSearchScreen(
             .background(tipScreenBrush())
             .padding(contentPadding)
     ) {
-        Text(
-            text = "Search",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = OnCinema,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-        )
+        PhonePageHeader(title = "Search")
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },

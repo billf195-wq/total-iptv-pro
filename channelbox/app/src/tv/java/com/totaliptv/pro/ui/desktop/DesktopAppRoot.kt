@@ -340,27 +340,13 @@ fun DesktopAppRoot(
                             Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .then(
-                                    when (section) {
-                                        DesktopNavSection.GUIDE -> Modifier
-                                        DesktopNavSection.HOME -> Modifier.padding(
-                                            start = TipDimens.ContentPad,
-                                            end = TipDimens.ContentPad,
-                                            top = HomeShelfFit.desktopContentPadTop,
-                                            bottom = HomeShelfFit.desktopContentPadBottom
-                                        )
-                                        else -> Modifier.padding(TipDimens.ContentPad)
-                                    }
+                                .padding(
+                                    start = TipDimens.ContentPad,
+                                    end = TipDimens.ContentPad,
+                                    top = HomeShelfFit.pageTopOffset,
+                                    bottom = HomeShelfFit.desktopContentPadBottom
                                 )
                         ) {
-                            if (section != DesktopNavSection.HOME) {
-                                statusMessage?.let {
-                                    Text(it, color = TipAccent, fontSize = TipDimens.BodyMediumSp, modifier = Modifier.padding(bottom = TipDimens.dp(8)))
-                                }
-                            }
-                            if (vodLoading && section != DesktopNavSection.HOME) {
-                                Text("Loading movies & series…", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
-                            }
                             when (section) {
                                 DesktopNavSection.HOME -> HomePane(
                                     movies = movies,
@@ -467,7 +453,8 @@ fun DesktopAppRoot(
                                     ) {
                                         com.totaliptv.pro.ui.dvr.RecordingsScreen(
                                             onPlay = onPlay,
-                                            onBack = { section = DesktopNavSection.HOME }
+                                            onBack = { section = DesktopNavSection.HOME },
+                                            applyPageInset = false
                                         )
                                     }
                                 }
@@ -483,7 +470,8 @@ fun DesktopAppRoot(
                                             onPlay = onPlay,
                                             onBack = { section = DesktopNavSection.HOME },
                                             initialCategoryId = categoryId,
-                                            onCategoryChange = { categoryId = it }
+                                            onCategoryChange = { categoryId = it },
+                                            applyPageInset = false
                                         )
                                     }
                                 }

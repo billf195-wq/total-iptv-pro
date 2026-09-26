@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,8 +28,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.totaliptv.pro.data.model.MediaItem
+import com.totaliptv.pro.ui.home.HomeShelfFit
+import com.totaliptv.pro.ui.splash.AppBannerArt
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.CinemaSurfaceHigh
@@ -188,6 +192,39 @@ fun PhoneLiveRow(
                 }
             }
         }
+    }
+}
+
+/**
+ * Shared phone page header. Every phone page starts with this bar, so content
+ * begins at [HomeShelfFit.phoneTopOffset].
+ */
+@Composable
+fun PhonePageHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    trailing: @Composable (RowScope.() -> Unit)? = null
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(HomeShelfFit.phoneTopOffset)
+            .background(Color(0xFF000000))
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AppBannerArt(Modifier.height(HomeShelfFit.classicLogo))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = title,
+            color = OnCinema,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        trailing?.invoke(this)
     }
 }
 

@@ -57,7 +57,10 @@ import com.totaliptv.pro.data.local.WatchProgressStore
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.repo.CatalogSort
+import com.totaliptv.pro.ui.components.ClassicBrandBar
+import com.totaliptv.pro.ui.components.ClassicPageTitle
 import com.totaliptv.pro.ui.components.CategoryRailItem
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.components.ChannelGridCard
 import com.totaliptv.pro.ui.components.ChannelListItem
 import com.totaliptv.pro.ui.components.MovieDetailSheet
@@ -230,20 +233,21 @@ fun BrowseScreen(
                 tipScreenBrush()
             )
     ) {
+        ClassicBrandBar()
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 14.dp),
+                .padding(
+                    start = 24.dp,
+                    end = 24.dp,
+                    top = HomeShelfFit.pageTopOffset,
+                    bottom = 4.dp
+                ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             TopBarChip(label = "← Home", onClick = onBack, emphasized = true)
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = OnCinema
-            )
+            ClassicPageTitle(title)
             Spacer(Modifier.weight(1f))
             if (section == BrowseSection.Live && onOpenGuide != null) {
                 TopBarChip(label = "TV Guide", onClick = onOpenGuide)

@@ -335,9 +335,11 @@ fun PaneTitle(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
         color = TipGoldText,
-        fontSize = TipDimens.HeadlineMediumSp,
+        fontSize = TipDimens.sp(13),
         fontWeight = FontWeight.SemiBold,
-        modifier = modifier.padding(bottom = TipDimens.dp(4))
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier.height(HomeShelfFit.desktopRowHeader)
     )
 }
 

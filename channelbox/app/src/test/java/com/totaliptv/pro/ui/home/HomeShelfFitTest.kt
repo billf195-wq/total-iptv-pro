@@ -33,4 +33,84 @@ class HomeShelfFitTest {
         assertFalse(tab.contains("HeroFeatureBanner("))
         assertTrue(tab.contains("HomeShelfFit.classicPosterImage"))
     }
+
+    @Test
+    fun everyPageSharesTheSameTopOffset() {
+        assertEquals(4f, HomeShelfFit.pageTopOffset.value, 0.01f)
+        assertEquals(4f, HomeShelfFit.desktopContentPadTop.value, 0.01f)
+        assertEquals(16f, HomeShelfFit.desktopRowHeader.value, 0.01f)
+        assertEquals(40f, HomeShelfFit.phoneTopOffset.value, 0.01f)
+        assertEquals(40f, HomeShelfFit.classicNav.value, 0.01f)
+        assertEquals(HomeShelfFit.phoneTopOffset, HomeShelfFit.classicNav)
+
+        val root = File("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopAppRoot.kt").readText()
+        assertTrue(root.contains("top = HomeShelfFit.pageTopOffset"))
+        assertFalse(root.contains("TopBanner()"))
+        assertTrue(root.contains("SidebarBrand()"))
+        assertEquals(2, Regex("applyPageInset = false").findAll(root).count())
+
+        val panes = File("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopPanes.kt").readText()
+        assertTrue(panes.contains("PaneTitle(\"Live\")"))
+        assertTrue(panes.contains("PaneTitle(title)"))
+        assertTrue(panes.contains("PaneTitle(\"Favorites\")"))
+        assertTrue(panes.contains("PaneTitle(\"Settings\")"))
+        val shelfHeader = panes.substringAfter("fun HomeShelfHeader").substringBefore("fun LivePane")
+        assertTrue(shelfHeader.contains("PaneTitle(text)"))
+
+        val paneTitle = File("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopComponents.kt").readText()
+            .substringAfter("fun PaneTitle")
+            .substringBefore("fun AmberButton")
+        assertTrue(paneTitle.contains("HomeShelfFit.desktopRowHeader"))
+
+        val guide = File("src/tv/java/com/totaliptv/pro/ui/epg/EpgGuideScreen.kt").readText()
+        assertTrue(guide.contains("HomeShelfFit.pageTopOffset"))
+        assertTrue(guide.contains("PaneTitle(\"TV Guide\")"))
+        assertTrue(guide.contains("ClassicBrandBar()"))
+        assertTrue(guide.contains("ClassicPageTitle("))
+
+        val recordings = File("src/tv/java/com/totaliptv/pro/ui/dvr/RecordingsScreen.kt").readText()
+        assertTrue(recordings.contains("HomeShelfFit.pageTopOffset"))
+        assertTrue(recordings.contains("PaneTitle(\"Recordings\""))
+        assertTrue(recordings.contains("ClassicBrandBar()"))
+        assertTrue(recordings.contains("ClassicPageTitle("))
+
+        val classicPages = listOf(
+            "src/tv/java/com/totaliptv/pro/ui/home/HomeScreen.kt",
+            "src/tv/java/com/totaliptv/pro/ui/browse/CategoryScreen.kt",
+            "src/tv/java/com/totaliptv/pro/ui/settings/SettingsScreen.kt",
+            "src/tv/java/com/totaliptv/pro/ui/search/SearchScreen.kt"
+        )
+        val home = File(classicPages[0]).readText()
+        assertTrue(home.contains("AppTopNav("))
+        assertTrue(home.contains("HomeShelfFit.classicContentPadTop"))
+        val nav = File("src/tv/java/com/totaliptv/pro/ui/components/Components.kt").readText()
+            .substringAfter("fun AppTopNav")
+            .substringBefore("fun ClassicBrandBar")
+        assertTrue(nav.contains("HomeShelfFit.classicNav"))
+        assertTrue(nav.contains("HomeShelfFit.classicLogo"))
+        for (path in classicPages.drop(1)) {
+            val text = File(path).readText()
+            assertTrue(path, text.contains("ClassicBrandBar()"))
+            assertTrue(path, text.contains("HomeShelfFit.pageTopOffset"))
+            assertTrue(path, text.contains("ClassicPageTitle("))
+        }
+
+        val header = File("src/phone/java/com/totaliptv/pro/ui/components/PhoneComponents.kt").readText()
+            .substringAfter("fun PhonePageHeader")
+            .substringBefore("fun PhoneSectionTitle")
+        assertTrue(header.contains("HomeShelfFit.phoneTopOffset"))
+        assertTrue(header.contains("HomeShelfFit.classicLogo"))
+        assertTrue(header.contains("AppBannerArt("))
+        assertTrue(header.contains("Color(0xFF000000)"))
+        val phonePages = listOf(
+            "src/phone/java/com/totaliptv/pro/ui/home/PhoneHomeScreen.kt",
+            "src/phone/java/com/totaliptv/pro/ui/browse/PhoneBrowseScreen.kt",
+            "src/phone/java/com/totaliptv/pro/ui/search/PhoneSearchScreen.kt",
+            "src/phone/java/com/totaliptv/pro/ui/dvr/PhoneRecordingsScreen.kt",
+            "src/phone/java/com/totaliptv/pro/ui/settings/PhoneSettingsScreen.kt"
+        )
+        for (path in phonePages) {
+            assertTrue(path, File(path).readText().contains("PhonePageHeader("))
+        }
+    }
 }

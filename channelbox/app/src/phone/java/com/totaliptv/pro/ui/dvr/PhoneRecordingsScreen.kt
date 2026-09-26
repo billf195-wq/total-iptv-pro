@@ -34,6 +34,7 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.dvr.DvrActions
 import com.totaliptv.pro.dvr.DvrKind
 import com.totaliptv.pro.dvr.RecordingEntry
+import com.totaliptv.pro.ui.components.PhonePageHeader
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.tipScreenBrush
@@ -53,12 +54,18 @@ fun PhoneRecordingsScreen(
     var pendingDelete by remember { mutableStateOf<RecordingEntry?>(null) }
     BackHandler(enabled = pendingDelete != null) { pendingDelete = null }
 
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(tipScreenBrush())
             .padding(contentPadding)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+    PhonePageHeader(title = "Recordings")
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         pendingDelete?.let { doomed ->
@@ -75,8 +82,6 @@ fun PhoneRecordingsScreen(
             }
         }
         item {
-            Text("Recordings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = OnCinema)
-            Spacer(Modifier.height(4.dp))
             Text("Saved on this phone only — ${snapshot.recordingsDir}", color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
         }
         snapshot.active?.let { active ->
@@ -117,6 +122,7 @@ fun PhoneRecordingsScreen(
                 )
             }
         }
+    }
     }
 }
 

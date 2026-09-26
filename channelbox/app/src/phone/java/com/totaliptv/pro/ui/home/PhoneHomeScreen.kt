@@ -5,13 +5,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -30,7 +27,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -41,9 +37,8 @@ import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
-import com.totaliptv.pro.ui.home.HomeShelfFit
-import com.totaliptv.pro.ui.splash.AppBannerArt
 import com.totaliptv.pro.ui.components.PhoneDetailSheet
+import com.totaliptv.pro.ui.components.PhonePageHeader
 import com.totaliptv.pro.ui.components.PhonePosterCard
 import com.totaliptv.pro.ui.components.PhoneSectionTitle
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
@@ -112,7 +107,13 @@ fun PhoneHomeScreen(
             .background(tipScreenBrush())
             .padding(contentPadding)
     ) {
-        when {
+        Column(Modifier.fillMaxSize()) {
+            PhonePageHeader(title = "Home") {
+                TextButton(onClick = onOpenLive) { Text("Live") }
+                TextButton(onClick = onOpenMovies) { Text("Movies") }
+                TextButton(onClick = onOpenSeries) { Text("Series") }
+            }
+            when {
             loading && newlyMovies.isEmpty() && liveSample.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
@@ -135,22 +136,6 @@ fun PhoneHomeScreen(
             }
             else -> {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(HomeShelfFit.classicNav)
-                                .background(Color(0xFF000000))
-                                .padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            AppBannerArt(Modifier.height(HomeShelfFit.classicLogo))
-                            Spacer(Modifier.width(8.dp))
-                            TextButton(onClick = onOpenLive) { Text("Live") }
-                            TextButton(onClick = onOpenMovies) { Text("Movies") }
-                            TextButton(onClick = onOpenSeries) { Text("Series") }
-                        }
-                    }
                     if (vodLoading) {
                         item {
                             Text(
@@ -237,6 +222,7 @@ fun PhoneHomeScreen(
                     }
                     item { Spacer(Modifier.height(24.dp)) }
                 }
+            }
             }
         }
 
