@@ -117,19 +117,23 @@ class MainActivity : ComponentActivity() {
             "TotalIPTV.Live",
             "openPlayer name=${item.name} id=${item.id} sid=${item.xtreamStreamId} num=${item.channelNum} startOver=$startOver catalog=$catalogId url=${item.streamUrl}"
         )
-        startActivity(
-            Intent(this, PlayerActivity::class.java).apply {
-                putExtra(PlayerActivity.EXTRA_URL, item.streamUrl)
-                putExtra(PlayerActivity.EXTRA_TITLE, item.name)
-                putExtra(PlayerActivity.EXTRA_ID, item.id)
-                putExtra(PlayerActivity.EXTRA_KIND, item.kind.name)
-                putExtra(PlayerActivity.EXTRA_LOGO, item.logoUrl ?: item.posterUrl)
-                putExtra(PlayerActivity.EXTRA_START_OVER, startOver)
-                if (!catalogId.isNullOrBlank()) {
-                    putExtra(PlayerActivity.EXTRA_CATALOG_ID, catalogId)
-                }
+        val intent = Intent(this, PlayerActivity::class.java).apply {
+            putExtra(PlayerActivity.EXTRA_URL, item.streamUrl)
+            putExtra(PlayerActivity.EXTRA_TITLE, item.name)
+            putExtra(PlayerActivity.EXTRA_ID, item.id)
+            putExtra(PlayerActivity.EXTRA_KIND, item.kind.name)
+            putExtra(PlayerActivity.EXTRA_LOGO, item.logoUrl ?: item.posterUrl)
+            putExtra(PlayerActivity.EXTRA_START_OVER, startOver)
+            if (!catalogId.isNullOrBlank()) {
+                putExtra(PlayerActivity.EXTRA_CATALOG_ID, catalogId)
             }
-        )
+        }
+        try {
+            startActivity(intent)
+        } catch (t: Throwable) {
+            Log.e("TotalIPTV.Live", "openPlayer failed", t)
+            Toast.makeText(this, "Couldn't open the player", Toast.LENGTH_LONG).show()
+        }
     }
 }
 

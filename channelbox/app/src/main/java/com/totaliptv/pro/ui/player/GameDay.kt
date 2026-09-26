@@ -1,5 +1,6 @@
 package com.totaliptv.pro.ui.player
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -101,7 +102,12 @@ object GameDayLauncher {
             Toast.makeText(context, "Both channels need a stream URL", Toast.LENGTH_SHORT).show()
             return
         }
-        context.startActivity(SplitPlayerActivity.intent(context, playableLeft, playableRight))
+        try {
+            context.startActivity(SplitPlayerActivity.intent(context, playableLeft, playableRight))
+        } catch (e: ActivityNotFoundException) {
+            // Phone builds remove SplitPlayerActivity from the manifest.
+            Toast.makeText(context, "Split screen isn't in this app", Toast.LENGTH_SHORT).show()
+        }
     }
 }
 

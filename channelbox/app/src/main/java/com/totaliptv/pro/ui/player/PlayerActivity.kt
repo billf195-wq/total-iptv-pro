@@ -3,6 +3,7 @@ package com.totaliptv.pro.ui.player
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
@@ -143,6 +144,9 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Phone builds omit manifest screenOrientation. Lock landscape only when the
+        // platform will accept it, so Android 8.0 does not kill the process here.
+        lockLandscapeIfSafe()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // System bars are hidden after setContentView. On API 30 the insets controller
         // NPEs inside the framework when the DecorView does not exist yet.
@@ -1143,6 +1147,26 @@ class PlayerActivity : ComponentActivity() {
             if (exo.playbackState == Player.STATE_BUFFERING && !exo.isPlaying) {
                 tryAlternateLiveUrl("Live still buffering — trying other URL…")
             }
+        }
+    }
+
+    /**
+     * Landscape after [onCreate] has returned from the framework. A manifest
+     * `screenOrientation` is applied inside `super.onCreate`, which is too early
+     * to catch, and Android 8.0 rejects it outright.
+     */
+    private fun lockLandscapeIfSafe() {
+        if (!PlaybackOrientation.allowLandscapeLock(
+                android.os.Build.VERSION.SDK_INT,
+                isInMultiWindowMode
+            )
+        ) {
+            return
+        }
+        try {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } catch (t: Throwable) {
+            logPlaybackFailure("Could not lock landscape", t)
         }
     }
 
