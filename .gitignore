@@ -9,3 +9,10 @@
 **/.DS_Store
 **/__pycache__/
 dist/
+
+# Local user config. Exact basenames only; none of these names are tracked.
+prefs.json
+tmdb-api-key.txt
+favorites.json
+resume.json
+recordings.json
