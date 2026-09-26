@@ -83,6 +83,37 @@ internal object NextEpisodeBannerLayout {
         return factor.coerceIn(0.5, 3.0)
     }
 
+    /** `Xft.dpi: 120` is text scale 1.25 (120/96). 96 is 1.0. Absent input is null. */
+    fun parseXftDpiScale(raw: String?): Double? {
+        if (raw.isNullOrBlank()) return null
+        val line = raw.lineSequence().map { it.trim() }.firstOrNull { it.startsWith("Xft.dpi", ignoreCase = true) }
+            ?: return null
+        val dpi = Regex("""(\d+(?:\.\d+)?)""").find(line.substringAfter(':'))?.value?.toDoubleOrNull() ?: return null
+        if (dpi < 48.0 || dpi > 400.0) return null
+        return (dpi / 96.0).coerceIn(0.5, 3.0)
+    }
+
+    /**
+     * text-scaling-factor and Xft.dpi are the same GNOME text scale written two ways.
+     * Use the larger one, never the product, so 1.25 and dpi 120 stay 1.25.
+     */
+    fun combineGnomeTextScale(gsettingsRaw: String?, xftRaw: String?): Double {
+        val fromSettings = if (gsettingsRaw.isNullOrBlank()) 1.0 else parseDesktopTextScale(gsettingsRaw)
+        val fromDpi = parseXftDpiScale(xftRaw) ?: 1.0
+        return max(fromSettings, fromDpi).coerceIn(0.5, 3.0)
+    }
+
+    /**
+     * Monitors at scale 1.0 keep a text scale of 1.25. If the graphics transform
+     * already equals that factor, it is display scale and must not be applied again.
+     */
+    fun textScaleForLayout(graphicsDensity: Double, gnomeTextScale: Double): Double {
+        val text = gnomeTextScale.coerceIn(0.5, 3.0)
+        val graphics = graphicsDensity.coerceAtLeast(0.5)
+        if (text > 1.0 && kotlin.math.abs(graphics - text) < 0.02) return 1.0
+        return text
+    }
+
     fun currentDesktopTextScale(): Double {
         cachedTextScale?.let { return it }
         val scale = runCatching {
@@ -119,7 +150,8 @@ internal object NextEpisodeBannerLayout {
         val primaryOuter = max(minButtonW, primaryNatural.widthPx + buttonPadX * 2)
         val rowGaps = gap * sideLabels.size
         val rowWidth = primaryOuter + sideWidths.sum() + rowGaps
-        val inner = max(px(BASE_WIDTH_DP, d) - padX * 2, rowWidth)
+        // Extra width so a slightly wider Compose font cannot wrap "Next SxEy" inside the button.
+        val inner = ceil(max(px(BASE_WIDTH_DP, d) - padX * 2, rowWidth) * 1.12).toInt()
         val width = inner + padX * 2
         val primaryWidth = max(primaryOuter, inner - sideWidths.sum() - rowGaps)
         val primary = measurer.measure(
@@ -165,8 +197,9 @@ internal object NextEpisodeBannerLayout {
         ceil(dp * density).toInt().coerceAtLeast(0)
 
     private fun readGnomeTextScale(): Double {
-        val raw = runCommand(listOf("gsettings", "get", "org.gnome.desktop.interface", "text-scaling-factor"))
-        return parseDesktopTextScale(raw)
+        val gsettings = runCommand(listOf("gsettings", "get", "org.gnome.desktop.interface", "text-scaling-factor"))
+        val xft = runCommand(listOf("xrdb", "-query"))
+        return combineGnomeTextScale(gsettings, xft)
     }
 
     private fun readWindowsTextScale(): Double {

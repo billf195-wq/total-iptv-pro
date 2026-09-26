@@ -130,6 +130,64 @@ class NextEpisodeBannerLayoutTest {
     }
 
     @Test
+    fun gnomeTextScale125DoesNotClipTheNextLabelOrTheHint() {
+        assertEquals(1.25, NextEpisodeBannerLayout.combineGnomeTextScale("1.25", "Xft.dpi:\t120"))
+        assertEquals(1.25, NextEpisodeBannerLayout.combineGnomeTextScale(null, "Xft.dpi: 120"))
+        assertEquals(1.0, NextEpisodeBannerLayout.parseXftDpiScale("Xft.dpi:\t96"))
+        assertEquals(
+            1.25,
+            NextEpisodeBannerLayout.textScaleForLayout(graphicsDensity = 1.0, gnomeTextScale = 1.25),
+            "1920x1080 at scale 1.0 still uses text-scaling-factor 1.25"
+        )
+        assertEquals(
+            1.0,
+            NextEpisodeBannerLayout.textScaleForLayout(graphicsDensity = 1.25, gnomeTextScale = 1.25)
+        )
+        val textScale = 1.25
+        val copies = listOf(
+            "Next S2E5",
+            "Next S10E12",
+            "Last episode of this series"
+        )
+        for (primary in copies) {
+            val copy = linux.copy(primaryLabel = primary, hint = NextEpisodeBannerLayout.LINUX_HINT)
+            val size = NextEpisodeBannerLayout.measure(1.0, textScale, copy, AwtBannerTextMeasurer)
+            val fontPx = NextEpisodeBannerLayout.BUTTON_SP * textScale.toFloat()
+            val oneLine = AwtBannerTextMeasurer.measure(primary, fontPx, bold = true, maxWidthPx = 8_000, maxLines = 1)
+            assertEquals(oneLine.heightPx, size.buttonTextPx, "$primary must stay on one line, not wrap inside the button")
+            assertTrue(size.fitsText(), "$primary at text scale 1.25 is clipped")
+            assertTrue(size.buttonHeightPx >= oneLine.heightPx + size.buttonPadPx || size.buttonHeightPx >= 48)
+            val padX = kotlin.math.ceil(NextEpisodeBannerLayout.PAD_H_DP.toDouble()).toInt()
+            val inner = size.widthPx - padX * 2
+            val hint = AwtBannerTextMeasurer.measure(
+                NextEpisodeBannerLayout.LINUX_HINT,
+                NextEpisodeBannerLayout.HINT_SP * textScale.toFloat(),
+                bold = false,
+                maxWidthPx = inner,
+                maxLines = 32
+            )
+            val hintOneLine = AwtBannerTextMeasurer.measure(
+                NextEpisodeBannerLayout.LINUX_HINT,
+                NextEpisodeBannerLayout.HINT_SP * textScale.toFloat(),
+                bold = false,
+                maxWidthPx = 8_000,
+                maxLines = 1
+            )
+            assertTrue(hint.heightPx > hintOneLine.heightPx, "the Linux hint wraps, which used to overflow 196px")
+            assertTrue(size.textPx >= hint.heightPx, "wrapped hint is cut off")
+            assertTrue(size.heightPx > 196, "fixed 420x196 window clips this banner: ${size.widthPx}x${size.heightPx}")
+            val margin = NextEpisodeBannerLayout.marginPx(1.0)
+            val (x, y) = overlayOrigin(0, 0, 1920, 1080, size.widthPx, size.heightPx, margin)
+            assertTrue(x >= 0 && x + size.widthPx <= 1920)
+            assertTrue(y >= 0 && y + size.heightPx <= 1080, "banner hangs off 1920x1080")
+        }
+        assertTrue(NextEpisodeBannerLayout.BUTTON_SP < 16f, "button text must be smaller than the old 16sp")
+        val overlay = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/ui/SeriesNextOverlay.kt").readText()
+        assertFalse(overlay.contains("weight(1f)"), "the Next button must not be squeezed into the leftover width")
+        assertFalse(overlay.contains(".height(48.dp)"))
+    }
+
+    @Test
     fun parsesGnomeAndWindowsTextScale() {
         assertEquals(1.0, NextEpisodeBannerLayout.parseDesktopTextScale(null))
         assertEquals(1.0, NextEpisodeBannerLayout.parseDesktopTextScale("1.0"))

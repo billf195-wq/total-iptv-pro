@@ -386,7 +386,10 @@ class SeriesNextHost {
         if (key == sizedKey && w.width > 0 && w.height > 0) return
         val monitor = WindowPositioner.playbackMonitor()
         val density = WindowPositioner.playbackUiScale()
-        val textScale = NextEpisodeBannerLayout.currentDesktopTextScale()
+        val textScale = NextEpisodeBannerLayout.textScaleForLayout(
+            density,
+            NextEpisodeBannerLayout.currentDesktopTextScale()
+        )
         val size = NextEpisodeBannerLayout.measure(
             density = density,
             textScale = textScale,
@@ -466,8 +469,11 @@ fun SeriesNextOverlayBody(
     recordingThisItem: Boolean = false,
     onContentHeightPx: (Int) -> Unit = {}
 ) {
-    val textScale = NextEpisodeBannerLayout.currentDesktopTextScale().toFloat()
     val density = LocalDensity.current.density
+    val textScale = NextEpisodeBannerLayout.textScaleForLayout(
+        density.toDouble(),
+        NextEpisodeBannerLayout.currentDesktopTextScale()
+    ).toFloat()
     CompositionLocalProvider(LocalDensity provides Density(density, textScale)) {
         SeriesNextBannerContent(
             session = session,
@@ -551,16 +557,15 @@ private fun SeriesNextBannerContent(
                             containerColor = TipBlue,
                             contentColor = TipOnAmber
                         ),
-                        contentPadding = buttonPadding,
-                        modifier = Modifier.weight(1f)
+                        contentPadding = buttonPadding
                     ) {
                         Text(
                             copy.primaryLabel,
                             color = TipOnAmber,
                             fontWeight = FontWeight.Bold,
                             fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 } else if (mode == LastEpisodeBanner.Mode.LAST_BRIEF) {
@@ -573,15 +578,14 @@ private fun SeriesNextBannerContent(
                             disabledContainerColor = TipSurfaceAlt,
                             disabledContentColor = TipMuted
                         ),
-                        contentPadding = buttonPadding,
-                        modifier = Modifier.weight(1f)
+                        contentPadding = buttonPadding
                     ) {
                         Text(
                             SeriesPlayback.LAST_EPISODE_MESSAGE,
                             fontWeight = FontWeight.Bold,
                             fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -599,7 +603,8 @@ private fun SeriesNextBannerContent(
                             color = TipOnRecordActive,
                             fontWeight = FontWeight.Bold,
                             fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp,
-                            maxLines = 1
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 } else {
@@ -607,7 +612,7 @@ private fun SeriesNextBannerContent(
                         onClick = onRecord,
                         contentPadding = buttonPadding
                     ) {
-                        Text("Record", color = TipOnBg, fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp, maxLines = 1)
+                        Text("Record", color = TipOnBg, fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp, maxLines = 1, softWrap = false)
                     }
                 }
                 OutlinedButton(
@@ -618,7 +623,8 @@ private fun SeriesNextBannerContent(
                         "Hide",
                         color = TipOnBg,
                         fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp,
-                        maxLines = 1
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
                 OutlinedButton(
@@ -629,7 +635,8 @@ private fun SeriesNextBannerContent(
                         "Stop",
                         color = TipOnBg,
                         fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp,
-                        maxLines = 1
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
