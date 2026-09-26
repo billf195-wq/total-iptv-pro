@@ -3,19 +3,23 @@ package com.totaliptv.pro.ui.player
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
 import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.view.WindowManager
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import android.util.TypedValue
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -49,9 +53,13 @@ import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.local.WatchProgressStore
 import com.totaliptv.pro.data.model.EpgNowNext
+import com.totaliptv.pro.diagnostics.DebugLog
+import com.totaliptv.pro.util.SensitiveText
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -106,7 +114,11 @@ class PlayerActivity : ComponentActivity() {
     private var playNextButton: Button? = null
     private var recordButton: Button? = null
     private var cachedNextEpisode: com.totaliptv.pro.data.model.MediaItem? = null
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main + CoroutineExceptionHandler { _, error ->
+            showPlaybackFailure(error)
+        }
+    )
     private var streamUrl: String = ""
     private var mediaId: String = ""
     private var mediaTitle: String = ""
@@ -119,7 +131,11 @@ class PlayerActivity : ComponentActivity() {
     private var hideOverlayJob: Job? = null
     private var progressSaveJob: Job? = null
     private var resumeApplied = false
+    private var resumeInProgress = false
+    private var resumeWaitAttempts = 0
     private var startOver = false
+    /** One VOD retry without a forced MIME type when the URL extension is wrong. */
+    private var omitForcedMime = false
     private var catalogId: String? = null
     private lateinit var watchProgressStore: WatchProgressStore
     /** Actual URI passed to ExoPlayer (live prefers .ts; may flip to .m3u8). */
@@ -132,8 +148,12 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Phone builds omit manifest screenOrientation. Lock landscape only when the
+        // platform will accept it, so Android 8.0 does not kill the process here.
+        lockLandscapeIfSafe()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        enterImmersiveFullscreen()
+        // System bars are hidden after setContentView. On API 30 the insets controller
+        // NPEs inside the framework when the DecorView does not exist yet.
 
         streamUrl = intent.getStringExtra(EXTRA_URL).orEmpty()
         mediaTitle = intent.getStringExtra(EXTRA_TITLE) ?: "Playback"
@@ -188,7 +208,7 @@ class PlayerActivity : ComponentActivity() {
             }
             Log.i(
                 "TotalIPTV.Live",
-                "playerStart name=$mediaTitle id=$mediaId sid=${canonical.xtreamStreamId} num=${canonical.channelNum} url=$streamUrl"
+                "playerStart name=$mediaTitle id=$mediaId sid=${canonical.xtreamStreamId} num=${canonical.channelNum} url=${SensitiveText.redact(streamUrl)}"
             )
         }
 
@@ -216,14 +236,16 @@ class PlayerActivity : ComponentActivity() {
         }
         root.addView(playerView)
 
+        val display = resources.displayMetrics
+        val overscanX = NextEpisodeChrome.overscanPx(display.widthPixels)
+        val overscanY = NextEpisodeChrome.overscanPx(display.heightPixels)
+        val overlayPad = (12f * display.density).toInt().coerceAtLeast(8)
         overlay = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(48, 40, 48, 32)
+            setPadding(overlayPad, overlayPad, overlayPad, overlayPad)
             setBackgroundColor(0x66000000)
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            )
+            clipChildren = false
+            clipToPadding = false
         }
         titleView = TextView(this).apply {
             text = mediaTitle
@@ -250,11 +272,13 @@ class PlayerActivity : ComponentActivity() {
         }
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.START
+            gravity = Gravity.CENTER_VERTICAL or Gravity.START
+            clipChildren = false
         }
         fun controlBtn(label: String, action: () -> Unit) = Button(this).apply {
             text = label
             isAllCaps = false
+            applyContentSizedButton(this)
             setOnClickListener {
                 showOverlayTemporarily()
                 action()
@@ -314,9 +338,50 @@ class PlayerActivity : ComponentActivity() {
         overlay!!.addView(epgView)
         overlay!!.addView(audioLabelView)
         overlay!!.addView(statusView)
-        overlay!!.addView(controls)
-        root.addView(overlay)
+        val controlScroll = HorizontalScrollView(this).apply {
+            isFillViewport = false
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipToPadding = false
+            isFocusable = false
+            isFocusableInTouchMode = false
+            addView(
+                controls,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+        overlay!!.addView(
+            controlScroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        val banner = overlay!!
+        banner.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        )
+        val overlayHost = NextEpisodeOverlayHost(
+            this,
+            NextEpisodeChrome.overlayMaxHeightPx(display.heightPixels, overscanY)
+        ).apply {
+            clipToPadding = false
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP
+            ).apply {
+                setMargins(overscanX, overscanY, overscanX, overscanY)
+            }
+            addView(banner)
+        }
+        root.addView(overlayHost)
         setContentView(root)
+        enterImmersiveFullscreen()
 
         if (streamUrl.isBlank()) {
             statusView?.text = "Missing stream URL"
@@ -450,7 +515,9 @@ class PlayerActivity : ComponentActivity() {
             android.net.Uri.parse(url)
         }
         val builder = MediaItem.Builder().setUri(uri)
-        PlayerStream.mimeForUrl(url)?.let { builder.setMimeType(it) }
+        if (!omitForcedMime) {
+            PlayerStream.mimeForUrl(url)?.let { builder.setMimeType(it) }
+        }
         // Do not force a live target offset. Xtream HLS windows are ~5–12s;
         // a 6–35s target sat behind live and never reached READY (VOD is .mp4).
         return builder.build()
@@ -574,13 +641,107 @@ class PlayerActivity : ComponentActivity() {
                 Toast.LENGTH_LONG
             ).show()
         } catch (t: Throwable) {
-            Toast.makeText(this, "Could not open VLC: ${t.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Could not open VLC: ${SensitiveText.forUser(t)}", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun initPlayer() {
+        try {
+            initPlayerInner()
+        } catch (t: Throwable) {
+            showPlaybackFailure(t)
+        }
+    }
+
+    /**
+     * Rebuild after the current listener callback returns. Calling [initPlayer] directly from
+     * [Player.Listener.onPlayerError] releases the player that is still delivering the event.
+     */
+    private fun scheduleRebuild(reason: String) {
+        statusView?.text = reason
+        statusView?.isVisible = true
+        overlay?.isVisible = true
+        val view = playerView
+        if (view == null) {
+            initPlayer()
+            return
+        }
+        view.post {
+            if (isFinishing || isDestroyed) return@post
+            initPlayer()
+        }
+    }
+
+    private fun handlePlayerError(exo: ExoPlayer, error: PlaybackException) {
+        logPlaybackFailure("Player error ${error.errorCodeName}", error)
+        if (exo !== player) return
+        if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+            statusView?.text = "Catching live edge…"
+            statusView?.isVisible = true
+            runCatching {
+                exo.seekToDefaultPosition()
+                exo.prepare()
+                exo.playWhenReady = true
+            }.onFailure { showPlaybackFailure(it) }
+            return
+        }
+        val parsingFail =
+            error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ||
+                error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED
+        // Movies are often labeled .mp4 when the file is MKV or HLS. Sniff once before giving up.
+        if (parsingFail && !isLivePlayback() && !omitForcedMime) {
+            omitForcedMime = true
+            scheduleRebuild("This file didn't match its extension. Retrying…")
+            return
+        }
+        val httpFail = parsingFail ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE
+        if (httpFail && tryAlternateLiveUrl("Retrying live URL…")) {
+            return
+        }
+        val decodeFail =
+            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+                error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
+        if (decodeFail && !preferSoftwareDecoders) {
+            preferSoftwareDecoders = true
+            scheduleRebuild("Decoder failed - retrying with software decoder...")
+            return
+        }
+        statusView?.text = friendlyPlaybackError(error)
+        statusView?.isVisible = true
+        overlay?.isVisible = true
+        if (decodeFail) {
+            scope.launch {
+                val preferred = runCatching {
+                    (application as TotalIptvProApp).preferences.getPreferredPlayer()
+                }.getOrDefault(PreferredPlayer.BUILTIN)
+                if (preferred == PreferredPlayer.ASK && !isFinishing) {
+                    runCatching {
+                        Toast.makeText(
+                            this@PlayerActivity,
+                            "Built-in decode failed. Try Play with VLC.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun initPlayerInner() {
         englishAutoApplied.set(false)
-        player?.release()
+        // Detach first. Releasing a player PlayerView still owns crashes inside the view listener.
+        playerView?.player = null
+        val previous = player
+        player = null
+        runCatching { previous?.release() }.onFailure {
+            logPlaybackFailure("Player release failed", it)
+        }
 
         val renderersFactory = buildRenderersFactory(preferSoftwareDecoders)
 
@@ -645,97 +806,64 @@ class PlayerActivity : ComponentActivity() {
         )
         exo.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
-                    statusView?.text = "Catching live edge…"
-                    statusView?.isVisible = true
-                    exo.seekToDefaultPosition()
-                    exo.prepare()
-                    exo.playWhenReady = true
-                    return
-                }
-                val httpFail =
-                    error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
-                        error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
-                        error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
-                        error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ||
-                        error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
-                        error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-                        error.errorCode == PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE
-                if (httpFail && tryAlternateLiveUrl("Retrying live URL…")) {
-                    return
-                }
-                // One auto-retry with software-preferring renderers on hard decode failure.
-                val decodeFail =
-                    error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
-                        error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
-                if (decodeFail && !preferSoftwareDecoders) {
-                    preferSoftwareDecoders = true
-                    statusView?.text = "Decoder failed - retrying with software decoder..."
-                    statusView?.isVisible = true
-                    overlay?.isVisible = true
-                    initPlayer()
-                    return
-                }
-                statusView?.text = friendlyPlaybackError(error)
-                statusView?.isVisible = true
-                overlay?.isVisible = true
-                // Preferred = Ask: nudge toward VLC on decode failure after software retry.
-                if (decodeFail) {
-                    scope.launch {
-                        val preferred = runCatching {
-                            (application as TotalIptvProApp).preferences.getPreferredPlayer()
-                        }.getOrDefault(PreferredPlayer.BUILTIN)
-                        if (preferred == PreferredPlayer.ASK) {
-                            Toast.makeText(
-                                this@PlayerActivity,
-                                "Built-in decode failed. Try Play with VLC.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    }
-                }
+                // Never release or rebuild this player inside the callback. Media3 is still
+                // flushing the error event; release() here kills the process instead of
+                // showing the message below. Movies hit this more often than live MPEG-TS.
+                runCatching { handlePlayerError(exo, error) }.onFailure { showPlaybackFailure(it) }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
-                when (playbackState) {
-                    Player.STATE_BUFFERING -> {
-                        statusView?.text = "Buffering..."
-                        statusView?.isVisible = true
-                        overlay?.isVisible = true
-                        watchLiveBufferStuck()
+                runCatching {
+                    when (playbackState) {
+                        Player.STATE_BUFFERING -> {
+                            statusView?.text = "Buffering..."
+                            statusView?.isVisible = true
+                            overlay?.isVisible = true
+                            watchLiveBufferStuck()
+                        }
+                        Player.STATE_READY -> {
+                            bufferWatchJob?.cancel()
+                            statusView?.text = ""
+                            statusView?.isVisible = false
+                            retryCount = 0
+                            runCatching { preferEnglishAudioIfNeeded() }
+                                .onFailure { logPlaybackFailure("Audio selection failed", it) }
+                            refreshAudioLabel()
+                            warnIfNoAudioTracks()
+                            runCatching { maybeResumePosition(exo) }
+                                .onFailure { showPlaybackFailure(it) }
+                            startProgressAutosave()
+                            refreshPlayNextButton()
+                            showOverlayTemporarily()
+                        }
+                        Player.STATE_ENDED -> {
+                            statusView?.text = "Ended"
+                            statusView?.isVisible = true
+                            overlay?.isVisible = true
+                            clearProgressIfVod()
+                            maybeOfferNextEpisode()
+                        }
                     }
-                    Player.STATE_READY -> {
-                        bufferWatchJob?.cancel()
-                        statusView?.text = ""
-                        statusView?.isVisible = false
-                        retryCount = 0
-                        preferEnglishAudioIfNeeded()
-                        refreshAudioLabel()
-                        warnIfNoAudioTracks()
-                        maybeResumePosition(exo)
-                        startProgressAutosave()
-                        refreshPlayNextButton()
-                        showOverlayTemporarily()
-                    }
-                    Player.STATE_ENDED -> {
-                        statusView?.text = "Ended"
-                        statusView?.isVisible = true
-                        overlay?.isVisible = true
-                        clearProgressIfVod()
-                        maybeOfferNextEpisode()
-                    }
-                }
+                }.onFailure { showPlaybackFailure(it) }
             }
 
             override fun onTracksChanged(tracks: Tracks) {
-                if (exo.playbackState == Player.STATE_READY) {
-                    preferEnglishAudioIfNeeded()
-                    refreshAudioLabel()
-                }
+                runCatching {
+                    if (exo.playbackState == Player.STATE_READY) {
+                        runCatching { preferEnglishAudioIfNeeded() }
+                            .onFailure { logPlaybackFailure("Audio selection failed", it) }
+                        refreshAudioLabel()
+                        runCatching { maybeResumePosition(exo) }
+                            .onFailure { showPlaybackFailure(it) }
+                    }
+                }.onFailure { showPlaybackFailure(it) }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (!isPlaying) savePlaybackProgress()
+                if (!isPlaying) {
+                    runCatching { savePlaybackProgress() }
+                        .onFailure { logPlaybackFailure("Could not save progress", it) }
+                }
             }
         })
         exo.setMediaItem(buildMediaItem())
@@ -964,13 +1092,28 @@ class PlayerActivity : ComponentActivity() {
     private fun selectAudio(option: AudioTrackOption, announce: Boolean, auto: Boolean = false) {
         val exo = player ?: return
         ensureAudioOutputEnabled()
-        val override = TrackSelectionOverride(option.group, listOf(option.trackIndex))
-        exo.trackSelectionParameters = exo.trackSelectionParameters
-            .buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, /* disabled= */ false)
-            .setOverrideForType(override)
-            .build()
-        exo.volume = 1f
+        // TrackSelectionOverride throws IndexOutOfBoundsException when the index is outside
+        // the group. Movies with several audio tracks hit this from STATE_READY; live often
+        // has one track and returns earlier. An uncaught throw here quits the app.
+        val applied = runCatching {
+            if (option.trackIndex < 0 || option.trackIndex >= option.group.length) {
+                error("Audio track ${option.trackIndex} outside group of ${option.group.length}")
+            }
+            val override = TrackSelectionOverride(option.group, listOf(option.trackIndex))
+            exo.trackSelectionParameters = exo.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, /* disabled= */ false)
+                .setOverrideForType(override)
+                .build()
+            exo.volume = 1f
+        }
+        if (applied.isFailure) {
+            logPlaybackFailure("Audio selection failed", applied.exceptionOrNull())
+            statusView?.text = "Couldn't switch audio. Playback continues."
+            statusView?.isVisible = true
+            overlay?.isVisible = true
+            return
+        }
         refreshAudioLabel()
         if (announce) {
             val prefix = when {
@@ -1038,8 +1181,8 @@ class PlayerActivity : ComponentActivity() {
         statusView?.text = reason
         statusView?.isVisible = true
         overlay?.isVisible = true
-        Log.i("TotalIPTV.Live", "liveUrlFlip reason=$reason url=$alt")
-        initPlayer()
+        Log.i("TotalIPTV.Live", "liveUrlFlip reason=$reason url=${SensitiveText.redact(alt)}")
+        scheduleRebuild(reason)
         return true
     }
 
@@ -1055,24 +1198,51 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    /** Hide status and navigation bars and keep the video edge to edge. */
+    /**
+     * Landscape after [onCreate] has returned from the framework. A manifest
+     * `screenOrientation` is applied inside `super.onCreate`, which is too early
+     * to catch, and Android 8.0 rejects it outright.
+     */
+    private fun lockLandscapeIfSafe() {
+        if (!PlaybackOrientation.allowLandscapeLock(
+                android.os.Build.VERSION.SDK_INT,
+                isInMultiWindowMode
+            )
+        ) {
+            return
+        }
+        try {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } catch (t: Throwable) {
+            logPlaybackFailure("Could not lock landscape", t)
+        }
+    }
+
+    /**
+     * Hide status and navigation bars and keep the video edge to edge.
+     * Touch [android.view.Window.getDecorView] before asking for the insets controller.
+     * On API 30, [android.view.Window.getInsetsController] NPEs when DecorView is still null,
+     * and the Kotlin safe-call cannot catch that.
+     */
     private fun enterImmersiveFullscreen() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-            window.insetsController?.let { controller ->
-                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    or View.SYSTEM_UI_FLAG_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                )
+        try {
+            val decor = window.decorView
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            val controller = WindowCompat.getInsetsController(window, decor)
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(
+                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars()
+            )
+        } catch (t: Throwable) {
+            logPlaybackFailure("Immersive fullscreen failed", t)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!isInPictureInPictureMode) {
+            enterImmersiveFullscreen()
         }
     }
 
@@ -1210,6 +1380,8 @@ class PlayerActivity : ComponentActivity() {
         statusView?.isVisible = true
         overlay?.isVisible = true
         englishAutoApplied.set(false)
+        omitForcedMime = false
+        resumeWaitAttempts = 0
         playbackUrl = PlayerStream.preferredExoUrl(streamUrl, isLivePlayback())
         triedAlternateLiveUrl = false
         bufferWatchJob?.cancel()
@@ -1255,9 +1427,11 @@ class PlayerActivity : ComponentActivity() {
         progressSaveJob?.cancel()
         hideOverlayJob?.cancel()
         bufferWatchJob?.cancel()
+        scope.coroutineContext[Job]?.cancel()
         playerView?.player = null
-        player?.release()
+        val previous = player
         player = null
+        runCatching { previous?.release() }
         super.onDestroy()
     }
 
@@ -1266,30 +1440,77 @@ class PlayerActivity : ComponentActivity() {
 
     /** Seek to saved position once media is ready (VOD/series only). */
     private fun maybeResumePosition(exo: ExoPlayer) {
-        if (!supportsResume() || resumeApplied) return
-        resumeApplied = true
-        if (startOver) {
-            runCatching {
-                watchProgressStore.clear(mediaId)
-                catalogId?.let { watchProgressStore.clear(it) }
+        if (!supportsResume() || resumeApplied || resumeInProgress) return
+        if (exo !== player) return
+        resumeInProgress = true
+        try {
+            if (startOver) {
+                resumeApplied = true
+                runCatching {
+                    watchProgressStore.clear(mediaId)
+                    catalogId?.let { watchProgressStore.clear(it) }
+                }
+                return
             }
-            return
+            val saved = runCatching {
+                watchProgressStore.get(mediaId)
+                    ?: catalogId?.let { watchProgressStore.forCatalogItem(it) }
+                    ?: watchProgressStore.forCatalogItem(mediaId)
+            }.getOrNull()
+            val duration = runCatching { exo.duration }.getOrElse {
+                showPlaybackFailure(it)
+                resumeApplied = true
+                return
+            }
+            when (val decision = PlaybackResume.decide(startOver = false, saved, duration)) {
+                PlaybackResume.Decision.WaitForDuration -> {
+                    if (resumeWaitAttempts >= 8) {
+                        resumeApplied = true
+                        return
+                    }
+                    resumeWaitAttempts++
+                    playerView?.postDelayed({
+                        if (!isFinishing && !isDestroyed && player === exo) {
+                            maybeResumePosition(exo)
+                        }
+                    }, 250L)
+                }
+                PlaybackResume.Decision.Skip -> resumeApplied = true
+                PlaybackResume.Decision.StartOver -> resumeApplied = true
+                is PlaybackResume.Decision.Seek -> {
+                    resumeApplied = true
+                    val target = decision.positionMs
+                    val seek = Runnable {
+                        if (isFinishing || isDestroyed || player !== exo) return@Runnable
+                        runCatching { exo.seekTo(target) }
+                            .onSuccess {
+                                runCatching {
+                                    Toast.makeText(this, "Resume", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .onFailure { showPlaybackFailure(it) }
+                    }
+                    val view = playerView
+                    if (view != null) view.post(seek) else seek.run()
+                }
+            }
+        } finally {
+            resumeInProgress = false
         }
-        val saved = runCatching {
-            watchProgressStore.get(mediaId)
-                ?: catalogId?.let { watchProgressStore.forCatalogItem(it) }
-                ?: watchProgressStore.forCatalogItem(mediaId)
-        }.getOrNull() ?: return
-        if (!saved.shouldResume()) return
-        val duration = exo.duration
-        val target = saved.positionMs
-        if (duration != C.TIME_UNSET && duration > 0) {
-            if (target >= duration - 30_000L) return
-            if (target.toFloat() / duration.toFloat() >= 0.92f) return
-        }
-        if (target <= 0L) return
-        exo.seekTo(target.coerceAtLeast(0L))
-        Toast.makeText(this, "Resume", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showPlaybackFailure(error: Throwable) {
+        logPlaybackFailure(SensitiveText.forUser(error), error)
+        val msg = SensitiveText.forUser(error)
+        statusView?.text = "Playback failed: $msg. Press Retry or Play with VLC."
+        statusView?.isVisible = true
+        overlay?.isVisible = true
+    }
+
+    private fun logPlaybackFailure(message: String, error: Throwable?) {
+        Log.e("TotalIPTV.Player", "${SensitiveText.redact(message)}: ${SensitiveText.safeLog(error)}")
+        val app = runCatching { applicationContext }.getOrNull() ?: return
+        DebugLog.append(app, "TotalIPTV.Player", message, error)
     }
 
     private fun startProgressAutosave() {
@@ -1365,10 +1586,16 @@ class PlayerActivity : ComponentActivity() {
     private fun savePlaybackProgress() {
         if (!supportsResume()) return
         if (!::watchProgressStore.isInitialized) return
-        if (startOver && (player?.currentPosition ?: 0L) < WatchProgressStore.MIN_SAVE_MS) return
         val exo = player ?: return
-        val pos = exo.currentPosition
-        var dur = exo.duration
+        val pos = runCatching { exo.currentPosition }.getOrElse {
+            logPlaybackFailure("Could not read playback position", it)
+            return
+        }
+        if (startOver && pos < WatchProgressStore.MIN_SAVE_MS) return
+        var dur = runCatching { exo.duration }.getOrElse {
+            logPlaybackFailure("Could not read duration", it)
+            return
+        }
         if (dur == C.TIME_UNSET || dur < 0L) dur = 0L
         if (pos < WatchProgressStore.MIN_SAVE_MS) return
         val resolvedCatalog = catalogId
@@ -1413,16 +1640,99 @@ class PlayerActivity : ComponentActivity() {
             }
             val label = next.name.substringAfter(" — ").ifBlank { next.name }
             nextEpisodeDialog?.dismiss()
-            nextEpisodeDialog = AlertDialog.Builder(this@PlayerActivity)
-                .setTitle("Episode finished")
-                .setMessage("Play next?\n\n$label")
-                .setPositiveButton("Play next") { _, _ -> playSeriesEpisode(next) }
-                .setNegativeButton("Home") { _, _ -> finish() }
-                .setOnCancelListener { /* stay on ended screen */ }
-                .create()
+            nextEpisodeDialog = buildNextEpisodeDialog(label, next)
             nextEpisodeDialog?.show()
-            // D-pad: focus Play next
-            nextEpisodeDialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.requestFocus()
+            nextEpisodeDialog?.let { dialog ->
+                val dm = resources.displayMetrics
+                val overscanX = NextEpisodeChrome.overscanPx(dm.widthPixels)
+                val width = (dm.widthPixels - overscanX * 2).coerceAtLeast(1)
+                dialog.window?.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
+                applyContentSizedButton(dialog.getButton(AlertDialog.BUTTON_POSITIVE))
+                applyContentSizedButton(dialog.getButton(AlertDialog.BUTTON_NEGATIVE))
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.requestFocus()
+            }
+        }
+    }
+
+    /**
+     * End-of-episode prompt. Title and buttons use a smaller text size and
+     * wrap their height. The episode label scrolls inside the safe area
+     * instead of being clipped on a short screen or under TV overscan.
+     */
+    private fun buildNextEpisodeDialog(
+        label: String,
+        next: com.totaliptv.pro.data.model.MediaItem
+    ): AlertDialog {
+        val dm = resources.displayMetrics
+        val scaled = dm.density * resources.configuration.fontScale.coerceAtLeast(0.5f)
+        val overscanY = NextEpisodeChrome.overscanPx(dm.heightPixels)
+        val padH = NextEpisodeChrome.horizontalPaddingPx(dm.density)
+        val padV = NextEpisodeChrome.verticalPaddingPx(scaled)
+        val title = TextView(this).apply {
+            text = "Episode finished"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, NextEpisodeChrome.DIALOG_TITLE_SP)
+            setTypeface(typeface, Typeface.BOLD)
+            includeFontPadding = true
+            setPadding(padH, padV, padH, padV / 2)
+        }
+        val message = TextView(this).apply {
+            text = "Play next?\n\n$label"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, NextEpisodeChrome.DIALOG_MESSAGE_SP)
+            includeFontPadding = true
+            setPadding(padH, padV, padH, padV)
+        }
+        val scroll = NextEpisodeMessageScroll(
+            this,
+            NextEpisodeChrome.messageMaxHeightPx(dm.heightPixels, overscanY, scaled)
+        ).apply {
+            addView(
+                message,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+        return AlertDialog.Builder(this)
+            .setCustomTitle(title)
+            .setView(scroll)
+            .setPositiveButton("Play next") { _, _ -> playSeriesEpisode(next) }
+            .setNegativeButton("Home") { _, _ -> finish() }
+            .setOnCancelListener { /* stay on ended screen */ }
+            .create()
+    }
+
+    /**
+     * Button height follows the label. A theme minHeight clips descenders when
+     * the font scale is large.
+     */
+    private fun applyContentSizedButton(btn: Button?) {
+        if (btn == null) return
+        val dm = resources.displayMetrics
+        val scaled = dm.density * resources.configuration.fontScale.coerceAtLeast(0.5f)
+        btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, NextEpisodeChrome.BUTTON_TEXT_SP)
+        btn.minHeight = 0
+        btn.minimumHeight = 0
+        btn.minWidth = 0
+        btn.minimumWidth = 0
+        btn.maxLines = Int.MAX_VALUE
+        btn.includeFontPadding = true
+        btn.gravity = Gravity.CENTER
+        btn.setPadding(
+            NextEpisodeChrome.horizontalPaddingPx(dm.density),
+            NextEpisodeChrome.verticalPaddingPx(scaled),
+            NextEpisodeChrome.horizontalPaddingPx(dm.density),
+            NextEpisodeChrome.verticalPaddingPx(scaled)
+        )
+        val lp = btn.layoutParams
+        if (lp == null) {
+            btn.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        } else {
+            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            btn.layoutParams = lp
         }
     }
 
@@ -1441,6 +1751,8 @@ class PlayerActivity : ComponentActivity() {
         overlay?.isVisible = true
         startOver = true
         resumeApplied = false
+        resumeWaitAttempts = 0
+        omitForcedMime = false
         preferSoftwareDecoders = false
         englishAutoApplied.set(false)
         playbackUrl = PlayerStream.preferredExoUrl(item.streamUrl, live = false)

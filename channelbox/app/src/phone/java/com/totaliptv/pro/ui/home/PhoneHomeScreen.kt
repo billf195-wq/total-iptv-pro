@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
@@ -86,7 +87,7 @@ fun PhoneHomeScreen(
         runCatching {
             withContext(Dispatchers.IO) { repository.ensureCatalogLoaded() }
         }.onFailure {
-            error = it.message ?: "Failed to load catalog"
+            error = SensitiveText.forUser(it)
         }
         newlyMovies = repository.newlyAddedMovies(24)
         newlySeries = repository.newlyAddedSeries(24)

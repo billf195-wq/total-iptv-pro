@@ -89,7 +89,7 @@ object TipDimens {
     val PosterGridGap = posterDp(12)
 
     val SidebarWidth = dp(220)
-    // Taller banner so app_banner logo does not clip/overlap sidebar chrome
+    // TopBanner uses DesktopBannerRowHeight (128.dp), not this scaled slot.
     val BannerHeight = dp(120)
     val ContentPad = dp(20)
     val SidebarPad = dp(16)

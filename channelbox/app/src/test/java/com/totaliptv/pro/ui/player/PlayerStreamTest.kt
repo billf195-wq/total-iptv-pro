@@ -33,6 +33,52 @@ class PlayerStreamTest {
     }
 
     @Test
+    fun splitBuffersAreSmallerThanSingleLive() {
+        assertTrue(PlayerStream.SPLIT_MAX_BUFFER_MS < PlayerStream.LIVE_MAX_BUFFER_MS)
+        assertTrue(PlayerStream.SPLIT_MIN_BUFFER_MS <= PlayerStream.SPLIT_MAX_BUFFER_MS)
+        assertTrue(PlayerStream.SPLIT_PLAYBACK_BUFFER_MS < PlayerStream.SPLIT_MIN_BUFFER_MS)
+        assertTrue(PlayerStream.SPLIT_REBUFFER_MS <= PlayerStream.SPLIT_MIN_BUFFER_MS)
+        assertTrue(PlayerStream.SPLIT_TARGET_BUFFER_BYTES in 1..(12 * 1024 * 1024))
+    }
+
+    @Test
+    fun gameDayEntryPointsAndSplitPlayer() {
+        val split = java.io.File("src/main/java/com/totaliptv/pro/ui/player/SplitPlayerActivity.kt").readText()
+        assertTrue(split.contains("SPLIT_TARGET_BUFFER_BYTES"))
+        assertTrue(split.contains("KEYCODE_DPAD_LEFT"))
+        assertTrue(split.contains("KEYCODE_DPAD_RIGHT"))
+        assertTrue(split.contains("KEYCODE_MENU"))
+        assertTrue(split.contains("Sound: Left"))
+        assertTrue(split.contains("Sound: Right"))
+        assertTrue(split.contains("Change channel"))
+        assertTrue(split.contains("GameDayChannelPicker"))
+        assertTrue(split.contains("closePicker"))
+        assertTrue(split.contains("Stop split"))
+        assertTrue(split.contains("releaseBoth"))
+        assertTrue(split.contains("handleAudioFocus= */ false"))
+        assertTrue(split.contains("This side failed"))
+        val home = java.io.File("src/tv/java/com/totaliptv/pro/ui/home/HomeScreen.kt").readText()
+        val guide = java.io.File("src/tv/java/com/totaliptv/pro/ui/epg/EpgGuideScreen.kt").readText()
+        val phone = java.io.File("src/phone/java/com/totaliptv/pro/ui/browse/PhoneBrowseScreen.kt").readText()
+        val desktopLive = java.io.File("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopPanes.kt").readText()
+        assertTrue(home.contains("Game Day"))
+        assertTrue(guide.contains("Split"))
+        assertTrue(guide.contains("GameDayPicker"))
+        assertFalse(phone.contains("Game Day"))
+        assertFalse(phone.contains("GameDayPicker"))
+        val phoneManifest = java.io.File("src/phone/AndroidManifest.xml").readText()
+        assertTrue(phoneManifest.contains("SplitPlayerActivity"))
+        assertTrue(phoneManifest.contains("tools:node=\"remove\""))
+        assertTrue(desktopLive.contains("Game Day"))
+        val gradle = java.io.File("build.gradle.kts").readText()
+        assertFalse(gradle.contains("192.168"))
+        assertTrue(gradle.contains("versionName = \"1.4.74\""))
+        assertTrue(gradle.contains("versionName = \"1.4.51-phone\""))
+        assertTrue(gradle.contains("versionCode = 86"))
+        assertTrue(gradle.contains("versionCode = 63"))
+    }
+
+    @Test
     fun liveBuffersFitShortXtreamWindow() {
         assertTrue(PlayerStream.LIVE_MIN_BUFFER_MS < 12_000)
         assertTrue(PlayerStream.LIVE_PLAYBACK_BUFFER_MS < 2_000)

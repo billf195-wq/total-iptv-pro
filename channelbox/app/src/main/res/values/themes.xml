@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.TotalIPTVPro" parent="android:Theme.DeviceDefault.NoActionBar">
-        <item name="android:windowBackground">#FF0D1117</item>
+        <item name="android:windowBackground">#FF000000</item>
         <item name="android:colorPrimary">#FF3DDC84</item>
     </style>
     <style name="Theme.TotalIPTVPro.Player" parent="Theme.TotalIPTVPro">
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">#FF000000</item>
+        <!-- Opaque fullscreen. A translucent or floating window plus a fixed
+             orientation throws in Activity.onCreate and closes the app. -->
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:backgroundDimEnabled">false</item>
     </style>
 </resources>

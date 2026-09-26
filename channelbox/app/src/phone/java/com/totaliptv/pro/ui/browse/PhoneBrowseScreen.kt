@@ -138,18 +138,25 @@ fun PhoneBrowseScreen(
             .background(tipScreenBrush())
             .padding(contentPadding)
     ) {
-        Text(
-            text = when (section) {
-                BrowseSection.Live -> "Live"
-                BrowseSection.Movies -> "Movies"
-                BrowseSection.Series -> "Series"
-                BrowseSection.Favorites -> "Favorites"
-            },
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = OnCinema,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = when (section) {
+                    BrowseSection.Live -> "Live"
+                    BrowseSection.Movies -> "Movies"
+                    BrowseSection.Series -> "Series"
+                    BrowseSection.Favorites -> "Favorites"
+                },
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = OnCinema,
+                modifier = Modifier.weight(1f)
+            )
+        }
 
         if (section != BrowseSection.Favorites) {
             LazyRow(

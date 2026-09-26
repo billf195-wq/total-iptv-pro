@@ -18,6 +18,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import com.totaliptv.pro.data.repo.CatalogRepository
+import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -40,7 +41,7 @@ fun OnboardingScreen(
             fun dp(v: Int) = (v * context.resources.displayMetrics.density).toInt()
 
             val root = ScrollView(context).apply {
-                setBackgroundColor(AndroidColor.parseColor("#0B1220"))
+                setBackgroundColor(AndroidColor.parseColor("#000000"))
                 isFillViewport = true
             }
             val column = LinearLayout(context).apply {
@@ -158,15 +159,15 @@ fun OnboardingScreen(
                                 repository.ensureCatalogLoaded(force = true)
                             }
                         } catch (load: Throwable) {
-                            Log.e(TAG, "catalog load failed", load)
+                            Log.e(TAG, "catalog load failed: ${SensitiveText.redact(load.message)}")
                             status.setTextColor(AndroidColor.parseColor("#FFCC80"))
-                            status.text = "Saved, but load failed: ${load.message}. Opening home."
+                            status.text = "Saved, but load failed: ${SensitiveText.forUser(load)}. Opening home."
                         }
                         onDone()
                     } catch (t: Throwable) {
-                        Log.e(TAG, "save xtream failed", t)
+                        Log.e(TAG, "save xtream failed: ${SensitiveText.redact(t.message)}")
                         status.setTextColor(AndroidColor.parseColor("#FF8A80"))
-                        status.text = t.message ?: "Save failed"
+                        status.text = SensitiveText.forUser(t)
                         saveXtream.isEnabled = true
                         saveM3u.isEnabled = true
                     }
@@ -196,15 +197,15 @@ fun OnboardingScreen(
                                 repository.ensureCatalogLoaded(force = true)
                             }
                         } catch (load: Throwable) {
-                            Log.e(TAG, "catalog load failed", load)
+                            Log.e(TAG, "catalog load failed: ${SensitiveText.redact(load.message)}")
                             status.setTextColor(AndroidColor.parseColor("#FFCC80"))
-                            status.text = "Saved, but load failed: ${load.message}. Opening home."
+                            status.text = "Saved, but load failed: ${SensitiveText.forUser(load)}. Opening home."
                         }
                         onDone()
                     } catch (t: Throwable) {
-                        Log.e(TAG, "save m3u failed", t)
+                        Log.e(TAG, "save m3u failed: ${SensitiveText.redact(t.message)}")
                         status.setTextColor(AndroidColor.parseColor("#FF8A80"))
-                        status.text = t.message ?: "Save failed"
+                        status.text = SensitiveText.forUser(t)
                         saveXtream.isEnabled = true
                         saveM3u.isEnabled = true
                     }

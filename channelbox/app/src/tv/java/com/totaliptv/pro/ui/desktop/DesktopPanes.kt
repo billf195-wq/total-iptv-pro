@@ -27,8 +27,9 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,13 +42,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.diagnostics.CrashLog
+import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.LiveChannelMapping
 import com.totaliptv.pro.data.local.AppLayoutMode
 import com.totaliptv.pro.data.local.AppPreferences
@@ -60,8 +62,12 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.dvr.DvrRecordUi
+import com.totaliptv.pro.ui.components.DpadSearchField
+import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.data.update.AppUpdateChecker
+import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
+import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
@@ -258,7 +264,18 @@ fun LivePane(
     val dvrSnap by remember(context) {
         (context.applicationContext as TotalIptvProApp).dvr.snapshot
     }.collectAsState()
+    var showGameDay by remember { mutableStateOf(false) }
+    val gameDayFocus = remember { FocusRequester() }
+    val chipFocus = remember { FocusRequester() }
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
+        Text(
+            "Live TV",
+            color = TipGoldText,
+            fontSize = TipDimens.HeadlineMediumSp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
         FilterBar(
             search = search,
             onSearch = onSearch,
@@ -266,23 +283,46 @@ fun LivePane(
             categoryId = categoryId,
             onCategory = onCategory,
             sort = null,
-            onSort = null
+            onSort = null,
+            chipFocus = chipFocus,
+            belowFocus = gameDayFocus
         )
+        // Directly above the channel list, so Up from the top channel lands here
+        // and does not have to cross the search field.
+        AmberButton(
+            label = "Game Day",
+            onClick = { showGameDay = true },
+            modifier = Modifier.focusRequester(gameDayFocus).focusProperties { up = chipFocus }
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
         Text("${filtered.size} channels", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
         Spacer(Modifier.height(TipDimens.dp(8)))
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(TipDimens.dp(6)),
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
-            items(filtered, key = { it.id }) { item ->
+            itemsIndexed(filtered, key = { _, it -> it.id }) { index, item ->
                 LiveRowItem(
                     item,
                     onClick = { onPlay(item) },
                     onRecord = { onRecord(item) },
-                    recordActive = DvrRecordUi.matches(dvrSnap.active, item.id, item.streamUrl)
+                    recordActive = DvrRecordUi.matches(dvrSnap.active, item.id, item.streamUrl),
+                    modifier = if (index == 0) {
+                        Modifier.focusProperties { up = gameDayFocus }
+                    } else {
+                        Modifier
+                    }
                 )
             }
         }
+    }
+    if (showGameDay) {
+        GameDayPicker(
+            channels = items,
+            initialLeft = null,
+            onDismiss = { showGameDay = false }
+        )
+    }
     }
 }
 
@@ -736,7 +776,11 @@ fun DesktopSettingsPane(
             color = TipGoldMuted,
             fontSize = TipDimens.BodyMediumSp
         )
-        Text("Shelf: $updateBaseUrl", color = TipGoldMuted, fontSize = TipDimens.sp(12))
+        Text(
+            if (updateBaseUrl.isBlank()) "Checks GitHub Releases" else "Checks GitHub Releases, then your shelf",
+            color = TipGoldMuted,
+            fontSize = TipDimens.sp(12)
+        )
         Spacer(Modifier.height(TipDimens.dp(10)))
         AmberButton(
             label = when {
@@ -763,7 +807,7 @@ fun DesktopSettingsPane(
                             updateStatus = "Opening installer…"
                             AppUpdateChecker.launchInstaller(context, file)
                         } catch (t: Throwable) {
-                            updateStatus = "Download failed: ${t.message ?: t.javaClass.simpleName}"
+                            updateStatus = "Download failed: ${SensitiveText.forUser(t)}"
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         } finally {
                             updateBusy = false
@@ -780,8 +824,7 @@ fun DesktopSettingsPane(
                         }
                         is UpdateCheckResult.Available -> {
                             pendingInstall = result
-                            updateStatus =
-                                "Update available: ${result.manifest.versionName}. Tap to install."
+                            updateStatus = result.installLabel()
                             Toast.makeText(
                                 context,
                                 "Update ${result.manifest.versionName} available",
@@ -789,7 +832,7 @@ fun DesktopSettingsPane(
                             ).show()
                         }
                         is UpdateCheckResult.Failed -> {
-                            updateStatus = "Check failed: ${result.message}"
+                            updateStatus = "Check failed: ${SensitiveText.forUser(result.message)}"
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         }
                     }
@@ -803,6 +846,38 @@ fun DesktopSettingsPane(
         }
 
                 Spacer(Modifier.height(TipDimens.dp(24)))
+        SectionHeader("Last crash")
+        val crashText = remember { CrashLog.read(context) }
+        val debugText = remember { DebugLog.read(context) }
+        Text(
+            crashText.ifBlank { "No crash recorded." },
+            color = TipGoldMuted,
+            fontSize = TipDimens.sp(12)
+        )
+        if (debugText.isNotBlank()) {
+            Spacer(Modifier.height(TipDimens.dp(8)))
+            Text(
+                "Debug log\n$debugText",
+                color = TipGoldMuted,
+                fontSize = TipDimens.sp(12)
+            )
+        }
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        AmberButton(
+            label = "Share last crash",
+            onClick = {
+                if (CrashLog.read(context).isBlank()) {
+                    Toast.makeText(context, "No crash recorded", Toast.LENGTH_SHORT).show()
+                } else if (!runCatching { CrashLog.share(context) }.getOrDefault(false)) {
+                    Toast.makeText(
+                        context,
+                        "Couldn't open a share app. The crash text is above.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
+        Spacer(Modifier.height(TipDimens.dp(24)))
         SectionHeader("About")
         Text("Developed by Bill Foster", color = TipGoldText, fontSize = TipDimens.BodyLargeSp, fontWeight = FontWeight.SemiBold)
         Text("\u00A9 2026 Bill Foster. All rights reserved.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
@@ -822,30 +897,44 @@ fun FilterBar(
     onCategory: (String?) -> Unit,
     sort: String?,
     onSort: ((String) -> Unit)?,
-    showSearch: Boolean = true
+    showSearch: Boolean = true,
+    chipFocus: FocusRequester? = null,
+    belowFocus: FocusRequester? = null
 ) {
+    val searchFocus = remember { FocusRequester() }
+    val internalChipFocus = remember { FocusRequester() }
+    val chips = chipFocus ?: internalChipFocus
     Column(Modifier.fillMaxWidth().padding(bottom = TipDimens.dp(12))) {
         if (showSearch) {
-            BasicTextField(
+            DpadSearchField(
                 value = search,
                 onValueChange = onSearch,
-                singleLine = true,
+                placeholder = "Search…",
                 textStyle = TextStyle(color = TipGoldText, fontSize = TipDimens.BodyLargeSp),
-                cursorBrush = SolidColor(TipAmber),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(TipSurface, RoundedCornerShape(TipDimens.PosterCorner))
-                    .padding(TipDimens.dp(12)),
-                decorationBox = { inner ->
-                    if (search.isEmpty()) Text("Search…", color = TipGoldMuted)
-                    inner()
-                }
+                placeholderColor = TipGoldMuted,
+                cursorColor = TipAmber,
+                backgroundColor = TipSurface,
+                focusedBorderColor = TipAmber,
+                shape = RoundedCornerShape(TipDimens.PosterCorner),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(TipDimens.dp(12)),
+                focusRequester = searchFocus,
+                downFocus = chips
             )
             Spacer(Modifier.height(TipDimens.dp(8)))
         }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
             item {
-                Chip("All", selected = categoryId == null, onClick = { onCategory(null) })
+                Chip(
+                    "All",
+                    selected = categoryId == null,
+                    onClick = { onCategory(null) },
+                    modifier = Modifier
+                        .focusRequester(chips)
+                        .focusProperties {
+                            if (showSearch) up = searchFocus
+                            if (belowFocus != null) down = belowFocus
+                        }
+                )
             }
             items(categories, key = { it.id }) { cat ->
                 Chip(cat.name, selected = categoryId == cat.id, onClick = { onCategory(cat.id) })
@@ -863,8 +952,13 @@ fun FilterBar(
 }
 
 @Composable
-private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
-    TipFocusable(onClick = onClick) { focused ->
+private fun Chip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    TipFocusable(onClick = onClick, modifier = modifier) { focused ->
         Text(
             label,
             color = when {

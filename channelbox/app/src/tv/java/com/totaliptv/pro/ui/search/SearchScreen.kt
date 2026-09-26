@@ -16,9 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import com.totaliptv.pro.ui.components.DpadSearchField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -33,17 +31,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -81,9 +70,6 @@ fun SearchScreen(
     onBack: () -> Unit,
     onPlayFromStart: (MediaItem) -> Unit = onPlay
 ) {
-    // Esc / system Back must always leave Search (not finish the activity / stick on IME).
-    BackHandler { onBack() }
-
     val catalogRevision by repository.catalogRevision.collectAsState()
     val vodLoading by repository.vodLoading.collectAsState()
     var query by remember { mutableStateOf("") }
@@ -93,9 +79,11 @@ fun SearchScreen(
     var displayedResults by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     var fieldFocused by remember { mutableStateOf(false) }
+    // Back leaves Search. While the field is editing, DpadSearchField handles Back first.
+    BackHandler(enabled = !fieldFocused) { onBack() }
     // Bumps on every keystroke; gates when displayedResults may update.
     var typingEpoch by remember { mutableStateOf(0) }
-    val fieldFocus = remember { FocusRequester() }
+    val closeFocus = remember { FocusRequester() }
     val firstResultFocus = remember { FocusRequester() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -122,10 +110,10 @@ fun SearchScreen(
     var resultsNavigable by remember { mutableStateOf(false) }
     var pendingMoveToResults by remember { mutableStateOf(false) }
 
-    // Focus once on enter Search — no reclaim loops (those fight IME and cause flicker).
+    // Land on Close, not the search field, so the keyboard stays closed on entry.
     LaunchedEffect(Unit) {
         delay(24)
-        runCatching { fieldFocus.requestFocus() }
+        runCatching { closeFocus.requestFocus() }
     }
 
     // Debounced catalog search (550ms). Does not touch TextField focus/selection.
@@ -195,11 +183,7 @@ fun SearchScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF07090D), Color(0xFF0B0F16), Color(0xFF07090D))
-                )
-            )
+            .background(tipScreenBrush())
             .padding(horizontal = 24.dp, vertical = 12.dp)
     ) {
         // Stable top chrome — always composed, never keyed by query/results.
@@ -213,7 +197,9 @@ fun SearchScreen(
                 onClick = onBack,
                 emphasized = true,
                 // While typing, Close must not compete for focus / steal IME.
-                modifier = Modifier.focusProperties { canFocus = !fieldFocused }
+                modifier = Modifier
+                    .focusRequester(closeFocus)
+                    .focusProperties { canFocus = !fieldFocused }
             )
             Text(
                 text = "Search",
@@ -239,76 +225,35 @@ fun SearchScreen(
         Spacer(Modifier.height(12.dp))
 
         // Pinned query row — fixed height, never leaves composition, never keyed by query.
-        val shape = RoundedCornerShape(10.dp)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .background(CinemaSurface, shape)
-                .then(
-                    if (fieldFocused) Modifier.border(2.dp, FocusBorder, shape)
-                    else Modifier.border(1.dp, Hairline, shape)
-                )
-                .padding(horizontal = 14.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            if (query.isEmpty() && !fieldFocused) {
-                Text(
-                    text = "Search channels, movies, series\u2026",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = OnCinemaMuted
-                )
-            }
-            key("search-query-field") {
-                BasicTextField(
-                    value = query,
-                    onValueChange = {
-                        query = it
-                        typingEpoch += 1
-                        // Typing again locks results so LazyColumn cannot steal focus mid-IME.
-                        resultsNavigable = false
-                        pendingMoveToResults = false
-                    },
-                    singleLine = true,
-                    cursorBrush = SolidColor(BrandBlue),
-                    textStyle = TextStyle(
-                        color = OnCinema,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Medium
-                    ),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(
-                        onSearch = { goToResults() }
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(fieldFocus)
-                        .onFocusChanged { fieldFocused = it.isFocused }
-                        .then(
-                            if (displayedResults.isNotEmpty() && resultsNavigable) {
-                                Modifier.focusProperties { down = firstResultFocus }
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .onPreviewKeyEvent { event ->
-                            // D-pad Down / Enter: leave the TextField for result rows (explicit only).
-                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                            when (event.key) {
-                                Key.DirectionDown -> goToResults()
-                                Key.Enter, Key.NumPadEnter -> {
-                                    if (displayedResults.isNotEmpty() || committedResults.isNotEmpty()) {
-                                        goToResults()
-                                    } else {
-                                        false
-                                    }
-                                }
-                                else -> false
-                            }
-                        }
-                )
-            }
-        }
+        DpadSearchField(
+            value = query,
+            onValueChange = {
+                query = it
+                typingEpoch += 1
+                // Typing again locks results so LazyColumn cannot steal focus mid-IME.
+                resultsNavigable = false
+                pendingMoveToResults = false
+            },
+            placeholder = "Search channels, movies, series\u2026",
+            textStyle = TextStyle(
+                color = OnCinema,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium
+            ),
+            placeholderColor = OnCinemaMuted,
+            cursorColor = BrandBlue,
+            backgroundColor = CinemaSurface,
+            focusedBorderColor = FocusBorder,
+            idleBorderColor = Hairline,
+            shape = RoundedCornerShape(10.dp),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            downFocus = if (displayedResults.isNotEmpty()) firstResultFocus else null,
+            onEditingChange = { fieldFocused = it },
+            onExitEdit = { toNext ->
+                if (toNext) goToResults() else false
+            },
+            modifier = Modifier.height(48.dp)
+        )
 
         // Fixed-height status slot so vodLoading banner never shifts the query row.
         Box(

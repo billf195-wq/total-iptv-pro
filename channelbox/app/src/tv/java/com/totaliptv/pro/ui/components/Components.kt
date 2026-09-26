@@ -1,7 +1,6 @@
 package com.totaliptv.pro.ui.components
 
 import androidx.compose.foundation.background
-import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.R
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
@@ -53,6 +52,8 @@ import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
+import com.totaliptv.pro.ui.splash.AppBannerArt
+import com.totaliptv.pro.ui.splash.DesktopBannerImageHeight
 import com.totaliptv.pro.ui.splash.SplashBranding
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.ClassicDimens
@@ -970,8 +971,7 @@ fun AppTopNav(
     userBadge: String? = null,
     sourceKind: String? = null,
     focusRequester: FocusRequester? = null,
-    modifier: Modifier = Modifier,
-    versionName: String = BuildConfig.VERSION_NAME
+    modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
@@ -980,41 +980,14 @@ fun AppTopNav(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(
-            modifier = Modifier
-                .width(210.dp)
-                .padding(end = 14.dp),
+            modifier = Modifier.padding(end = 14.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Image(
-                painter = painterResource(R.drawable.app_banner),
-                contentDescription = brandTitle,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .clip(RoundedCornerShape(8.dp)),
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.CenterStart
+            // Full 16:9 frame (112.dp × ~199.dp). Image only; version stays in Settings.
+            AppBannerArt(
+                modifier = Modifier.height(DesktopBannerImageHeight),
+                contentDescription = brandTitle.ifBlank { SplashBranding.APP_TITLE }
             )
-            Row(
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = brandTitle.ifBlank { SplashBranding.APP_TITLE },
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = OnCinema,
-                    maxLines = 1
-                )
-                Text(
-                    text = SplashBranding.versionLabel(versionName),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Medium,
-                    color = OnCinemaMuted,
-                    fontSize = 11.sp,
-                    maxLines = 1
-                )
-            }
             Text(
                 text = clockText,
                 style = MaterialTheme.typography.labelSmall,

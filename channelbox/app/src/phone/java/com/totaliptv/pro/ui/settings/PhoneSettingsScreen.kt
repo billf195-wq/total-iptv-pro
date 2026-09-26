@@ -34,16 +34,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.diagnostics.CrashLog
+import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.local.PreferredPlayer
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.update.AppUpdateChecker
+import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
 import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.theme.AppearanceMode
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.tipScreenBrush
+import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.launch
 
 @Composable
@@ -104,7 +108,7 @@ fun PhoneSettingsScreen(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "Phone channel only — does not use the TV Shield shelf.",
+            "Checks GitHub Releases. A shelf URL is optional and is not required.",
             color = OnCinemaMuted,
             style = MaterialTheme.typography.bodySmall
         )
@@ -133,7 +137,7 @@ fun PhoneSettingsScreen(
                 singleLine = true,
                 label = { Text("PC shelf URL") },
                 supportingText = {
-                    Text("Default: ${AppPreferences.DEFAULT_UPDATE_BASE_URL}")
+                    Text("Leave blank to use GitHub Releases only")
                 }
             )
             Spacer(Modifier.height(8.dp))
@@ -178,7 +182,7 @@ fun PhoneSettingsScreen(
                             updateStatus = "Opening installer…"
                             AppUpdateChecker.launchInstaller(context, file)
                         } catch (t: Throwable) {
-                            updateStatus = "Download failed: ${t.message ?: t.javaClass.simpleName}"
+                            updateStatus = "Download failed: ${SensitiveText.forUser(t)}"
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         } finally {
                             updateBusy = false
@@ -196,8 +200,7 @@ fun PhoneSettingsScreen(
                         }
                         is UpdateCheckResult.Available -> {
                             pendingInstall = result
-                            updateStatus =
-                                "Update available: ${result.manifest.versionName} (code ${result.manifest.versionCode}). Tap to install."
+                            updateStatus = result.installLabel()
                             Toast.makeText(
                                 context,
                                 "Update ${result.manifest.versionName} available",
@@ -205,7 +208,7 @@ fun PhoneSettingsScreen(
                             ).show()
                         }
                         is UpdateCheckResult.Failed -> {
-                            updateStatus = "Check failed: ${result.message}"
+                            updateStatus = "Check failed: ${SensitiveText.forUser(result.message)}"
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         }
                     }
@@ -237,6 +240,47 @@ fun PhoneSettingsScreen(
 
         Spacer(Modifier.height(24.dp))
         Text(
+            "Last crash",
+            style = MaterialTheme.typography.titleMedium,
+            color = OnCinema,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(4.dp))
+        val crashText = remember { CrashLog.read(context) }
+        val debugText = remember { DebugLog.read(context) }
+        Text(
+            text = crashText.ifBlank { "No crash recorded." },
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        if (debugText.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Debug log\n$debugText",
+                color = OnCinemaMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = {
+                if (CrashLog.read(context).isBlank()) {
+                    Toast.makeText(context, "No crash recorded", Toast.LENGTH_SHORT).show()
+                } else if (!runCatching { CrashLog.share(context) }.getOrDefault(false)) {
+                    Toast.makeText(
+                        context,
+                        "Couldn't open a share app. The crash text is above.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Share last crash")
+        }
+
+        Spacer(Modifier.height(24.dp))
+        Text(
             "Catalog",
             style = MaterialTheme.typography.titleMedium,
             color = OnCinema,
@@ -261,7 +305,7 @@ fun PhoneSettingsScreen(
                             Toast.makeText(context, "Data updated", Toast.LENGTH_SHORT).show()
                         }
                     } catch (t: Throwable) {
-                        val msg = t.message ?: "Refresh failed"
+                        val msg = SensitiveText.forUser(t)
                         refreshNote = msg
                         Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                     } finally {

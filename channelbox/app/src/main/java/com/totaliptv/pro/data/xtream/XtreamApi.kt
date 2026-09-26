@@ -9,6 +9,7 @@ import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.EpgNowNext
 import com.totaliptv.pro.data.model.EpgProgram
 import com.totaliptv.pro.data.model.MediaItem
+import com.totaliptv.pro.util.SensitiveText
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -214,7 +215,7 @@ class XtreamApi(
         liveItems.take(5).forEach { m ->
             Log.i(
                 TAG,
-                "liveMap name=${m.name} id=${m.id} sid=${m.xtreamStreamId} num=${m.channelNum} url=${m.streamUrl}"
+                "liveMap name=${m.name} id=${m.id} sid=${m.xtreamStreamId} num=${m.channelNum} url=${SensitiveText.redact(m.streamUrl)}"
             )
         }
         return LiveCatalog(liveCategories, liveItems)
@@ -303,11 +304,11 @@ class XtreamApi(
             }
             VodCatalog(vodCategories, vodItems, warnings)
         } catch (t: Throwable) {
-            Log.w(TAG, "VOD load failed; keeping live catalog", t)
+            Log.w(TAG, "VOD load failed; keeping live catalog: ${SensitiveText.safeLog(t)}")
             VodCatalog(
                 emptyList(),
                 emptyList(),
-                listOf("VOD list failed (${t.message ?: t.javaClass.simpleName}). Live TV still available.")
+                listOf("VOD list failed (${SensitiveText.forUser(t)}). Live TV still available.")
             )
         }
     }
@@ -355,11 +356,11 @@ class XtreamApi(
             }
             SeriesCatalog(categories, items, warnings)
         } catch (t: Throwable) {
-            Log.w(TAG, "Series load failed", t)
+            Log.w(TAG, "Series load failed: ${SensitiveText.safeLog(t)}")
             SeriesCatalog(
                 emptyList(),
                 emptyList(),
-                listOf("Series list failed (${t.message ?: t.javaClass.simpleName}).")
+                listOf("Series list failed (${SensitiveText.forUser(t)}).")
             )
         }
     }
@@ -403,7 +404,7 @@ class XtreamApi(
             )
             if (body.isBlank()) return VodDetails()
             parseInfoTrailer(body, streamId, "get_vod_info")
-        }.onFailure { Log.w(TAG, "get_vod_info failed for $streamId", it) }.getOrDefault(VodDetails())
+        }.onFailure { Log.w(TAG, "get_vod_info failed for $streamId: ${SensitiveText.safeLog(it)}") }.getOrDefault(VodDetails())
     }
 
     /** Poster + youtube_trailer from get_series_info. */
@@ -416,7 +417,7 @@ class XtreamApi(
             )
             if (body.isBlank()) return VodDetails()
             parseInfoTrailer(body, streamId, "get_series_info")
-        }.onFailure { Log.w(TAG, "get_series_info details failed for $streamId", it) }.getOrDefault(VodDetails())
+        }.onFailure { Log.w(TAG, "get_series_info details failed for $streamId: ${SensitiveText.safeLog(it)}") }.getOrDefault(VodDetails())
     }
 
     private fun parseInfoTrailer(body: String, streamId: Int, action: String): VodDetails {
@@ -534,7 +535,7 @@ class XtreamApi(
                     )
                 }
             )
-        }.onFailure { Log.w(TAG, "get_series_info failed for $seriesId", it) }.getOrNull()
+        }.onFailure { Log.w(TAG, "get_series_info failed for $seriesId: ${SensitiveText.safeLog(it)}") }.getOrNull()
     }
 
     /**
@@ -553,7 +554,7 @@ class XtreamApi(
                 extra = mapOf("stream_id" to streamId.toString(), "limit" to limit.toString())
             )
             parseEpgListings(body, streamId)
-        }.onFailure { Log.w(TAG, "get_short_epg failed for $streamId", it) }.getOrDefault(emptyList())
+        }.onFailure { Log.w(TAG, "get_short_epg failed for $streamId: ${SensitiveText.safeLog(it)}") }.getOrDefault(emptyList())
     }
 
     fun fetchSimpleEpgTable(creds: Credentials, streamId: Int): List<EpgProgram> {
@@ -564,7 +565,7 @@ class XtreamApi(
                 extra = mapOf("stream_id" to streamId.toString())
             )
             parseEpgListings(body, streamId)
-        }.onFailure { Log.w(TAG, "get_simple_data_table failed for $streamId", it) }.getOrDefault(emptyList())
+        }.onFailure { Log.w(TAG, "get_simple_data_table failed for $streamId: ${SensitiveText.safeLog(it)}") }.getOrDefault(emptyList())
     }
 
     fun nowNextFromPrograms(programs: List<EpgProgram>, nowMs: Long = System.currentTimeMillis()): EpgNowNext {
@@ -596,7 +597,7 @@ class XtreamApi(
                 else -> emptyList()
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "EPG parse failed", t)
+            Log.w(TAG, "EPG parse failed: ${SensitiveText.safeLog(t)}")
             emptyList()
         }
         val textZone = providerZone ?: displayZone
@@ -710,7 +711,7 @@ class XtreamApi(
         try {
             return json.decodeFromString(raw)
         } catch (t: Throwable) {
-            Log.e(TAG, "Parse failed for $action (len=${raw.length}); attempting partial recovery", t)
+            Log.e(TAG, "Parse failed for $action (len=${raw.length}); attempting partial recovery: ${SensitiveText.safeLog(t)}")
         }
         val recovered = recoverJsonObjectArray<T>(raw)
         if (recovered.isNotEmpty()) {
@@ -778,7 +779,9 @@ class XtreamApi(
         action: String?,
         extra: Map<String, String> = emptyMap()
     ): String {
-        val builder = host.toHttpUrlOrNull()!!.newBuilder()
+        val httpUrl = host.toHttpUrlOrNull()
+            ?: error("Server address is not a valid http or https URL")
+        val builder = httpUrl.newBuilder()
             .addPathSegment("player_api.php")
             .addQueryParameter("username", username)
             .addQueryParameter("password", password)

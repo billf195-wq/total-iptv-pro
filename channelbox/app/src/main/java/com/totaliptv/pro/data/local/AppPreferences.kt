@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.totaliptv.pro.BuildConfig
+import com.totaliptv.pro.data.update.UpdateSources
 import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.theme.AppearanceMode
@@ -72,7 +73,7 @@ class AppPreferences(private val context: Context) {
     private val autoPipKey = booleanPreferencesKey("auto_pip")
 
     companion object {
-        /** Flavor-specific: TV root shelf vs phone /phone/ channel. */
+        /** Blank unless the user saves a shelf. GitHub Releases is the update source. */
         val DEFAULT_UPDATE_BASE_URL: String
             get() = BuildConfig.DEFAULT_UPDATE_BASE_URL
 
@@ -103,7 +104,8 @@ class AppPreferences(private val context: Context) {
     }
 
     val updateBaseUrl: Flow<String> = context.dataStore.data.map { prefs ->
-        prefs[updateBaseUrlKey]?.trim()?.takeIf { it.isNotBlank() } ?: DEFAULT_UPDATE_BASE_URL
+        val raw = prefs[updateBaseUrlKey]?.trim()?.takeIf { it.isNotBlank() } ?: DEFAULT_UPDATE_BASE_URL
+        UpdateSources.migrateShelfHost(raw)
     }
 
     val appearanceMode: Flow<AppearanceMode> = context.dataStore.data.map { prefs ->
@@ -147,16 +149,26 @@ class AppPreferences(private val context: Context) {
         }
     }
 
-    suspend fun getUpdateBaseUrl(): String =
-        context.dataStore.data.first()[updateBaseUrlKey]?.trim()?.takeIf { it.isNotBlank() }
+    suspend fun getUpdateBaseUrl(): String {
+        val raw = context.dataStore.data.first()[updateBaseUrlKey]?.trim()?.takeIf { it.isNotBlank() }
             ?: DEFAULT_UPDATE_BASE_URL
+        return UpdateSources.migrateShelfHost(raw)
+    }
 
     suspend fun setUpdateBaseUrl(url: String) {
-        val cleaned = url.trim().let { if (it.endsWith("/")) it else "$it/" }
+        val trimmed = url.trim()
+        val cleaned = if (trimmed.isBlank()) {
+            ""
+        } else {
+            if (trimmed.endsWith("/")) trimmed else "$trimmed/"
+        }
         context.dataStore.edit { prefs ->
-            prefs[updateBaseUrlKey] = cleaned.ifBlank { DEFAULT_UPDATE_BASE_URL }
+            prefs[updateBaseUrlKey] = cleaned
         }
     }
+
+    /** Older builds rewrote a saved shelf address. Fresh installs have nothing to migrate. */
+    suspend fun migrateSavedShelfHost(): Boolean = false
 
     suspend fun getAppearanceMode(): AppearanceMode =
         AppearanceMode.fromStorage(context.dataStore.data.first()[appearanceKey])

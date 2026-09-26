@@ -3,6 +3,7 @@ package com.totaliptv.pro
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import com.totaliptv.pro.util.SensitiveText
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,10 +19,13 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.VideoLibrary
 import com.totaliptv.pro.ui.dvr.PhoneRecordingsScreen
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
+import com.totaliptv.pro.ui.theme.LocalTipColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -112,21 +116,25 @@ class MainActivity : ComponentActivity() {
         }
         Log.i(
             "TotalIPTV.Live",
-            "openPlayer name=${item.name} id=${item.id} sid=${item.xtreamStreamId} num=${item.channelNum} startOver=$startOver catalog=$catalogId url=${item.streamUrl}"
+            "openPlayer name=${item.name} id=${item.id} sid=${item.xtreamStreamId} num=${item.channelNum} startOver=$startOver catalog=$catalogId url=${SensitiveText.redact(item.streamUrl)}"
         )
-        startActivity(
-            Intent(this, PlayerActivity::class.java).apply {
-                putExtra(PlayerActivity.EXTRA_URL, item.streamUrl)
-                putExtra(PlayerActivity.EXTRA_TITLE, item.name)
-                putExtra(PlayerActivity.EXTRA_ID, item.id)
-                putExtra(PlayerActivity.EXTRA_KIND, item.kind.name)
-                putExtra(PlayerActivity.EXTRA_LOGO, item.logoUrl ?: item.posterUrl)
-                putExtra(PlayerActivity.EXTRA_START_OVER, startOver)
-                if (!catalogId.isNullOrBlank()) {
-                    putExtra(PlayerActivity.EXTRA_CATALOG_ID, catalogId)
-                }
+        val intent = Intent(this, PlayerActivity::class.java).apply {
+            putExtra(PlayerActivity.EXTRA_URL, item.streamUrl)
+            putExtra(PlayerActivity.EXTRA_TITLE, item.name)
+            putExtra(PlayerActivity.EXTRA_ID, item.id)
+            putExtra(PlayerActivity.EXTRA_KIND, item.kind.name)
+            putExtra(PlayerActivity.EXTRA_LOGO, item.logoUrl ?: item.posterUrl)
+            putExtra(PlayerActivity.EXTRA_START_OVER, startOver)
+            if (!catalogId.isNullOrBlank()) {
+                putExtra(PlayerActivity.EXTRA_CATALOG_ID, catalogId)
             }
-        )
+        }
+        try {
+            startActivity(intent)
+        } catch (t: Throwable) {
+            Log.e("TotalIPTV.Live", "openPlayer failed: ${SensitiveText.safeLog(t)}")
+            Toast.makeText(this, "Couldn't open the player", Toast.LENGTH_LONG).show()
+        }
     }
 }
 
@@ -187,10 +195,14 @@ private fun PhoneAppRoot(
         return
     }
 
+    val pageBlack = LocalTipColors.current.isDark
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        containerColor = if (pageBlack) Color(0xFF000000) else MaterialTheme.colorScheme.background,
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = if (pageBlack) Color(0xFF000000) else MaterialTheme.colorScheme.surface
+            ) {
                 PhoneTab.entries.forEach { t ->
                     NavigationBarItem(
                         selected = tab == t,

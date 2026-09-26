@@ -36,4 +36,17 @@ class DvrCaptureTest {
         assertTrue(m.master)
         assertEquals("http://host/live/u/p/child.m3u8", m.uris[0])
     }
+
+    @Test
+    fun rememberSegmentDropsTheOldestUrls() {
+        val seen = linkedSetOf<String>()
+        assertTrue(DvrCapture.rememberSegment(seen, "a", max = 2))
+        assertTrue(DvrCapture.rememberSegment(seen, "b", max = 2))
+        assertFalse(DvrCapture.rememberSegment(seen, "a", max = 2))
+        assertTrue(DvrCapture.rememberSegment(seen, "c", max = 2))
+        assertFalse(seen.contains("a"))
+        assertTrue(seen.contains("b"))
+        assertTrue(seen.contains("c"))
+        assertEquals(2, seen.size)
+    }
 }

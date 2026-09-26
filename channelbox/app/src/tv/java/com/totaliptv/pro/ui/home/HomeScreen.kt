@@ -2,6 +2,7 @@ package com.totaliptv.pro.ui.home
 
 import android.util.Log
 import android.widget.Toast
+import com.totaliptv.pro.util.SensitiveText
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -80,10 +81,12 @@ import com.totaliptv.pro.ui.components.LiveChannelCard
 import com.totaliptv.pro.ui.components.PosterCard
 import com.totaliptv.pro.ui.components.SectionRowLabel
 import com.totaliptv.pro.ui.components.SortChip
+import com.totaliptv.pro.ui.components.TopBarChip
+import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.ui.theme.ClassicDimens
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.tipScreenBrush
-import com.totaliptv.pro.ui.theme.CinemaBgElevated
+import com.totaliptv.pro.ui.theme.CinemaBg
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.WarningAmber
@@ -121,6 +124,7 @@ fun HomeScreen(
     var loading by remember { mutableStateOf(true) }
     var reloadToken by remember { mutableIntStateOf(0) }
     var detailItem by remember { mutableStateOf<MediaItem?>(null) }
+    var showGameDay by remember { mutableStateOf(false) }
     // Restore D-pad focus to the *same* poster (stable media id + row/grid index).
     var restoreFocusId by remember { mutableStateOf<String?>(null) }
     var restoreFocusIndex by remember { mutableIntStateOf(-1) }
@@ -221,14 +225,14 @@ fun HomeScreen(
         } catch (t: Throwable) {
             refreshFromCache()
             if (liveCatCount > 0 || vodCatCount > 0 || seriesCatCount > 0) {
-                warning = t.message ?: "Partial load - showing available catalog"
+                warning = SensitiveText.forUser(t)
                 error = null
                 if (userRefresh) {
                     refreshStatus = warning
                     Toast.makeText(context, warning, Toast.LENGTH_LONG).show()
                 }
             } else {
-                error = t.message ?: "Failed to load catalog"
+                error = SensitiveText.forUser(t)
                 if (userRefresh) {
                     refreshStatus = error
                     Toast.makeText(context, error, Toast.LENGTH_LONG).show()
@@ -451,7 +455,7 @@ fun HomeScreen(
         val bound = repository.playableFrom(repository.itemById(clickedId) ?: item)
         Log.i(
             "TotalIPTV.Live",
-            "click name=${bound.name} id=${bound.id} sid=${bound.xtreamStreamId} num=${bound.channelNum} url=${bound.streamUrl} startOver=$startOver"
+            "click name=${bound.name} id=${bound.id} sid=${bound.xtreamStreamId} num=${bound.channelNum} url=${SensitiveText.redact(bound.streamUrl)} startOver=$startOver"
         )
         val sink: (MediaItem) -> Unit = if (startOver) onPlayFromStart else onPlayItem
         // Already a concrete episode leaf from Continue watching / Resume - do not re-resolve.
@@ -583,7 +587,7 @@ fun HomeScreen(
                             modifier = Modifier
                                 .width(ClassicDimens.CategoryRailWidth)
                                 .fillMaxHeight()
-                                .background(CinemaBgElevated)
+                                .background(CinemaBg)
                                 .padding(vertical = 6.dp, horizontal = 6.dp)
                         ) {
                             if (hubTab == HubTab.Live) {
@@ -603,6 +607,11 @@ fun HomeScreen(
                                     title = "TV Guide",
                                     selected = false,
                                     onClick = onOpenGuide
+                                )
+                                CategoryRailItem(
+                                    title = "Game Day",
+                                    selected = false,
+                                    onClick = { showGameDay = true }
                                 )
                                 CategoryRailItem(
                                     title = "Recordings",
@@ -670,7 +679,8 @@ fun HomeScreen(
                                     onFocusChannel = { focusedChannel = it },
                                     onPlay = { playMedia(it) },
                                     onOpenGuide = onOpenGuide,
-                                    onRecordNow = { DvrActions.recordNow(context, it) }
+                                    onRecordNow = { DvrActions.recordNow(context, it) },
+                                    onGameDay = { showGameDay = true }
                                 )
                                 HubTab.Movies, HubTab.Series -> VodMainPane(
                                     isSeries = hubTab == HubTab.Series,
@@ -744,6 +754,13 @@ fun HomeScreen(
                 },
                 onToggleFavorite = { toggleFavoriteToast(detail) },
                 onDismiss = { dismissDetail(restore = true) }
+            )
+        }
+        if (showGameDay && hubTab == HubTab.Live) {
+            GameDayPicker(
+                channels = repository.liveItems(),
+                initialLeft = focusedChannel,
+                onDismiss = { showGameDay = false }
             )
         }
     }
@@ -1029,7 +1046,8 @@ private fun LiveMainPane(
     onFocusChannel: (MediaItem) -> Unit,
     onPlay: (MediaItem) -> Unit,
     onOpenGuide: () -> Unit,
-    onRecordNow: (MediaItem) -> Unit = {}
+    onRecordNow: (MediaItem) -> Unit = {},
+    onGameDay: () -> Unit = {}
 ) {
     val ch = focusedChannel
     val context = LocalContext.current
@@ -1081,6 +1099,8 @@ private fun LiveMainPane(
             color = BrandBlue.copy(alpha = 0.9f)
         )
         Spacer(Modifier.weight(1f))
+        TopBarChip(label = "Game Day", onClick = onGameDay, emphasized = true)
+        Spacer(Modifier.width(8.dp))
         Text("Sort", style = MaterialTheme.typography.labelSmall, color = OnCinemaMuted)
         SortChip(label = "A–Z", selected = catalogSort == CatalogSort.AZ, onClick = { onSort(CatalogSort.AZ) })
         SortChip(label = "Z–A", selected = catalogSort == CatalogSort.ZA, onClick = { onSort(CatalogSort.ZA) })

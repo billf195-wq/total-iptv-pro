@@ -43,6 +43,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +74,8 @@ import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.components.NetworkImage
 import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
+import com.totaliptv.pro.ui.player.GameDayPicker
+import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.CinemaBg
 import com.totaliptv.pro.ui.theme.CinemaSurfaceHigh
@@ -88,8 +91,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.max
 
-private const val WINDOW_HOURS = 4
-private val PX_PER_HOUR = 220.dp
+private val PX_PER_HOUR = GuideWindow.DP_PER_HOUR.dp
 private val CHANNEL_COL = 168.dp
 private val ROW_H = 56.dp
 private const val GUIDE_ALL_ID = "__all_live__"
@@ -130,11 +132,12 @@ fun EpgGuideScreen(
     var focusedChannelId by remember { mutableStateOf<String?>(null) }
     val timeFmt = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
     val nowMs = remember { System.currentTimeMillis() }
-    val windowStart = remember(nowMs) {
-        // Snap to previous half-hour for denser grid
-        nowMs - (nowMs % (30 * 60 * 1000L)) - (30 * 60 * 1000L)
-    }
-    val windowEnd = windowStart + WINDOW_HOURS * 60 * 60 * 1000L
+    val windowStart = remember(nowMs) { GuideWindow.snapStart(nowMs) }
+    val timelineWidthDp = (
+        LocalConfiguration.current.screenWidthDp - CHANNEL_COL.value - 32f
+    ).coerceAtLeast(GuideWindow.DP_PER_HOUR)
+    val hourCount = GuideWindow.totalHours(timelineWidthDp)
+    val windowEnd = GuideWindow.windowEndMs(windowStart, hourCount)
     val scroll = rememberScrollState()
     val listState = rememberLazyListState()
 
@@ -152,6 +155,7 @@ fun EpgGuideScreen(
     val recordLook = DvrRecordUi.appearance(dvrSnap.active, focusedChannel?.id, focusedChannel?.streamUrl)
     // Bumps on every category load so a stale click from a prior category cannot play.
     var guideLoadGen by remember { mutableStateOf(0) }
+    var showGameDay by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedCategoryId) {
         // Always rebind EPG for the visible channel set on category chip change.
@@ -241,6 +245,7 @@ fun EpgGuideScreen(
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -291,6 +296,12 @@ fun EpgGuideScreen(
             )
             Spacer(Modifier.width(8.dp))
             TopBarChip(
+                label = "Split",
+                emphasized = true,
+                onClick = { showGameDay = true }
+            )
+            Spacer(Modifier.width(8.dp))
+            TopBarChip(
                 label = "Schedule",
                 onClick = {
                     val row = rows.find { it.channel.id == focusedChannelId }
@@ -307,12 +318,6 @@ fun EpgGuideScreen(
                         Toast.makeText(context, "Focus a channel with upcoming EPG to schedule", Toast.LENGTH_SHORT).show()
                     }
                 }
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = "${WINDOW_HOURS}h window",
-                style = MaterialTheme.typography.labelLarge,
-                color = BrandBlue
             )
         }
 
@@ -363,8 +368,7 @@ fun EpgGuideScreen(
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Spacer(Modifier.width(CHANNEL_COL))
                     Row(modifier = Modifier.horizontalScroll(scroll)) {
-                        val hours = WINDOW_HOURS
-                        for (h in 0 until hours) {
+                        for (h in 0 until hourCount) {
                             val t = windowStart + h * 60 * 60 * 1000L
                             Text(
                                 text = timeFmt.format(Date(t)),
@@ -387,6 +391,7 @@ fun EpgGuideScreen(
                     items(rows, key = { "${selectedCategoryId}:${it.channel.id}" }) { row ->
                         TimelineRow(
                             row = row,
+                            hourCount = hourCount,
                             windowStart = windowStart,
                             windowEnd = windowEnd,
                             nowMs = nowMs,
@@ -425,7 +430,7 @@ fun EpgGuideScreen(
                                         Log.i(
                                             "TotalIPTV.Guide",
                                             "guidePlay src=$source displayed=${channel.name} id=${playable.id} " +
-                                                "sid=${playable.xtreamStreamId} num=${playable.channelNum} url=${playable.streamUrl}"
+                                                "sid=${playable.xtreamStreamId} num=${playable.channelNum} url=${SensitiveText.redact(playable.streamUrl)}"
                                         )
                                     }
                                     latestOnPlay(playable)
@@ -437,12 +442,21 @@ fun EpgGuideScreen(
             }
         }
     }
+    if (showGameDay) {
+        GameDayPicker(
+            channels = repository.liveItems(),
+            initialLeft = focusedChannel,
+            onDismiss = { showGameDay = false }
+        )
+    }
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TimelineRow(
     row: EpgChannelRow,
+    hourCount: Int,
     windowStart: Long,
     windowEnd: Long,
     nowMs: Long,
@@ -485,7 +499,7 @@ private fun TimelineRow(
         else -> listOfNotNull(row.nowNext.now, row.nowNext.next)
     }
     val windowMs = (windowEnd - windowStart).coerceAtLeast(1L)
-    val totalWidthDp = PX_PER_HOUR * WINDOW_HOURS
+    val totalWidthDp = PX_PER_HOUR * hourCount.coerceAtLeast(1)
     val nowFraction = ((nowMs - windowStart).toFloat() / windowMs.toFloat()).coerceIn(0f, 1f)
 
     // NO TV Surface(onClick) — that API plays the *focused* neighbor on emulator mouse.

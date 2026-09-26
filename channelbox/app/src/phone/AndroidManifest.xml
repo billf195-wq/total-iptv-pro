@@ -25,10 +25,17 @@
             </intent-filter>
         </activity>
 
-        <!-- Player stays landscape. The rest of the phone app can rotate. -->
+        <!-- Do not lock orientation here. Android 8.0 throws
+             "Only fullscreen opaque activities can request orientation"
+             from Activity.onCreate when targetSdk is 26+ and the manifest
+             requests a fixed orientation, which closed the phone app as soon
+             as play started. PlayerActivity locks landscape after super.onCreate. -->
         <activity
             android:name=".ui.player.PlayerActivity"
-            android:screenOrientation="sensorLandscape"
-            tools:replace="android:screenOrientation" />
+            tools:remove="android:screenOrientation" />
+
+        <activity
+            android:name=".ui.player.SplitPlayerActivity"
+            tools:node="remove" />
     </application>
 </manifest>

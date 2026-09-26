@@ -13,6 +13,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * onto this device. No ffmpeg-kit — OkHttp is already in the app.
  */
 object DvrCapture {
+    /** Unique HLS segment URLs remembered during one capture. Older ones drop off. */
+    const val MAX_SEEN_SEGMENTS = 400
+
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -49,7 +52,7 @@ object DvrCapture {
                 var wrote = false
                 for (seg in parsed.uris) {
                     if (stopFlag.get()) break
-                    if (!seen.add(seg)) continue
+                    if (!rememberSegment(seen, seg)) continue
                     val bytes = fetchBytes(seg) ?: continue
                     raf.write(bytes)
                     wrote = true
@@ -86,6 +89,26 @@ object DvrCapture {
         }
         val ended = lines.any { it.equals("#EXT-X-ENDLIST", ignoreCase = true) }
         return PlaylistParse(isMaster, uris, targetDuration, ended)
+    }
+
+    /**
+     * Remember [segment] unless it was already seen. When the set grows past [max],
+     * the oldest URLs are dropped so a long live recording cannot keep every segment.
+     * Returns false when this segment should be skipped.
+     */
+    fun rememberSegment(seen: MutableSet<String>, segment: String, max: Int = MAX_SEEN_SEGMENTS): Boolean {
+        if (!seen.add(segment)) return false
+        val extra = seen.size - max
+        if (extra > 0) {
+            val it = seen.iterator()
+            var dropped = 0
+            while (it.hasNext() && dropped < extra) {
+                it.next()
+                it.remove()
+                dropped++
+            }
+        }
+        return true
     }
 
     fun resolveRelative(baseUrl: String, ref: String): String {

@@ -5,6 +5,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 
 /** Dark (default cinema) or Light. Shared by TV and phone. */
 enum class AppearanceMode(val storageValue: String, val label: String) {
@@ -65,7 +66,7 @@ fun tipColorsFor(appearance: AppearanceMode, accent: AccentPreset): TipColors {
         focusBorder = accent.focus,
         liveMarker = accent.primary,
         accentCyan = accent.primary,
-        cinemaBg = if (isDark) Color(0xFF07090D) else Color(0xFFF4F6FA),
+        cinemaBg = if (isDark) Color(0xFF000000) else Color(0xFFF4F6FA),
         cinemaBgElevated = if (isDark) Color(0xFF0E1219) else Color(0xFFFFFFFF),
         cinemaSurface = if (isDark) Color(0xFF141A24) else Color(0xFFFFFFFF),
         cinemaSurfaceHigh = if (isDark) Color(0xFF1B2433) else Color(0xFFDDE3EE),
@@ -148,9 +149,7 @@ val SoftOverlay: Color
 fun tipScreenBrush(): Brush {
     val tip = LocalTipColors.current
     return if (tip.isDark) {
-        Brush.verticalGradient(
-            listOf(Color(0xFF07090D), Color(0xFF0B0F16), Color(0xFF07090D))
-        )
+        SolidColor(Color(0xFF000000))
     } else {
         Brush.verticalGradient(
             listOf(tip.cinemaBg, tip.cinemaBgElevated, Color(0xFFEEF1F6))

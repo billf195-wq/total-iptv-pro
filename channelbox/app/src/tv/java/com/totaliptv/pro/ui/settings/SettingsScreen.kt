@@ -51,17 +51,21 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.diagnostics.CrashLog
+import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.local.PreferredPlayer
 import com.totaliptv.pro.data.local.AppLayoutMode
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.update.AppUpdateChecker
+import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
 import com.totaliptv.pro.ui.components.FocusableCard
 import com.totaliptv.pro.ui.theme.FocusBorder
 import com.totaliptv.pro.ui.theme.AppearanceMode
 import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.components.SectionTitle
+import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.launch
 
 private class UrlFieldHolder(var text: String)
@@ -150,7 +154,7 @@ fun SettingsScreen(
                                 orientation = LinearLayout.VERTICAL
                                 setPadding(dp(4), dp(4), dp(4), dp(4))
                                 addView(TextView(ctx).apply {
-                                    text = "PC shelf URL (http.server on :8765). Example: http://192.168.4.37:8765/"
+                                    text = "Optional shelf URL. Leave blank to use GitHub Releases only."
                                     setTextColor(AndroidColor.parseColor("#B0BEC5"))
                                     textSize = 13f
                                 })
@@ -184,7 +188,7 @@ fun SettingsScreen(
                 item {
                     FocusableCard(
                         title = "Save update server URL",
-                        subtitle = "Default: ${AppPreferences.DEFAULT_UPDATE_BASE_URL}",
+                        subtitle = "Leave blank for GitHub only",
                         onClick = {
                             scope.launch {
                                 val normalized = AppUpdateChecker.normalizeBase(urlHolder.text)
@@ -208,7 +212,7 @@ fun SettingsScreen(
                         else -> "Check for update"
                     },
                     subtitle = updateStatus
-                        ?: "Fetches version.json from your PC download shelf, then installs the APK",
+                        ?: "Checks GitHub Releases first, then version.json on the PC shelf",
                     onClick = {
                         if (updateBusy) return@FocusableCard
                         val activity = context as? Activity
@@ -232,7 +236,7 @@ fun SettingsScreen(
                                     updateStatus = "Opening installer…"
                                     AppUpdateChecker.launchInstaller(context, file)
                                 } catch (t: Throwable) {
-                                    updateStatus = "Download failed: ${t.message ?: t.javaClass.simpleName}"
+                                    updateStatus = "Download failed: ${SensitiveText.forUser(t)}"
                                     Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                                 } finally {
                                     updateBusy = false
@@ -250,8 +254,7 @@ fun SettingsScreen(
                                 }
                                 is UpdateCheckResult.Available -> {
                                     pendingInstall = result
-                                    updateStatus =
-                                        "Update available: ${result.manifest.versionName} (code ${result.manifest.versionCode}). Tap to install."
+                                    updateStatus = result.installLabel()
                                     Toast.makeText(
                                         context,
                                         "Update ${result.manifest.versionName} available",
@@ -259,7 +262,7 @@ fun SettingsScreen(
                                     ).show()
                                 }
                                 is UpdateCheckResult.Failed -> {
-                                    updateStatus = "Check failed: ${result.message}"
+                                    updateStatus = "Check failed: ${SensitiveText.forUser(result.message)}"
                                     Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                                 }
                             }
@@ -269,7 +272,41 @@ fun SettingsScreen(
                 )
             }
 
-
+            item { SectionTitle("Last crash") }
+            item {
+                val crashText = remember { CrashLog.read(context) }
+                val debugText = remember { DebugLog.read(context) }
+                Text(
+                    text = crashText.ifBlank { "No crash recorded." },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
+                )
+                if (debugText.isNotBlank()) {
+                    Text(
+                        text = "Debug log\n$debugText",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+            item {
+                FocusableCard(
+                    title = "Share last crash",
+                    subtitle = "Sends the saved stack trace. Playback failures are also in the debug log.",
+                    onClick = {
+                        if (CrashLog.read(context).isBlank()) {
+                            Toast.makeText(context, "No crash recorded", Toast.LENGTH_SHORT).show()
+                        } else if (!runCatching { CrashLog.share(context) }.getOrDefault(false)) {
+                            Toast.makeText(
+                                context,
+                                "Couldn't open a share app. The crash text is above.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                )
+            }
 
             item { SectionTitle("App layout") }
             item {
@@ -464,7 +501,7 @@ fun SettingsScreen(
                                         Toast.makeText(context, "Data updated", Toast.LENGTH_SHORT).show()
                                     }
                                 } catch (t: Throwable) {
-                                    val msg = t.message ?: "Refresh failed"
+                                    val msg = SensitiveText.forUser(t)
                                     refreshNote = msg
                                     Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                 } finally {
