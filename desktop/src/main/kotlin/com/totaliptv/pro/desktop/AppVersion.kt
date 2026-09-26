@@ -25,8 +25,10 @@ package com.totaliptv.pro.desktop
  *         manual guide offset, remembered window, GitHub Releases updater.
  * 1.2.22: Live, movies, and series open the external player full screen.
  *         Settings can turn that off. Game Day windows meet with no gap.
+ * 1.2.23: Update check lists GitHub releases and uses the newest one that
+ *         has this OS's desktop package, skipping Android-only releases.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 34
-    const val VERSION_NAME: String = "1.2.22"
+    const val VERSION_CODE: Int = 35
+    const val VERSION_NAME: String = "1.2.23"
 }
