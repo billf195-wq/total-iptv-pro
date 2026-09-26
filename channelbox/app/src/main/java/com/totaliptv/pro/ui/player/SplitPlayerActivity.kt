@@ -4,15 +4,15 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.view.WindowManager
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -82,7 +82,8 @@ class SplitPlayerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        enterImmersiveFullscreen()
+        // System bars are hidden after setContentView. On API 30 the insets controller
+        // NPEs inside the framework when the DecorView does not exist yet.
 
         val leftUrl = intent.getStringExtra(EXTRA_LEFT_URL).orEmpty()
         val rightUrl = intent.getStringExtra(EXTRA_RIGHT_URL).orEmpty()
@@ -107,6 +108,7 @@ class SplitPlayerActivity : ComponentActivity() {
         }
 
         setContentView(buildUi())
+        enterImmersiveFullscreen()
         startSide(left)
         startSide(right)
         showControls()
@@ -128,6 +130,11 @@ class SplitPlayerActivity : ComponentActivity() {
     override fun onDestroy() {
         releaseBoth()
         super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        enterImmersiveFullscreen()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -608,24 +615,23 @@ class SplitPlayerActivity : ComponentActivity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
+    /**
+     * Hide status and navigation bars. Touch decorView first so API 30 can create it
+     * before [WindowCompat.getInsetsController] reads the window controller.
+     */
     private fun enterImmersiveFullscreen() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-            window.insetsController?.let { controller ->
-                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                controller.systemBarsBehavior =
-                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    or View.SYSTEM_UI_FLAG_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                )
+        try {
+            val decor = window.decorView
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            val controller = WindowCompat.getInsetsController(window, decor)
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(
+                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars()
+            )
+        } catch (t: Throwable) {
+            Log.e(TAG, "Immersive fullscreen failed", t)
+            DebugLog.append(this, TAG, "Immersive fullscreen failed", t)
         }
     }
 

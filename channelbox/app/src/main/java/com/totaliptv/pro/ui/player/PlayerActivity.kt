@@ -6,14 +6,14 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
 import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.view.WindowManager
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -144,7 +144,8 @@ class PlayerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        enterImmersiveFullscreen()
+        // System bars are hidden after setContentView. On API 30 the insets controller
+        // NPEs inside the framework when the DecorView does not exist yet.
 
         streamUrl = intent.getStringExtra(EXTRA_URL).orEmpty()
         mediaTitle = intent.getStringExtra(EXTRA_TITLE) ?: "Playback"
@@ -328,6 +329,7 @@ class PlayerActivity : ComponentActivity() {
         overlay!!.addView(controls)
         root.addView(overlay)
         setContentView(root)
+        enterImmersiveFullscreen()
 
         if (streamUrl.isBlank()) {
             statusView?.text = "Missing stream URL"
@@ -1144,24 +1146,31 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    /** Hide status and navigation bars and keep the video edge to edge. */
+    /**
+     * Hide status and navigation bars and keep the video edge to edge.
+     * Touch [android.view.Window.getDecorView] before asking for the insets controller.
+     * On API 30, [android.view.Window.getInsetsController] NPEs when DecorView is still null,
+     * and the Kotlin safe-call cannot catch that.
+     */
     private fun enterImmersiveFullscreen() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-            window.insetsController?.let { controller ->
-                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    or View.SYSTEM_UI_FLAG_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                )
+        try {
+            val decor = window.decorView
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            val controller = WindowCompat.getInsetsController(window, decor)
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(
+                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars()
+            )
+        } catch (t: Throwable) {
+            logPlaybackFailure("Immersive fullscreen failed", t)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!isInPictureInPictureMode) {
+            enterImmersiveFullscreen()
         }
     }
 

@@ -76,6 +76,29 @@ class PlaybackResumeTest {
         assertTrue(desktop.contains("Debug log"))
     }
 
+    @Test
+    fun immersiveFullscreenRunsAfterTheContentViewExists() {
+        for (name in listOf("PlayerActivity.kt", "SplitPlayerActivity.kt")) {
+            val src = File("src/main/java/com/totaliptv/pro/ui/player/$name").readText()
+            val onCreate = src.substringAfter("override fun onCreate")
+                .substringBefore("\n    override fun ")
+            val contentAt = onCreate.indexOf("setContentView(")
+            val callAt = onCreate.indexOf("enterImmersiveFullscreen()")
+            assertTrue(contentAt >= 0, name)
+            assertTrue(callAt > contentAt, name)
+            assertTrue(src.contains("WindowCompat.getInsetsController(window, decor)"), name)
+            assertTrue(src.contains("val decor = window.decorView"), name)
+            assertFalse(src.contains("window.insetsController"), name)
+            assertTrue(src.contains("override fun onResume()"), name)
+            assertTrue(src.contains("onWindowFocusChanged"), name)
+            val immersive = src.substringAfter("fun enterImmersiveFullscreen()")
+                .substringBefore("\n    override fun ")
+                .substringBefore("\n    private fun ")
+            assertTrue(immersive.contains("try {"), name)
+            assertTrue(immersive.contains("catch (t: Throwable)"), name)
+        }
+    }
+
     private fun progress(positionMs: Long, durationMs: Long) = WatchProgress(
         id = "vod-9",
         positionMs = positionMs,
