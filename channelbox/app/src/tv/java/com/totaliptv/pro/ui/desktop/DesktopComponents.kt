@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,8 +36,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
-import coil.request.ImageRequest
 import coil.compose.AsyncImage
+import com.totaliptv.pro.artwork.ArtworkRole
+import com.totaliptv.pro.artwork.ArtworkRuntime
+import com.totaliptv.pro.artwork.tvImageRequest
+import com.totaliptv.pro.artwork.tvRatingLabel
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.theme.LiveMarker
@@ -108,12 +112,9 @@ fun DesktopPosterCard(
                 val url = runCatching { item.artworkUrl() }.getOrNull()
                 if (!url.isNullOrBlank()) {
                     val context = LocalContext.current
-                    val model = remember(url) {
-                        ImageRequest.Builder(context)
-                            .data(url)
-                            .size(200, 300)
-                            .crossfade(false)
-                            .build()
+                    val sharp by ArtworkRuntime.sharp.collectAsState()
+                    val model = remember(url, sharp) {
+                        tvImageRequest(context, url, ArtworkRole.POSTER, sharp)
                     }
                     AsyncImage(
                         model = model,
@@ -131,7 +132,7 @@ fun DesktopPosterCard(
                         )
                     }
                 }
-                val ratingLabel = item.displayRating()
+                val ratingLabel = item.tvRatingLabel()
                 if (ratingLabel != null) {
                     Text(
                         text = "★ $ratingLabel",
@@ -186,8 +187,12 @@ fun LiveRowItem(
             ) {
                 val url = item.logoUrl ?: item.artworkUrl()
                 if (url != null) {
+                    val context = LocalContext.current
+                    val model = remember(url) {
+                        tvImageRequest(context, url, ArtworkRole.LOGO, sharp = false)
+                    }
                     AsyncImage(
-                        model = url,
+                        model = model,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit

@@ -36,6 +36,7 @@ import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
+import com.totaliptv.pro.artwork.TvRatings
 import com.totaliptv.pro.ui.components.MovieDetailSheet
 import com.totaliptv.pro.ui.epg.EpgGuideScreen
 import com.totaliptv.pro.ui.theme.AccentPreset
@@ -236,15 +237,19 @@ fun DesktopAppRoot(
 
                 // Prefetch Home ranking off the main thread while browsing other sections.
                 // Avoids Movies→Home doing pickTopRated* synchronously during section switch.
-                LaunchedEffect(revision, vodLoading, movies.size, series.size) {
-                    if (TopRatedCache.movies(revision) != null && TopRatedCache.series(revision) != null) {
+                val ratingRevision by TvRatings.revision.collectAsState()
+                LaunchedEffect(revision, ratingRevision, vodLoading, movies.size, series.size) {
+                    TvRatings.enqueueBackfill(movies, series)
+                    if (TopRatedCache.movies(revision, ratingRevision) != null &&
+                        TopRatedCache.series(revision, ratingRevision) != null
+                    ) {
                         return@LaunchedEffect
                     }
                     yield()
                     val ranked = withContext(Dispatchers.Default) {
                         pickTopRatedMovies(movies) to pickTopRatedSeries(series)
                     }
-                    TopRatedCache.put(revision, ranked.first, ranked.second)
+                    TopRatedCache.put(revision, ratingRevision, ranked.first, ranked.second)
                 }
 
                 Box(Modifier.fillMaxSize().background(TipBg)) {

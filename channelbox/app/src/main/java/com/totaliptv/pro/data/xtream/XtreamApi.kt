@@ -64,6 +64,19 @@ class XtreamApi(
                 else -> 0
             }
         }
+
+        /** Xtream `tmdb` / `tmdb_id` as a positive id string, or null when absent. */
+        fun flexibleId(raw: JsonElement?): String? {
+            if (raw == null) return null
+            val asInt = flexibleInt(raw)
+            if (asInt > 0) return asInt.toString()
+            if (raw is JsonPrimitive) {
+                val text = raw.contentOrNull?.trim()
+                    ?.takeIf { it.isNotEmpty() && it != "0" && !it.equals("null", true) }
+                return text?.takeIf { it.any { ch -> ch.isDigit() } }
+            }
+            return null
+        }
     }
 
     @Serializable
@@ -105,7 +118,9 @@ class XtreamApi(
         @SerialName("added") val added: JsonElement? = null,
         @SerialName("rating") val rating: String? = null,
         @SerialName("rating_5based") val rating5based: String? = null,
-        @SerialName("youtube_trailer") val youtubeTrailer: String? = null
+        @SerialName("youtube_trailer") val youtubeTrailer: String? = null,
+        @SerialName("tmdb") val tmdbRaw: JsonElement? = null,
+        @SerialName("tmdb_id") val tmdbIdRaw: JsonElement? = null
     ) {
         val num: Int get() = XtreamApi.flexibleInt(numRaw)
         val streamId: Int get() = XtreamApi.flexibleInt(streamIdRaw)
@@ -124,6 +139,8 @@ class XtreamApi(
         @SerialName("rating") val rating: String? = null,
         @SerialName("rating_5based") val rating5based: String? = null,
         @SerialName("youtube_trailer") val youtubeTrailer: String? = null,
+        @SerialName("tmdb") val tmdbRaw: JsonElement? = null,
+        @SerialName("tmdb_id") val tmdbIdRaw: JsonElement? = null,
         @SerialName("releaseDate") val releaseDate: String? = null,
         @SerialName("genre") val genre: String? = null,
         @SerialName("last_modified") val lastModified: JsonElement? = null,
@@ -295,6 +312,7 @@ class XtreamApi(
                     xtreamStreamId = s.streamId,
                     addedMs = parseXtreamAdded(s.added),
                     rating = normalizeRating(s.rating, s.rating5based),
+                    tmdbId = flexibleId(s.tmdbIdRaw) ?: flexibleId(s.tmdbRaw),
                     youtubeTrailer = s.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() }
                 )
             }
@@ -347,6 +365,7 @@ class XtreamApi(
                     xtreamStreamId = sid,
                     addedMs = parseXtreamAdded(s.added) ?: parseXtreamAdded(s.lastModified),
                     rating = normalizeRating(s.rating, s.rating5based),
+                    tmdbId = flexibleId(s.tmdbIdRaw) ?: flexibleId(s.tmdbRaw),
                     youtubeTrailer = s.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() }
                 )
             }

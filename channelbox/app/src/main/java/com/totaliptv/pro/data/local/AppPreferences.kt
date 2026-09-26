@@ -71,6 +71,9 @@ class AppPreferences(private val context: Context) {
     private val posterColumnsKey = intPreferencesKey("poster_columns")
     private val recordingsDirKey = stringPreferencesKey("recordings_dir")
     private val autoPipKey = booleanPreferencesKey("auto_pip")
+    private val sharpPostersKey = booleanPreferencesKey("sharp_posters")
+    private val tmdbRatingsKey = booleanPreferencesKey("tmdb_ratings")
+    private val tmdbApiKeyKey = stringPreferencesKey("tmdb_api_key")
 
     companion object {
         /** Flavor-specific: TV root shelf vs phone /phone/ channel. */
@@ -132,6 +135,21 @@ class AppPreferences(private val context: Context) {
 
     val autoPip: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[autoPipKey] ?: defaultAutoPip()
+    }
+
+    /** HD artwork. Default on. TV settings only; phone does not read this. */
+    val sharpPosters: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[sharpPostersKey] ?: true
+    }
+
+    /** TMDB vote averages. Default on. Honored only when a usable key is present. */
+    val tmdbRatings: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[tmdbRatingsKey] ?: true
+    }
+
+    /** Optional v3 32-hex key or v4 read token. Blank falls back to tmdb-api-key.txt. */
+    val tmdbApiKey: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[tmdbApiKeyKey].orEmpty()
     }
 
     suspend fun getSources(): List<PlaylistSource> = sources.first()
@@ -218,6 +236,25 @@ class AppPreferences(private val context: Context) {
     suspend fun setAutoPip(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[autoPipKey] = enabled
+        }
+    }
+
+    suspend fun setSharpPosters(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[sharpPostersKey] = enabled
+        }
+    }
+
+    suspend fun setTmdbRatings(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[tmdbRatingsKey] = enabled
+        }
+    }
+
+    suspend fun setTmdbApiKey(key: String) {
+        context.dataStore.edit { prefs ->
+            val cleaned = key.trim()
+            if (cleaned.isBlank()) prefs.remove(tmdbApiKeyKey) else prefs[tmdbApiKeyKey] = cleaned
         }
     }
 

@@ -33,7 +33,6 @@
 
         <activity
             android:name=".ui.player.SplitPlayerActivity"
-            android:screenOrientation="sensorLandscape"
-            tools:replace="android:screenOrientation" />
+            tools:node="remove" />
     </application>
 </manifest>

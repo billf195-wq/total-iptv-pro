@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,9 +50,11 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import androidx.compose.ui.platform.LocalContext
-import coil.request.ImageRequest
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
+import com.totaliptv.pro.artwork.ArtworkRole
+import com.totaliptv.pro.artwork.ArtworkRuntime
+import com.totaliptv.pro.artwork.tvImageRequest
 import com.totaliptv.pro.ui.splash.AppBannerArt
 import com.totaliptv.pro.ui.splash.DesktopBannerImageHeight
 import com.totaliptv.pro.ui.splash.SplashBranding
@@ -494,7 +497,8 @@ fun FeaturedNowPanel(
                         .fillMaxSize()
                         .padding(4.dp),
                     contentScale = ContentScale.Fit,
-                    placeholderLabel = channelName.take(2).uppercase()
+                    placeholderLabel = channelName.take(2).uppercase(),
+                    role = ArtworkRole.LOGO
                 )
             }
             Spacer(Modifier.width(10.dp))
@@ -791,7 +795,8 @@ fun ChannelGridCard(
                         .fillMaxSize()
                         .padding(10.dp),
                     contentScale = ContentScale.Fit,
-                    placeholderLabel = title.take(2).uppercase()
+                    placeholderLabel = title.take(2).uppercase(),
+                    role = ArtworkRole.LOGO
                 )
             }
             Text(
@@ -867,7 +872,8 @@ fun ChannelListItem(
                     contentDescription = title,
                     modifier = Modifier.fillMaxSize().padding(3.dp),
                     contentScale = ContentScale.Fit,
-                    placeholderLabel = title.take(1).uppercase()
+                    placeholderLabel = title.take(1).uppercase(),
+                    role = ArtworkRole.LOGO
                 )
             }
             Spacer(Modifier.width(10.dp))
@@ -900,7 +906,8 @@ fun NetworkImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
-    placeholderLabel: String = "?"
+    placeholderLabel: String = "?",
+    role: ArtworkRole = ArtworkRole.POSTER
 ) {
     if (url.isNullOrBlank()) {
         Box(modifier = modifier.background(Color(0xFF151C28)), contentAlignment = Alignment.Center) {
@@ -923,13 +930,10 @@ fun NetworkImage(
         }
     } else {
         val context = LocalContext.current
-        // Decode near Classic poster cell size — full-res posters during LazyVerticalGrid scroll cause jank/OOM.
-        val model = remember(url) {
-            ImageRequest.Builder(context)
-                .data(url)
-                .size(220, 330)
-                .crossfade(false)
-                .build()
+        val sharp by ArtworkRuntime.sharp.collectAsState()
+        // Sharp mode decodes nearer the tile (w500) or detail (w780). Logos stay small.
+        val model = remember(url, role, sharp) {
+            tvImageRequest(context, url, role, sharp)
         }
         AsyncImage(
             model = model,
@@ -1089,7 +1093,8 @@ fun HeroFeatureBanner(
                 contentDescription = title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                placeholderLabel = title.take(1).uppercase()
+                placeholderLabel = title.take(1).uppercase(),
+                role = ArtworkRole.BACKDROP
             )
             Box(
                 modifier = Modifier
@@ -1248,7 +1253,8 @@ fun LiveChannelCard(
                         contentDescription = title,
                         modifier = Modifier.fillMaxSize().padding(3.dp),
                         contentScale = ContentScale.Fit,
-                        placeholderLabel = title.take(2).uppercase()
+                        placeholderLabel = title.take(2).uppercase(),
+                        role = ArtworkRole.LOGO
                     )
                 }
                 Spacer(Modifier.width(8.dp))

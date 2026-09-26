@@ -567,7 +567,8 @@ private fun TimelineRow(
                         contentDescription = row.channel.name,
                         modifier = Modifier.fillMaxSize().padding(3.dp),
                         contentScale = ContentScale.Fit,
-                        placeholderLabel = row.channel.name.take(1).uppercase()
+                        placeholderLabel = row.channel.name.take(1).uppercase(),
+                        role = com.totaliptv.pro.artwork.ArtworkRole.LOGO
                     )
                 }
                 Spacer(Modifier.width(8.dp))

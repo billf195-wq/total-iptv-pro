@@ -62,6 +62,7 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.local.WatchProgressStore
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.artwork.tvRatingLabel
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.model.PlaylistSource
 import com.totaliptv.pro.data.model.SourceType
@@ -855,7 +856,7 @@ private fun HomeTabContent(
                     modifier = Modifier
                         .padding(bottom = 4.dp)
                         .height(ClassicDimens.HeroHeight),
-                    rating = heroItem.displayRating(),
+                    rating = heroItem.tvRatingLabel(),
                     onPreview = { onPreviewHero(heroItem) }
                 )
             } else {
@@ -946,7 +947,7 @@ private fun HomeTabContent(
                             },
                             isFavorite = item.id in favoriteIds,
                             onLongClick = { onToggleFavorite(item) },
-                            rating = item.displayRating(),
+                            rating = item.tvRatingLabel(),
                             progressPercent = pct,
                             focusRequester = posterFocus("new", item.id)
                         )
@@ -977,7 +978,7 @@ private fun HomeTabContent(
                             },
                             isFavorite = item.id in favoriteIds,
                             onLongClick = { onToggleFavorite(item) },
-                            rating = item.displayRating(),
+                            rating = item.tvRatingLabel(),
                             progressPercent = pct,
                             focusRequester = posterFocus("top", item.id)
                         )
@@ -1253,7 +1254,7 @@ private fun VodMainPane(
                         onClick = { onOpenDetail(item, index) },
                         isFavorite = item.id in favoriteIds,
                         onLongClick = { onToggleFavorite(item) },
-                        rating = shown.displayRating(),
+                        rating = shown.tvRatingLabel(),
                         progressPercent = pct,
                         focusRequester = posterFocus("vod-grid", item.id)
                     )

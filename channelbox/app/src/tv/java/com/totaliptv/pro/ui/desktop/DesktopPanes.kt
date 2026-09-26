@@ -48,6 +48,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.artwork.TmdbKeyFile
+import com.totaliptv.pro.artwork.TvRatings
 import com.totaliptv.pro.diagnostics.CrashLog
 import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.LiveChannelMapping
@@ -94,15 +96,21 @@ fun HomePane(
 ) {
     // Never rank the full catalog synchronously on the first Home frame (Movies→Home ANR).
     // Warm from process cache when revision unchanged; otherwise compute off main after yield.
+    val ratingRevision by TvRatings.revision.collectAsState()
     var top by remember {
-        mutableStateOf(TopRatedCache.movies(catalogRevision) ?: TopRatedRow("Top rated movies", emptyList()))
+        mutableStateOf(
+            TopRatedCache.movies(catalogRevision, ratingRevision) ?: TopRatedRow("Top rated movies", emptyList())
+        )
     }
     var topSeries by remember {
-        mutableStateOf(TopRatedCache.series(catalogRevision) ?: TopRatedRow("Top rated series", emptyList()))
+        mutableStateOf(
+            TopRatedCache.series(catalogRevision, ratingRevision) ?: TopRatedRow("Top rated series", emptyList())
+        )
     }
-    LaunchedEffect(catalogRevision, movies.size, series.size) {
-        TopRatedCache.movies(catalogRevision)?.let { cachedM ->
-            TopRatedCache.series(catalogRevision)?.let { cachedS ->
+    LaunchedEffect(catalogRevision, ratingRevision, movies.size, series.size) {
+        TvRatings.enqueueBackfill(movies, series)
+        TopRatedCache.movies(catalogRevision, ratingRevision)?.let { cachedM ->
+            TopRatedCache.series(catalogRevision, ratingRevision)?.let { cachedS ->
                 top = cachedM
                 topSeries = cachedS
                 return@LaunchedEffect
@@ -113,7 +121,7 @@ fun HomePane(
         val ranked = withContext(Dispatchers.Default) {
             pickTopRatedMovies(movies) to pickTopRatedSeries(series)
         }
-        TopRatedCache.put(catalogRevision, ranked.first, ranked.second)
+        TopRatedCache.put(catalogRevision, ratingRevision, ranked.first, ranked.second)
         top = ranked.first
         topSeries = ranked.second
     }
@@ -634,6 +642,12 @@ fun DesktopSettingsPane(
             .collectAsState(initial = AccentPreset.AMBER)
         val posterColumns by (app?.preferences?.posterColumns ?: kotlinx.coroutines.flow.flowOf(6))
             .collectAsState(initial = 6)
+        val sharpPosters by (app?.preferences?.sharpPosters ?: kotlinx.coroutines.flow.flowOf(true))
+            .collectAsState(initial = true)
+        val tmdbRatings by (app?.preferences?.tmdbRatings ?: kotlinx.coroutines.flow.flowOf(true))
+            .collectAsState(initial = true)
+        val tmdbApiKey by (app?.preferences?.tmdbApiKey ?: kotlinx.coroutines.flow.flowOf(""))
+            .collectAsState(initial = "")
 
         SectionHeader("App layout")
         Text(
@@ -762,6 +776,54 @@ fun DesktopSettingsPane(
                 }
             }
         }
+
+        Spacer(Modifier.height(TipDimens.dp(20)))
+        SectionHeader("Artwork")
+        TipFocusable(onClick = {
+            scope.launch { app?.preferences?.setSharpPosters(!sharpPosters) }
+        }) { focused ->
+            Text(
+                "Sharp posters (HD artwork): ${if (sharpPosters) "On" else "Off"}",
+                color = if (focused) TipAccent else TipGoldText,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                    .padding(horizontal = TipDimens.dp(14), vertical = TipDimens.dp(10))
+            )
+        }
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        TipFocusable(onClick = {
+            scope.launch { app?.preferences?.setTmdbRatings(!tmdbRatings) }
+        }) { focused ->
+            Text(
+                "TMDB ratings: ${if (tmdbRatings) "On" else "Off"}",
+                color = if (focused) TipAccent else TipGoldText,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                    .padding(horizontal = TipDimens.dp(14), vertical = TipDimens.dp(10))
+            )
+        }
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        Text("TMDB API key", color = TipGoldText, fontWeight = FontWeight.SemiBold)
+        Text(
+            "v3 32-hex or v4 token starting with eyJ. Blank reads tmdb-api-key.txt at ${TmdbKeyFile.ADB_PATH}",
+            color = TipGoldMuted,
+            fontSize = TipDimens.sp(12)
+        )
+        Spacer(Modifier.height(TipDimens.dp(6)))
+        var keyDraft by remember { mutableStateOf<String?>(null) }
+        DpadSearchField(
+            value = keyDraft ?: tmdbApiKey,
+            onValueChange = { value ->
+                keyDraft = value
+                scope.launch { app?.preferences?.setTmdbApiKey(value) }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = "TMDB API key"
+        )
 
         Spacer(Modifier.height(TipDimens.dp(20)))
         AmberButton(if (refreshing) "Updating…" else "Update (reload catalog)", onClick = onRefresh)

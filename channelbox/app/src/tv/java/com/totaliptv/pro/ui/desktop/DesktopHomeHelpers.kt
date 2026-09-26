@@ -1,5 +1,6 @@
 package com.totaliptv.pro.ui.desktop
 
+import com.totaliptv.pro.artwork.TvRatings
 import com.totaliptv.pro.data.model.MediaItem
 import java.util.Calendar
 
@@ -14,28 +15,33 @@ data class TopRatedRow(val title: String, val items: List<MediaItem>)
 
 /** Process-wide cache so Movies→Home with unchanged revision skips ranking entirely. */
 object TopRatedCache {
-    @Volatile private var revision: Int = Int.MIN_VALUE
+    @Volatile private var catalogRevision: Int = Int.MIN_VALUE
+    @Volatile private var ratingRevision: Int = Int.MIN_VALUE
     @Volatile private var movies: TopRatedRow? = null
     @Volatile private var series: TopRatedRow? = null
 
-    fun movies(revision: Int): TopRatedRow? = movies.takeIf { this.revision == revision }
-    fun series(revision: Int): TopRatedRow? = series.takeIf { this.revision == revision }
+    fun movies(catalogRevision: Int, ratingRevision: Int): TopRatedRow? =
+        movies.takeIf { this.catalogRevision == catalogRevision && this.ratingRevision == ratingRevision }
 
-    fun put(revision: Int, movies: TopRatedRow, series: TopRatedRow) {
+    fun series(catalogRevision: Int, ratingRevision: Int): TopRatedRow? =
+        series.takeIf { this.catalogRevision == catalogRevision && this.ratingRevision == ratingRevision }
+
+    fun put(catalogRevision: Int, ratingRevision: Int, movies: TopRatedRow, series: TopRatedRow) {
         this.movies = movies
         this.series = series
-        this.revision = revision
+        this.catalogRevision = catalogRevision
+        this.ratingRevision = ratingRevision
     }
 
     fun clear() {
-        revision = Int.MIN_VALUE
+        catalogRevision = Int.MIN_VALUE
+        ratingRevision = Int.MIN_VALUE
         movies = null
         series = null
     }
 }
 
-private fun MediaItem.ratingScore(): Double =
-    displayRating()?.toDoubleOrNull()?.takeIf { it > 0.0 } ?: 0.0
+private fun MediaItem.ratingScore(): Double = TvRatings.rankScore(this)
 
 fun isLikelyAmerican(item: MediaItem): Boolean {
     val group = item.groupTitle?.lowercase().orEmpty()

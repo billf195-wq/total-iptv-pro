@@ -50,7 +50,6 @@ import com.totaliptv.pro.ui.theme.CinemaSurface
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.tipScreenBrush
-import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.dvr.DvrActions
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.TotalIptvProApp
@@ -73,7 +72,6 @@ fun PhoneBrowseScreen(
     var sort by remember { mutableStateOf(CatalogSort.RECENTLY_ADDED) }
     var items by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var detail by remember { mutableStateOf<MediaItem?>(null) }
-    var showGameDay by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val dvrSnap by remember(context) {
@@ -158,12 +156,6 @@ fun PhoneBrowseScreen(
                 color = OnCinema,
                 modifier = Modifier.weight(1f)
             )
-            if (section == BrowseSection.Live) {
-                AssistChip(
-                    onClick = { showGameDay = true },
-                    label = { Text("Game Day", fontWeight = FontWeight.Bold) }
-                )
-            }
         }
 
         if (section != BrowseSection.Favorites) {
@@ -253,14 +245,6 @@ fun PhoneBrowseScreen(
                 }
             }
         }
-    }
-
-    if (showGameDay && section == BrowseSection.Live) {
-        GameDayPicker(
-            channels = repository.liveItems(),
-            initialLeft = null,
-            onDismiss = { showGameDay = false }
-        )
     }
 
     detail?.let { item ->

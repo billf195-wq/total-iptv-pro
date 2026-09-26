@@ -1,6 +1,7 @@
 package com.totaliptv.pro
 
 import android.app.Application
+import com.totaliptv.pro.artwork.ArtworkFlavor
 import com.totaliptv.pro.diagnostics.CrashLog
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.local.WatchProgressStore
@@ -32,6 +33,7 @@ class TotalIptvProApp : Application() {
         watchProgress = WatchProgressStore(this)
         dvr = DvrRecorder(this)
         dvr.ensureScheduler()
+        ArtworkFlavor.install(this)
         appScope.launch {
             preferences.recordingsDir.collect { dvr.overrideDir = it }
         }
