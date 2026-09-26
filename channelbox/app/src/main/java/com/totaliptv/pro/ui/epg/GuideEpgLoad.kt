@@ -14,7 +14,10 @@ import kotlin.math.max
  */
 object GuideEpgLoad {
     /** In-flight cap. A 4,000-channel lineup must not open more than this. */
-    const val PARALLEL = 3
+    const val PARALLEL = 2
+
+    /** Coalesce row paints so one fetch does not recompose the whole grid. */
+    const val UI_BATCH_MS = 150L
 
     /** Extra rows past the viewport so moving down is already filled. */
     const val BUFFER_ROWS = 4
@@ -61,6 +64,22 @@ object GuideEpgLoad {
 
     fun cacheFresh(cachedAtMs: Long, nowMs: Long, ttlMs: Long = CACHE_TTL_MS): Boolean =
         cachedAtMs > 0L && nowMs - cachedAtMs < ttlMs
+
+    /**
+     * Short EPG is the fallback. Skip it when xmltv already covers the channel,
+     * a request is in flight, the 30-minute cache is fresh (including an empty
+     * listing), or the bulk download has not finished yet.
+     */
+    fun shouldFetchShort(
+        cachedAtMs: Long,
+        nowMs: Long,
+        bulkCovers: Boolean,
+        inFlight: Boolean,
+        shortAllowed: Boolean
+    ): Boolean {
+        if (!shortAllowed || bulkCovers || inFlight) return false
+        return !cacheFresh(cachedAtMs, nowMs)
+    }
 }
 
 /**
@@ -148,7 +167,7 @@ class EpgRequestGate(
     }
 
     companion object {
-        const val BACKOFF_START_MS = 2_000L
-        const val BACKOFF_MAX_MS = 60_000L
+        const val BACKOFF_START_MS = 8_000L
+        const val BACKOFF_MAX_MS = 120_000L
     }
 }

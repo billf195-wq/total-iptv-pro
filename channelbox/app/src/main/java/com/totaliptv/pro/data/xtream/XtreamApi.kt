@@ -4,6 +4,7 @@ import android.util.Base64
 import android.util.Log
 import com.totaliptv.pro.data.EpgTime
 import com.totaliptv.pro.data.LiveChannelMapping
+import com.totaliptv.pro.data.LogoUrls
 import com.totaliptv.pro.data.model.Category
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.EpgNowNext
@@ -253,7 +254,7 @@ class XtreamApi(
             streamUrl = direct ?: "$host/live/$username/$password/$sid.m3u8",
             categoryId = catalogCatIds.firstOrNull(),
             kind = ContentKind.LIVE,
-            logoUrl = s.streamIcon?.takeIf { it.isNotBlank() },
+            logoUrl = LogoUrls.absolute(host, s.streamIcon),
             posterUrl = null,
             groupTitle = catalogCatIds.firstNotNullOfOrNull { cid ->
                 liveCategories.find { it.id == cid }?.name
@@ -285,14 +286,16 @@ class XtreamApi(
             }
             val vodItems = vodStreams.map { s ->
                 val ext = s.containerExtension?.trim()?.removePrefix(".")?.takeIf { it.isNotBlank() } ?: "mp4"
-                val poster = listOf(s.coverBig, s.cover, s.streamIcon).firstOrNull { !it.isNullOrBlank() }
+                val poster = listOf(s.coverBig, s.cover, s.streamIcon)
+                    .map { LogoUrls.absolute(host, it) }
+                    .firstOrNull { !it.isNullOrBlank() }
                 MediaItem(
                     id = "vod-${s.streamId}",
                     name = s.name.ifBlank { "Title ${s.streamId}" },
                     streamUrl = "$host/movie/$username/$password/${s.streamId}.$ext",
                     categoryId = s.categoryId?.let { "vod-$it" },
                     kind = ContentKind.VOD,
-                    logoUrl = s.streamIcon?.takeIf { it.isNotBlank() },
+                    logoUrl = LogoUrls.absolute(host, s.streamIcon),
                     posterUrl = poster,
                     groupTitle = vodCategories.find { it.id == "vod-${s.categoryId}" }?.name,
                     xtreamStreamId = s.streamId,
@@ -336,7 +339,9 @@ class XtreamApi(
             }
             val items = seriesRaw.map { s ->
                 val sid = s.seriesId
-                val poster = listOf(s.coverBig, s.cover, s.streamIcon).firstOrNull { !it.isNullOrBlank() }
+                val poster = listOf(s.coverBig, s.cover, s.streamIcon)
+                    .map { LogoUrls.absolute(host, it) }
+                    .firstOrNull { !it.isNullOrBlank() }
                 MediaItem(
                     id = "series-$sid",
                     name = s.name.ifBlank { "Series $sid" },
@@ -344,7 +349,7 @@ class XtreamApi(
                     streamUrl = "$host/series/$username/$password/$sid",
                     categoryId = s.categoryId?.let { "series-$it" },
                     kind = ContentKind.SERIES,
-                    logoUrl = s.streamIcon?.takeIf { it.isNotBlank() },
+                    logoUrl = LogoUrls.absolute(host, s.streamIcon),
                     posterUrl = poster,
                     groupTitle = categories.find { it.id == "series-${s.categoryId}" }?.name,
                     xtreamStreamId = sid,

@@ -1,7 +1,9 @@
 package com.totaliptv.pro.ui.components
 
+import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.view.inputmethod.InputMethodManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,8 +18,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,6 +41,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -83,10 +88,13 @@ fun DpadSearchField(
     onExitEdit: (toNext: Boolean) -> Boolean = { false }
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
+    val context = LocalContext.current
     val idleFocus = focusRequester ?: remember { FocusRequester() }
     val editFocus = remember { FocusRequester() }
     var editing by remember { mutableStateOf(false) }
     var idleFocused by remember { mutableStateOf(false) }
+    var openedAtMs by remember { mutableLongStateOf(0L) }
     // null = not leaving edit. true = move to the next row.
     var exitToNext by remember { mutableStateOf<Boolean?>(null) }
 
@@ -94,16 +102,30 @@ fun DpadSearchField(
         onEditingChange(editing)
     }
 
+    fun hideIme() {
+        keyboard?.hide()
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.hideSoftInputFromWindow(view.windowToken, 0)
+        imm?.restartInput(view)
+    }
+
     fun beginEdit() {
         exitToNext = null
+        openedAtMs = System.currentTimeMillis()
         editing = true
     }
 
     fun endEdit(toNext: Boolean) {
         if (!editing) return
-        keyboard?.hide()
+        hideIme()
         exitToNext = toNext
         editing = false
+    }
+
+    DisposableEffect(editing) {
+        onDispose {
+            if (editing) hideIme()
+        }
     }
 
     LaunchedEffect(editing, exitToNext) {
@@ -140,10 +162,11 @@ fun DpadSearchField(
                 .background(backgroundColor, shape)
                 .border(2.dp, borderColor, shape)
                 .onPreviewKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when (event.key) {
                         Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                            beginEdit()
+                            // Key-up, so LatinIME does not treat the OK that opened
+                            // the field as a press of its first key.
+                            if (event.type == KeyEventType.KeyUp) beginEdit()
                             true
                         }
                         else -> false
@@ -165,7 +188,15 @@ fun DpadSearchField(
         BackHandler { endEdit(toNext = true) }
         BasicTextField(
             value = value,
-            onValueChange = onValueChange,
+            onValueChange = { next ->
+                val stray = SearchTyping.isStrayOkCharacter(
+                    previous = value,
+                    next = next,
+                    openedAtMs = openedAtMs,
+                    nowMs = System.currentTimeMillis()
+                )
+                if (!stray) onValueChange(next)
+            },
             singleLine = true,
             textStyle = textStyle,
             cursorBrush = SolidColor(cursorColor),

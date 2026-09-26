@@ -34,7 +34,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -43,7 +43,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
 import coil.compose.AsyncImage
+import com.totaliptv.pro.data.LogoUrls
 import com.totaliptv.pro.data.model.MediaItem
+import com.totaliptv.pro.ui.LiveRowKeys
+import com.totaliptv.pro.ui.components.NetworkImage
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.theme.LiveMarker
 import com.totaliptv.pro.ui.splash.AppBannerArt
@@ -84,7 +87,8 @@ fun DesktopPosterCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     showTitle: Boolean = true,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    canFocus: Boolean = true
 ) {
     val safeName = item.name.ifBlank { "Untitled" }
     val cardMod = if (modifier === Modifier) {
@@ -92,7 +96,11 @@ fun DesktopPosterCard(
     } else {
         modifier.widthIn(max = TipDimens.PosterWidth)
     }
-    TipFocusable(onClick = onClick, modifier = cardMod, focusRequester = focusRequester) { focused ->
+    TipFocusable(
+        onClick = onClick,
+        modifier = cardMod.focusProperties { this.canFocus = canFocus },
+        focusRequester = focusRequester
+    ) { focused ->
         Column(
             Modifier
                 .fillMaxWidth()
@@ -118,6 +126,8 @@ fun DesktopPosterCard(
                         ImageRequest.Builder(context)
                             .data(url)
                             .size(200, 300)
+                            .addHeader("User-Agent", LogoUrls.USER_AGENT)
+                            .allowHardware(false)
                             .crossfade(false)
                             .build()
                     }
@@ -174,10 +184,12 @@ fun LiveRowItem(
     modifier: Modifier = Modifier,
     onRecord: (() -> Unit)? = null,
     recordActive: Boolean = false,
-    upFocus: FocusRequester? = null
+    upFocus: FocusRequester? = null,
+    focusRequester: FocusRequester? = null
 ) {
-    val rowFocus = remember(item.id) { FocusRequester() }
+    val rowFocus = focusRequester ?: remember(item.id) { FocusRequester() }
     val recFocus = remember(item.id) { FocusRequester() }
+    var longFired by remember(item.id) { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -192,16 +204,31 @@ fun LiveRowItem(
                     if (onRecord != null) right = recFocus
                     if (upFocus != null) up = upFocus
                 }
-                .onKeyEvent { e ->
-                    val record = onRecord ?: return@onKeyEvent false
-                    val menu = e.key == Key.Menu
-                    val longOk = e.nativeKeyEvent.isLongPress &&
-                        (e.key == Key.DirectionCenter || e.key == Key.Enter)
-                    if ((menu || longOk) && e.type == KeyEventType.KeyUp) {
-                        record()
-                        true
-                    } else {
-                        false
+                .onPreviewKeyEvent { e ->
+                    val record = onRecord ?: return@onPreviewKeyEvent false
+                    val isOk = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+                    val isMenu = e.key == Key.Menu
+                    val down = e.type == KeyEventType.KeyDown
+                    if (isOk && down && e.nativeKeyEvent.repeatCount == 0 && !e.nativeKeyEvent.isLongPress) {
+                        longFired = false
+                    }
+                    when (
+                        LiveRowKeys.decide(
+                            isOk = isOk,
+                            isMenu = isMenu,
+                            keyDown = down,
+                            repeatCount = e.nativeKeyEvent.repeatCount,
+                            isLongPress = e.nativeKeyEvent.isLongPress,
+                            longAlreadyFired = longFired
+                        )
+                    ) {
+                        LiveRowKeys.Action.RECORD -> {
+                            longFired = true
+                            record()
+                            true
+                        }
+                        LiveRowKeys.Action.CONSUME -> true
+                        LiveRowKeys.Action.IGNORE -> false
                     }
                 }
         ) { focused ->
@@ -220,28 +247,15 @@ fun LiveRowItem(
                         .background(TipSurfaceAlt),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        item.name.take(1).uppercase(),
-                        color = TipGoldMuted,
-                        fontWeight = FontWeight.Bold
+                    NetworkImage(
+                        url = LogoUrls.forPlayback(item.streamUrl, item.logoUrl ?: item.artworkUrl()),
+                        contentDescription = item.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                        placeholderLabel = item.name.take(1).uppercase().ifEmpty { "?" },
+                        decodeWidth = 128,
+                        decodeHeight = 128
                     )
-                    val url = item.logoUrl ?: item.artworkUrl()
-                    if (!url.isNullOrBlank()) {
-                        val context = LocalContext.current
-                        val model = remember(url) {
-                            ImageRequest.Builder(context)
-                                .data(url)
-                                .size(128, 128)
-                                .crossfade(false)
-                                .build()
-                        }
-                        AsyncImage(
-                            model = model,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit
-                        )
-                    }
                 }
                 Text(
                     item.name,

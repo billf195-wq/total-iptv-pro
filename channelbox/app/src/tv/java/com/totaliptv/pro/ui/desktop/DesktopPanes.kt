@@ -65,12 +65,14 @@ import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.components.DpadSearchField
+import com.totaliptv.pro.ui.components.SearchTyping
 import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.data.update.AppUpdateChecker
 import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
 import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.launch
@@ -159,6 +161,22 @@ fun HomePane(
             if (focused) break
         }
         onRestoreConsumed()
+    }
+    var didInitialHomeFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(resume.firstOrNull()?.id, top.items.firstOrNull()?.id, pendingFocusRestore) {
+        if (didInitialHomeFocus || pendingFocusRestore) return@LaunchedEffect
+        val target = when {
+            resume.isNotEmpty() -> "desk-cw" to resume.first().id
+            top.items.isNotEmpty() -> "desk-movies" to top.items.first().id
+            else -> return@LaunchedEffect
+        }
+        delay(80)
+        if (pendingFocusRestore) return@LaunchedEffect
+        val focused = runCatching {
+            posterFocus(target.first, target.second).requestFocus()
+            true
+        }.getOrDefault(false)
+        if (focused) didInitialHomeFocus = true
     }
     LazyColumn(
         state = homeListState,
@@ -257,7 +275,11 @@ fun LivePane(
     onSearch: (String) -> Unit,
     onCategory: (String?) -> Unit,
     onPlay: (MediaItem) -> Unit,
-    onRecord: (MediaItem) -> Unit = {}
+    onRecord: (MediaItem) -> Unit = {},
+    restoreFocusId: String? = null,
+    restoreFocusIndex: Int = -1,
+    pendingFocusRestore: Boolean = false,
+    onRestoreConsumed: () -> Unit = {}
 ) {
     val filtered = remember(items, search, categoryId) {
         LiveChannelMapping.filterLiveChannels(items, categoryId, search)
@@ -269,8 +291,38 @@ fun LivePane(
     var showGameDay by remember { mutableStateOf(false) }
     val gameDayFocus = remember { FocusRequester() }
     val chipFocus = remember { FocusRequester() }
+    val liveListState = rememberLazyListState()
+    val rowFocuses = remember { mutableMapOf<String, FocusRequester>() }
+    fun rowFocus(id: String): FocusRequester = rowFocuses.getOrPut(id) { FocusRequester() }
+    val firstRowFocus = filtered.firstOrNull()?.let { rowFocus(it.id) }
     LaunchedEffect(showGameDay) {
         if (!showGameDay) runCatching { gameDayFocus.requestFocus() }
+    }
+    LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex) {
+        if (!pendingFocusRestore) return@LaunchedEffect
+        val id = restoreFocusId
+        if (id == null) {
+            onRestoreConsumed()
+            return@LaunchedEffect
+        }
+        val idx = restoreFocusIndex.coerceAtLeast(0)
+        for (attempt in 0 until 8) {
+            val found = filtered.indexOfFirst { it.id == id }
+            val scrollTo = when {
+                found >= 0 -> found
+                idx < filtered.size -> idx
+                else -> -1
+            }
+            if (scrollTo >= 0) runCatching { liveListState.scrollToItem(scrollTo) }
+            kotlinx.coroutines.yield()
+            kotlinx.coroutines.delay(if (attempt == 0) 40L else 60L)
+            val focused = runCatching {
+                rowFocus(id).requestFocus()
+                true
+            }.getOrDefault(false)
+            if (focused) break
+        }
+        onRestoreConsumed()
     }
     Box(Modifier.fillMaxSize()) {
     Column(
@@ -301,12 +353,16 @@ fun LivePane(
         AmberButton(
             label = "Game Day",
             onClick = { showGameDay = true },
-            modifier = Modifier.focusRequester(gameDayFocus).focusProperties { up = chipFocus }
+            modifier = Modifier.focusRequester(gameDayFocus).focusProperties {
+                up = chipFocus
+                if (firstRowFocus != null) down = firstRowFocus
+            }
         )
         Spacer(Modifier.height(TipDimens.dp(8)))
         Text("${filtered.size} channels", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
         Spacer(Modifier.height(TipDimens.dp(8)))
         LazyColumn(
+            state = liveListState,
             verticalArrangement = Arrangement.spacedBy(TipDimens.dp(6)),
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
@@ -316,7 +372,8 @@ fun LivePane(
                     onClick = { onPlay(item) },
                     onRecord = { onRecord(item) },
                     recordActive = DvrRecordUi.matches(dvrSnap.active, item.id, item.streamUrl),
-                    upFocus = if (index == 0) gameDayFocus else null
+                    upFocus = if (index == 0) gameDayFocus else null,
+                    focusRequester = rowFocus(item.id)
                 )
             }
         }
@@ -379,11 +436,18 @@ fun BrowseGridPane(
     onClick: (MediaItem, index: Int) -> Unit
 ) {
     val gridState = rememberLazyGridState()
+    var editingSearch by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf(search) }
+    LaunchedEffect(search) {
+        if (search == query) return@LaunchedEffect
+        delay(SearchTyping.DEBOUNCE_MS)
+        query = search
+    }
     LaunchedEffect(categoryId, sort, title) {
         gridState.scrollToItem(0)
     }
 
-    val filtered = remember(items, search, categoryId, sort) {
+    val filtered = remember(items, query, categoryId, sort) {
         // Synthetic Newly added categories have no real item.categoryId matches -
         // resolve like CatalogRepository.itemsForCategory instead of filtering to empty.
         val isNewlyAdded = categoryId == CatalogRepository.NEWLY_ADDED_VOD_CATEGORY_ID ||
@@ -394,7 +458,7 @@ fun BrowseGridPane(
             categoryId == null -> items
             else -> items.filter { it.categoryId == categoryId }
         }
-        list = list.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
+        list = list.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
         list = when (sort) {
             "ZA" -> list.sortedByDescending { it.name.lowercase() }
             "RECENT" -> sortDesktopRecentlyAdded(list)
@@ -430,12 +494,18 @@ fun BrowseGridPane(
         }
         onRestoreConsumed()
     }
-    LaunchedEffect(filtered.firstOrNull()?.id, pendingFocusRestore) {
-        if (pendingFocusRestore) return@LaunchedEffect
+    var didInitialGridFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(filtered.firstOrNull()?.id) {
+        if (didInitialGridFocus || pendingFocusRestore || editingSearch) return@LaunchedEffect
+        if (!SearchTyping.resultsMayTakeFocus(editingSearch)) return@LaunchedEffect
         val first = filtered.firstOrNull() ?: return@LaunchedEffect
-        kotlinx.coroutines.delay(80)
-        if (pendingFocusRestore) return@LaunchedEffect
-        runCatching { posterFocus(gridScope, first.id).requestFocus() }
+        delay(80)
+        if (pendingFocusRestore || editingSearch) return@LaunchedEffect
+        val focused = runCatching {
+            posterFocus(gridScope, first.id).requestFocus()
+            true
+        }.getOrDefault(false)
+        if (focused) didInitialGridFocus = true
     }
     Column(Modifier.fillMaxSize()) {
         PaneTitle(title)
@@ -446,7 +516,8 @@ fun BrowseGridPane(
             categoryId = categoryId,
             onCategory = onCategory,
             sort = sort,
-            onSort = onSort
+            onSort = onSort,
+            onEditingChange = { editingSearch = it }
         )
         Text("${filtered.size} titles", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
         Spacer(Modifier.height(TipDimens.dp(12)))
@@ -456,14 +527,18 @@ fun BrowseGridPane(
             horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap),
             verticalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap),
             contentPadding = PaddingValues(bottom = TipDimens.dp(24)),
-            modifier = Modifier.weight(1f).fillMaxWidth()
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .focusProperties { canFocus = SearchTyping.resultsMayTakeFocus(editingSearch) }
         ) {
             gridItemsIndexed(filtered, key = { _, it -> it.id }) { index, item ->
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                     DesktopPosterCard(
                         item,
                         onClick = { onClick(item, index) },
-                        focusRequester = posterFocus(gridScope, item.id)
+                        focusRequester = posterFocus(gridScope, item.id),
+                        canFocus = SearchTyping.resultsMayTakeFocus(editingSearch)
                     )
                 }
             }
@@ -529,12 +604,17 @@ fun FavoritesPane(
         }
         onRestoreConsumed()
     }
-    LaunchedEffect(resolved.firstOrNull()?.second?.id, pendingFocusRestore) {
-        if (pendingFocusRestore) return@LaunchedEffect
+    var didInitialFavFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(resolved.firstOrNull()?.second?.id) {
+        if (didInitialFavFocus || pendingFocusRestore) return@LaunchedEffect
         val first = resolved.firstOrNull()?.second ?: return@LaunchedEffect
-        kotlinx.coroutines.delay(80)
+        delay(80)
         if (pendingFocusRestore) return@LaunchedEffect
-        runCatching { posterFocus(gridScope, first.id).requestFocus() }
+        val focused = runCatching {
+            posterFocus(gridScope, first.id).requestFocus()
+            true
+        }.getOrDefault(false)
+        if (focused) didInitialFavFocus = true
     }
     Column(Modifier.fillMaxSize()) {
         PaneTitle("Favorites")
@@ -633,6 +713,12 @@ fun DesktopSettingsPane(
         .collectAsState(initial = AppPreferences.DEFAULT_UPDATE_BASE_URL)
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var updateBusy by remember { mutableStateOf(false) }
+    var updateCheckDone by remember { mutableStateOf(0) }
+    val updateFocus = remember { FocusRequester() }
+    LaunchedEffect(updateCheckDone) {
+        if (updateCheckDone == 0) return@LaunchedEffect
+        runCatching { updateFocus.requestFocus() }
+    }
     var pendingInstall by remember { mutableStateOf<UpdateCheckResult.Available?>(null) }
     val sources by repository.sources.collectAsState(initial = emptyList())
 
@@ -850,6 +936,7 @@ fun DesktopSettingsPane(
                 pendingInstall != null -> "Install update ${pendingInstall?.manifest?.versionName ?: ""}"
                 else -> "Check for update"
             },
+            modifier = Modifier.focusRequester(updateFocus),
             onClick = {
                 if (updateBusy) return@AmberButton
                 val activity = context as? Activity
@@ -872,6 +959,7 @@ fun DesktopSettingsPane(
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         } finally {
                             updateBusy = false
+                            updateCheckDone += 1
                         }
                         return@launch
                     }
@@ -898,6 +986,7 @@ fun DesktopSettingsPane(
                         }
                     }
                     updateBusy = false
+                    updateCheckDone += 1
                 }
             }
         )
@@ -962,7 +1051,8 @@ fun FilterBar(
     onSort: ((String) -> Unit)?,
     showSearch: Boolean = true,
     chipFocus: FocusRequester? = null,
-    belowFocus: FocusRequester? = null
+    belowFocus: FocusRequester? = null,
+    onEditingChange: (Boolean) -> Unit = {}
 ) {
     val searchFocus = remember { FocusRequester() }
     val internalChipFocus = remember { FocusRequester() }
@@ -981,7 +1071,8 @@ fun FilterBar(
                 shape = RoundedCornerShape(TipDimens.PosterCorner),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(TipDimens.dp(12)),
                 focusRequester = searchFocus,
-                downFocus = chips
+                downFocus = chips,
+                onEditingChange = onEditingChange
             )
             Spacer(Modifier.height(TipDimens.dp(8)))
         }

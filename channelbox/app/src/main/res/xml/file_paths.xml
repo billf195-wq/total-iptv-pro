@@ -4,4 +4,9 @@
     <external-cache-path name="apk_ext_cache" path="updates/" />
     <external-files-path name="recordings" path="Movies/" />
     <files-path name="recordings_int" path="recordings/" />
+    <!-- Custom recordings folders still live under the app's private dirs. -->
+    <files-path name="files_root" path="." />
+    <external-files-path name="external_files_root" path="." />
+    <cache-path name="cache_root" path="." />
+    <external-cache-path name="external_cache_root" path="." />
 </paths>

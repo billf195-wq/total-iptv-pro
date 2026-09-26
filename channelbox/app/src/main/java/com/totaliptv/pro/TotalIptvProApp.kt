@@ -6,6 +6,7 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.totaliptv.pro.diagnostics.CrashLog
+import com.totaliptv.pro.data.LogoUrls
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.local.WatchProgressStore
 import com.totaliptv.pro.data.repo.CatalogRepository
@@ -15,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 
 open class TotalIptvProApp : Application(), ImageLoaderFactory {
     lateinit var preferences: AppPreferences
@@ -61,6 +63,20 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
                     .build()
             }
             .respectCacheHeaders(false)
+            .allowHardware(false)
+            .okHttpClient(
+                OkHttpClient.Builder()
+                    .followRedirects(true)
+                    .followSslRedirects(true)
+                    .addInterceptor { chain ->
+                        chain.proceed(
+                            chain.request().newBuilder()
+                                .header("User-Agent", LogoUrls.USER_AGENT)
+                                .build()
+                        )
+                    }
+                    .build()
+            )
             .build()
     }
 }

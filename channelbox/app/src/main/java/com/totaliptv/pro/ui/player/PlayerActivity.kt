@@ -2,6 +2,7 @@ package com.totaliptv.pro.ui.player
 
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Color
@@ -16,6 +17,7 @@ import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.ViewGroup
 import android.widget.Button
@@ -25,6 +27,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
 import com.totaliptv.pro.data.local.PreferredPlayer
 import androidx.media3.common.C
@@ -45,6 +48,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
+import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -55,6 +61,7 @@ import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.local.WatchProgressStore
 import com.totaliptv.pro.data.model.EpgNowNext
 import com.totaliptv.pro.diagnostics.DebugLog
+import com.totaliptv.pro.dvr.RecordingFile
 import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -113,6 +120,8 @@ class PlayerActivity : ComponentActivity() {
     private var audioLabelView: TextView? = null
     private var overlay: LinearLayout? = null
     private var playNextButton: Button? = null
+    private var upNextBanner: TextView? = null
+    private var upNextJob: Job? = null
     private var recordButton: Button? = null
     private var controlRow: LinearLayout? = null
     private var recordButtonArmed = false
@@ -391,6 +400,26 @@ class PlayerActivity : ComponentActivity() {
             addView(banner)
         }
         root.addView(overlayHost)
+        val bannerPad = NextEpisodeChrome.horizontalPaddingPx(display.density)
+        upNextBanner = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, NextEpisodeChrome.BUTTON_TEXT_SP)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(0xCC000000.toInt())
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            isVisible = false
+            setPadding(bannerPad, bannerPad, bannerPad, bannerPad)
+        }
+        root.addView(
+            upNextBanner,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            ).apply {
+                setMargins(overscanX, overscanY, overscanX, overscanY)
+            }
+        )
         setContentView(root)
         controlRow = controls
         playerView?.post {
@@ -513,6 +542,43 @@ class PlayerActivity : ComponentActivity() {
      * Show Play next on the playback OSD whenever a series episode has a following episode.
      * Visibility tracks the OSD/overlay — not only end-of-episode.
      */
+    private fun localRecordingFile(url: String): java.io.File? {
+        if (!RecordingFile.isLocalPath(url)) return null
+        val path = if (url.startsWith("file:")) Uri.parse(url).path ?: return null else url
+        return java.io.File(path).takeIf { it.isFile }
+    }
+
+    /** Private recordings go out as a content URI. Remote streams stay as-is. */
+    private fun shareablePlaybackUri(url: String): Uri {
+        val file = localRecordingFile(url) ?: return Uri.parse(url)
+        return FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+    }
+
+    private fun startUpNextWatch() {
+        upNextJob?.cancel()
+        upNextJob = scope.launch {
+            while (true) {
+                refreshUpNextBanner()
+                delay(1_000)
+            }
+        }
+    }
+
+    private fun refreshUpNextBanner() {
+        val banner = upNextBanner ?: return
+        val exo = player
+        val seriesEpisode = mediaKind == ContentKind.SERIES && mediaId.startsWith("series-ep-")
+        val position = exo?.currentPosition ?: 0L
+        val duration = exo?.duration?.takeIf { it > 0L && it != C.TIME_UNSET } ?: 0L
+        val next = cachedNextEpisode
+        val show = next != null && next.streamUrl.isNotBlank() &&
+            UpNextTiming.shouldShow(seriesEpisode, position, duration)
+        banner.isVisible = show
+        if (!show) return
+        val label = next.name.substringAfter(" — ").ifBlank { next.name }
+        banner.text = "Up next: $label"
+    }
+
     private fun refreshPlayNextButton() {
         val btn = playNextButton ?: return
         val seriesEp = mediaKind == ContentKind.SERIES && mediaId.startsWith("series-ep-")
@@ -676,14 +742,17 @@ class PlayerActivity : ComponentActivity() {
             overlay?.isVisible = true
             return
         }
-        val uri = Uri.parse(streamUrl)
+        val uri = shareablePlaybackUri(streamUrl)
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "video/*")
             setPackage(pkg)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            // Help cleartext HTTP streams when VLC needs it
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = ClipData.newRawUri(mediaTitle, uri)
             putExtra("title", mediaTitle)
+        }
+        if (localRecordingFile(streamUrl) != null) {
+            grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         try {
             // Pause built-in so both don't fight for audio.
@@ -830,7 +899,16 @@ class PlayerActivity : ComponentActivity() {
             .setKeepPostFor302Redirects(true)
             .setDefaultRequestProperties(headers)
         val dataSourceFactory = DefaultDataSource.Factory(this, httpFactory)
-        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+        val playPath = playbackUrl.ifBlank { streamUrl }
+        localRecordingFile(playPath)?.let { file ->
+            runCatching { RecordingFile.trimToWholePackets(file) }
+        }
+        val extractors = DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(false)
+        if (RecordingFile.isLocalPath(playPath) && RecordingFile.isTransportStream(playPath)) {
+            extractors.setTsExtractorMode(TsExtractor.MODE_SINGLE_PMT)
+            extractors.setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES)
+        }
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractors)
 
         val playerBuilder = ExoPlayer.Builder(this, renderersFactory)
             .setTrackSelector(trackSelector)
@@ -895,6 +973,7 @@ class PlayerActivity : ComponentActivity() {
                                 .onFailure { showPlaybackFailure(it) }
                             startProgressAutosave()
                             refreshPlayNextButton()
+                            startUpNextWatch()
                             showOverlayTemporarily()
                         }
                         Player.STATE_ENDED -> {
@@ -1486,6 +1565,7 @@ class PlayerActivity : ComponentActivity() {
     override fun onDestroy() {
         savePlaybackProgress()
         progressSaveJob?.cancel()
+        upNextJob?.cancel()
         hideOverlayJob?.cancel()
         bufferWatchJob?.cancel()
         scope.coroutineContext[Job]?.cancel()

@@ -44,5 +44,18 @@ class GuideBulkCacheTest {
         val programs = listOf(EpgProgram("Hour", startMs = 1L, endMs = 2L))
         val indexed = GuideBulkCache.indexByStream(mapOf("cnn.us" to programs), channels)
         assertEquals("Hour", indexed[1]?.single()?.title)
+        val upper = GuideBulkCache.indexByStream(mapOf("CNN.US" to programs), channels)
+        assertEquals("Hour", upper[1]?.single()?.title)
+    }
+
+    @Test
+    fun emptyMarkerRoundTripsAndIsNotRefetchedAsMissing() {
+        val file = File.createTempFile("guide-empty", ".tsv")
+        GuideBulkCache.write(file, mapOf(9 to emptyList()))
+        val read = GuideBulkCache.read(file)
+        assertTrue(read.containsKey(9))
+        assertTrue(read.getValue(9).isEmpty())
+        assertEquals(emptyList(), GuideBulkCache.readChannel(file, 9))
+        assertEquals(null, GuideBulkCache.readChannel(file, 3))
     }
 }

@@ -11,7 +11,8 @@ class SensitiveTextTest {
         val path = SensitiveText.redact("http://example.test/live/alice/secret/12.m3u8")
         assertFalse(path.contains("alice"))
         assertFalse(path.contains("secret"))
-        assertTrue(path.contains("/live/***/***/"))
+        assertFalse(path.contains("example.test"))
+        assertTrue(path.contains("http://server/live/***/***/"))
 
         val shown = SensitiveText.forUser(
             "timeout http://example.test/player_api.php?username=alice&password=secret"

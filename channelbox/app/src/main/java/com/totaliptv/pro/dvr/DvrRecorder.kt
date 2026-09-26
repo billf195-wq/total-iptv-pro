@@ -169,6 +169,10 @@ class DvrRecorder(
         if (entry != null && entry.filePath.isNotBlank()) {
             runCatching { File(entry.filePath).delete() }
         }
+        if (entry != null) {
+            (appContext.applicationContext as? TotalIptvProApp)?.watchProgress
+                ?.clearRecording(entry.id, entry.filePath)
+        }
         lastMessage = "Deleted recording"
         publish()
     }
@@ -228,6 +232,12 @@ class DvrRecorder(
     }
 
     private fun reconcileStale() {
+        store.recordings().forEach { entry ->
+            val file = File(entry.filePath)
+            if (file.isFile && RecordingFile.isTransportStream(entry.filePath)) {
+                runCatching { RecordingFile.trimToWholePackets(file) }
+            }
+        }
         val fixed = RecordingReconcile.interrupted(store.recordings(), activeRef.get()?.entry?.id) { path ->
             runCatching { File(path).length() }.getOrDefault(0L)
         }

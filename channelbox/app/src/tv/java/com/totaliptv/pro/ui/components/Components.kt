@@ -915,6 +915,8 @@ fun NetworkImage(
                 ImageRequest.Builder(context)
                     .data(url)
                     .size(decodeWidth, decodeHeight)
+                    .addHeader("User-Agent", com.totaliptv.pro.data.LogoUrls.USER_AGENT)
+                    .allowHardware(false)
                     .crossfade(false)
                     .build()
             }

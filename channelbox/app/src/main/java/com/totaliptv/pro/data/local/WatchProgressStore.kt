@@ -82,6 +82,19 @@ class WatchProgressStore(context: Context) {
         Log.i(TAG, "saved id=${progress.id} catalog=${progress.catalogId} pos=${progress.positionMs} dur=${progress.durationMs}")
     }
 
+    /** Drop Continue watching rows for a deleted recording (id, rec-id, or file path). */
+    fun clearRecording(recordingId: String, filePath: String?) {
+        if (recordingId.isBlank() && filePath.isNullOrBlank()) return
+        val recId = "rec-$recordingId"
+        val path = filePath?.trim().orEmpty()
+        val next = all().filterNot {
+            it.id == recId ||
+                it.id == recordingId ||
+                (path.isNotEmpty() && it.streamUrl == path)
+        }
+        writeAll(next)
+    }
+
     fun clear(id: String) {
         if (id.isBlank()) return
         val next = all().filterNot { it.id == id || it.catalogId == id }

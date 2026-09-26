@@ -150,6 +150,7 @@ fun DesktopAppRoot(
                     DesktopNavSection.MOVIES -> restoreFocusScope == "desk-movies-grid"
                     DesktopNavSection.SERIES -> restoreFocusScope == "desk-series-grid"
                     DesktopNavSection.FAVORITES -> restoreFocusScope == "desk-fav"
+                    DesktopNavSection.LIVE -> restoreFocusScope == "desk-live"
                     else -> false
                 }
                 if (matches) pendingFocusRestore = true
@@ -376,8 +377,19 @@ fun DesktopAppRoot(
                                     categoryId = categoryId,
                                     onSearch = { search = it },
                                     onCategory = { categoryId = it },
-                                    onPlay = onPlay,
-                                    onRecord = { com.totaliptv.pro.dvr.DvrActions.recordNow(context, it) }
+                                    onPlay = { item ->
+                                        val index = live.indexOfFirst { it.id == item.id }
+                                        restoreFocusId = item.id
+                                        restoreFocusIndex = index
+                                        restoreFocusScope = "desk-live"
+                                        pendingFocusRestore = false
+                                        onPlay(item)
+                                    },
+                                    onRecord = { com.totaliptv.pro.dvr.DvrActions.recordNow(context, it) },
+                                    restoreFocusId = restoreFocusId,
+                                    restoreFocusIndex = restoreFocusIndex,
+                                    pendingFocusRestore = pendingFocusRestore && restoreFocusScope == "desk-live",
+                                    onRestoreConsumed = { consumeFocusRestore() }
                                 )
                                 DesktopNavSection.MOVIES -> BrowseGridPane(
                                     title = "Movies",

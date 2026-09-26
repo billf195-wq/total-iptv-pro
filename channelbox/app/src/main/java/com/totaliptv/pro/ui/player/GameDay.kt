@@ -145,7 +145,9 @@ fun GameDayPicker(
     var left by remember { mutableStateOf(initialLeft) }
     var right by remember { mutableStateOf<MediaItem?>(null) }
     var picking by remember { mutableStateOf<String?>(null) }
+    var returnFocus by remember { mutableStateOf("LEFT") }
     val leftFocus = remember { FocusRequester() }
+    val rightFocus = remember { FocusRequester() }
     val startFocus = remember { FocusRequester() }
 
     BackHandler(enabled = picking == null) { onDismiss() }
@@ -165,6 +167,7 @@ fun GameDayPicker(
                     left = left,
                     right = right,
                     leftFocus = leftFocus,
+                    rightFocus = rightFocus,
                     startFocus = startFocus,
                     onPickLeft = { picking = "LEFT" },
                     onPickRight = { picking = "RIGHT" },
@@ -178,8 +181,9 @@ fun GameDayPicker(
                     },
                     onCancel = onDismiss
                 )
-                LaunchedEffect(Unit) {
-                    runCatching { leftFocus.requestFocus() }
+                LaunchedEffect(returnFocus) {
+                    val target = if (returnFocus == "RIGHT") rightFocus else leftFocus
+                    runCatching { target.requestFocus() }
                 }
             } else {
                 val side = picking ?: "LEFT"
@@ -193,6 +197,7 @@ fun GameDayPicker(
                         val assigned = GameDayChannels.assign(left, right, side, item)
                         left = assigned.first
                         right = assigned.second
+                        returnFocus = side
                         picking = null
                     },
                     onBack = { picking = null }
@@ -208,6 +213,7 @@ private fun SetupSlots(
     left: MediaItem?,
     right: MediaItem?,
     leftFocus: FocusRequester,
+    rightFocus: FocusRequester,
     startFocus: FocusRequester,
     onPickLeft: () -> Unit,
     onPickRight: () -> Unit,
@@ -253,6 +259,7 @@ private fun SetupSlots(
                 channel = right,
                 modifier = Modifier
                     .weight(1f)
+                    .focusRequester(rightFocus)
                     .focusProperties { down = startFocus },
                 onClick = onPickRight
             )

@@ -84,8 +84,16 @@ class CatalogRepository(
     /** When each stream's listings were stored. Reopening the guide reuses them. */
     private val epgCachedAt = ConcurrentHashMap<Int, Long>()
     private val epgGate = EpgRequestGate(GuideEpgLoad.PARALLEL)
+    /** Stream ids present in the xmltv download. Not trimmed with the program map. */
+    private val bulkCovered = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
+    private val epgInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
     @Volatile
     private var bulkGuideReady = false
+    /** Short EPG stays off until the cached xmltv pass has finished. */
+    @Volatile
+    private var shortEpgAllowed = false
+    @Volatile
+    private var guideCacheDir: File? = null
 
     private val repoJob = SupervisorJob()
     private val repoScope = CoroutineScope(repoJob + Dispatchers.IO)
@@ -681,17 +689,56 @@ class CatalogRepository(
     private fun forgetEpg() {
         epgCache.clear()
         epgCachedAt.clear()
+        bulkCovered.clear()
+        epgInFlight.clear()
         bulkGuideReady = false
+        shortEpgAllowed = false
+    }
+
+    private fun storePrograms(sid: Int, programs: List<EpgProgram>, nowMs: Long) {
+        GuideWindow.trimChannelCache(epgCache, sid)
+        GuideWindow.trimChannelCache(epgCachedAt, sid)
+        epgCache[sid] = programs
+        epgCachedAt[sid] = nowMs
     }
 
     private fun rememberBulk(byStream: Map<Int, List<EpgProgram>>, nowMs: Long) {
         for ((sid, programs) in byStream) {
             if (programs.isEmpty()) continue
-            GuideWindow.trimChannelCache(epgCache, sid)
-            GuideWindow.trimChannelCache(epgCachedAt, sid)
-            epgCache[sid] = programs
-            epgCachedAt[sid] = nowMs
+            storePrograms(sid, programs, nowMs)
+            bulkCovered.add(sid)
         }
+    }
+
+    private fun loadFreshShortCache(nowMs: Long) {
+        val file = guideCacheDir?.let { File(it, GuideBulkCache.SHORT_FILE_NAME) } ?: return
+        if (!GuideBulkCache.isFresh(file, nowMs)) return
+        for ((sid, programs) in GuideBulkCache.read(file)) {
+            if (epgCache.containsKey(sid)) continue
+            storePrograms(sid, programs, nowMs)
+        }
+    }
+
+    private fun restoreListing(sid: Int): List<EpgProgram>? {
+        val dir = guideCacheDir ?: return null
+        val now = System.currentTimeMillis()
+        val bulk = File(dir, GuideBulkCache.FILE_NAME)
+        if (GuideBulkCache.isFresh(bulk, now)) {
+            GuideBulkCache.readChannel(bulk, sid)?.let { return it }
+        }
+        val short = File(dir, GuideBulkCache.SHORT_FILE_NAME)
+        if (GuideBulkCache.isFresh(short, now)) {
+            return GuideBulkCache.readChannel(short, sid)
+        }
+        return null
+    }
+
+    private fun persistShort(sid: Int, programs: List<EpgProgram>) {
+        val dir = guideCacheDir ?: return
+        val file = File(dir, GuideBulkCache.SHORT_FILE_NAME)
+        val current = if (file.isFile) GuideBulkCache.read(file).toMutableMap() else mutableMapOf()
+        current[sid] = programs
+        GuideBulkCache.write(file, current)
     }
 
     suspend fun resolvePoster(item: MediaItem): MediaItem = withContext(Dispatchers.IO) {
@@ -777,51 +824,66 @@ class CatalogRepository(
      * A miss falls back to short EPG for visible rows only.
      */
     suspend fun prepareBulkGuideEpg(cacheDir: File) = withContext(Dispatchers.IO) {
-        if (bulkGuideReady) return@withContext
-        val creds = activeXtreamCreds ?: return@withContext
+        guideCacheDir = cacheDir
+        if (bulkGuideReady) {
+            shortEpgAllowed = true
+            return@withContext
+        }
+        val creds = activeXtreamCreds
+        if (creds == null) {
+            shortEpgAllowed = true
+            return@withContext
+        }
         val file = File(cacheDir, GuideBulkCache.FILE_NAME)
         val now = System.currentTimeMillis()
-        if (GuideBulkCache.isFresh(file, now)) {
-            rememberBulk(GuideBulkCache.read(file), now)
-            bulkGuideReady = epgCache.isNotEmpty()
-            if (bulkGuideReady) return@withContext
-        }
-        val start = GuideWindow.snapStart(now)
-        val end = GuideWindow.windowEndMs(start, GuideWindow.MAX_HOURS)
-        val url = GuideBulkCache.xmltvUrl(creds.baseUrl, creds.username, creds.password)
-        epgGate.acquire()
-        val parsed = try {
-            val bulkHttp = http.newBuilder()
-                .readTimeout(180, TimeUnit.SECONDS)
-                .callTimeout(180, TimeUnit.SECONDS)
-                .build()
-            val req = Request.Builder().url(url).header("User-Agent", "TotalIPTVPro/1.4").get().build()
-            bulkHttp.newCall(req).execute().use { resp ->
-                if (resp.code == 429) throw XtreamApi.RateLimited("xmltv")
-                if (!resp.isSuccessful) return@use emptyMap()
-                val stream = resp.body?.byteStream() ?: return@use emptyMap()
-                XmltvParser.parseStream(
-                    stream,
-                    isGzipHint = url.endsWith(".gz", ignoreCase = true),
-                    windowStartMs = start,
-                    windowEndMs = end,
-                    keepDescription = false
-                )
+        try {
+            if (GuideBulkCache.isFresh(file, now)) {
+                rememberBulk(GuideBulkCache.read(file), now)
+                loadFreshShortCache(now)
+                bulkGuideReady = epgCache.isNotEmpty() || bulkCovered.isNotEmpty()
+                if (bulkGuideReady) return@withContext
             }
-        } catch (e: XtreamApi.RateLimited) {
-            epgGate.onRateLimited()
-            emptyMap()
-        } catch (_: Throwable) {
-            emptyMap()
+            val start = GuideWindow.snapStart(now)
+            val end = GuideWindow.windowEndMs(start, GuideWindow.MAX_HOURS)
+            val url = GuideBulkCache.xmltvUrl(creds.baseUrl, creds.username, creds.password)
+            epgGate.acquire()
+            val parsed = try {
+                val bulkHttp = http.newBuilder()
+                    .readTimeout(180, TimeUnit.SECONDS)
+                    .callTimeout(180, TimeUnit.SECONDS)
+                    .build()
+                val req = Request.Builder().url(url).header("User-Agent", "TotalIPTVPro/1.4").get().build()
+                bulkHttp.newCall(req).execute().use { resp ->
+                    if (resp.code == 429) throw XtreamApi.RateLimited("xmltv")
+                    if (!resp.isSuccessful) return@use emptyMap()
+                    val stream = resp.body?.byteStream() ?: return@use emptyMap()
+                    XmltvParser.parseStream(
+                        stream,
+                        isGzipHint = url.endsWith(".gz", ignoreCase = true),
+                        windowStartMs = start,
+                        windowEndMs = end,
+                        keepDescription = false
+                    )
+                }
+            } catch (e: XtreamApi.RateLimited) {
+                epgGate.onRateLimited()
+                emptyMap()
+            } catch (_: Throwable) {
+                emptyMap()
+            } finally {
+                epgGate.release()
+            }
+            val indexed = GuideBulkCache.indexByStream(parsed, liveSiblings())
+            if (indexed.isNotEmpty()) {
+                rememberBulk(indexed, now)
+                runCatching { GuideBulkCache.write(file, indexed) }
+                epgGate.onSuccess()
+                bulkGuideReady = true
+            }
+            loadFreshShortCache(now)
         } finally {
-            epgGate.release()
+            shortEpgAllowed = true
         }
-        val indexed = GuideBulkCache.indexByStream(parsed, liveSiblings())
-        if (indexed.isEmpty()) return@withContext
-        rememberBulk(indexed, now)
-        runCatching { GuideBulkCache.write(file, indexed) }
-        epgGate.onSuccess()
-        bulkGuideReady = true
     }
 
     /** One channel’s EPG (cached or fetch). Caller updates that row; do not awaitAll the category. */
@@ -832,6 +894,25 @@ class CatalogRepository(
             return peekCachedGuideRow(channel)
         }
         cachedRow()?.let { return@withContext it }
+        val sid = channel.xtreamStreamId
+        val now = System.currentTimeMillis()
+        val covered = sid != null && sid in bulkCovered
+        val inFlight = sid != null && sid in epgInFlight
+        if (covered || !GuideEpgLoad.shouldFetchShort(
+                cachedAtMs = sid?.let { epgCachedAt[it] } ?: 0L,
+                nowMs = now,
+                bulkCovers = covered,
+                inFlight = inFlight,
+                shortAllowed = shortEpgAllowed
+            )
+        ) {
+            val programs = loadPrograms(channel)
+            return@withContext EpgChannelRow(
+                channel = channel,
+                programs = programs,
+                nowNext = xtreamApi.nowNextFromPrograms(programs)
+            )
+        }
         epgGate.acquire()
         try {
             cachedRow()?.let { return@withContext it }
@@ -881,32 +962,66 @@ class CatalogRepository(
         }
         // Always key EPG by Xtream stream_id — never channel num / list index / epg_channel_id string.
         val sid = item.xtreamStreamId ?: return emptyList()
+        val now = System.currentTimeMillis()
+        fun fromCache(programs: List<EpgProgram>): List<EpgProgram> {
+            val bound = LiveEpgBinding.bindForDisplay(item, programs, liveSiblings())
+            return GuideWindow.retain(bound, horizonStart, horizonEnd)
+        }
         val cached = epgCache[sid]
-        if (cached != null && GuideEpgLoad.cacheFresh(epgCachedAt[sid] ?: 0L, System.currentTimeMillis())) {
-            val bound = LiveEpgBinding.bindForDisplay(item, cached, liveSiblings())
+        val cachedAt = epgCachedAt[sid] ?: 0L
+        if (cached != null && GuideEpgLoad.cacheFresh(cachedAt, now)) {
+            val bound = fromCache(cached)
             Log.d(
                 "TotalIPTV.Guide",
                 "epgCacheHit name=${item.name} id=${item.id} sid=$sid num=${item.channelNum} programs=${bound.size} first=${bound.firstOrNull()?.title}"
             )
-            return GuideWindow.retain(bound, horizonStart, horizonEnd)
+            return bound
         }
-        val short = xtreamApi.fetchShortEpg(creds, sid, limit = GuideWindow.LISTING_LIMIT)
-        val programs = if (short.isNotEmpty()) short else xtreamApi.fetchSimpleEpgTable(creds, sid)
-        // Cache only the guide horizon. A simple-data-table fallback can be a full day.
-        val kept = GuideWindow.retain(programs, horizonStart, horizonEnd)
-        val bound = LiveEpgBinding.bindForDisplay(item, kept, liveSiblings())
-        Log.i(
-            "TotalIPTV.Guide",
-            "epgBind name=${item.name} id=${item.id} sid=$sid num=${item.channelNum} epgCh=${item.epgChannelId} programs=${bound.size} first=${bound.firstOrNull()?.title}"
-        )
-        if (kept.isNotEmpty()) {
-            // Cache raw listings so bind can re-run with current nowMs / siblings.
-            GuideWindow.trimChannelCache(epgCache, sid)
-            GuideWindow.trimChannelCache(epgCachedAt, sid)
-            epgCache[sid] = kept
-            epgCachedAt[sid] = System.currentTimeMillis()
+        if (sid in bulkCovered) {
+            val restored = cached ?: restoreListing(sid) ?: emptyList()
+            if (cached == null) storePrograms(sid, restored, now)
+            return fromCache(restored)
         }
-        return bound
+        if (!GuideEpgLoad.shouldFetchShort(
+                cachedAtMs = cachedAt,
+                nowMs = now,
+                bulkCovers = false,
+                inFlight = sid in epgInFlight,
+                shortAllowed = shortEpgAllowed
+            )
+        ) {
+            return if (cached != null) fromCache(cached) else emptyList()
+        }
+        if (!epgInFlight.add(sid)) {
+            val deadline = System.currentTimeMillis() + 20_000L
+            while (sid in epgInFlight && System.currentTimeMillis() < deadline) {
+                Thread.sleep(40)
+            }
+            val done = epgCache[sid]
+            return if (done != null) fromCache(done) else emptyList()
+        }
+        try {
+            val again = epgCache[sid]
+            val againAt = epgCachedAt[sid] ?: 0L
+            if (again != null && GuideEpgLoad.cacheFresh(againAt, System.currentTimeMillis())) {
+                return fromCache(again)
+            }
+            val short = xtreamApi.fetchShortEpg(creds, sid, limit = GuideWindow.LISTING_LIMIT)
+            val programs = if (short.isNotEmpty()) short else xtreamApi.fetchSimpleEpgTable(creds, sid)
+            // Cache the horizon even when it is empty so a miss is not fetched on every scroll.
+            val kept = GuideWindow.retain(programs, horizonStart, horizonEnd)
+            val stamp = System.currentTimeMillis()
+            storePrograms(sid, kept, stamp)
+            runCatching { persistShort(sid, kept) }
+            val bound = fromCache(kept)
+            Log.i(
+                "TotalIPTV.Guide",
+                "epgBind name=${item.name} id=${item.id} sid=$sid num=${item.channelNum} epgCh=${item.epgChannelId} programs=${bound.size} first=${bound.firstOrNull()?.title}"
+            )
+            return bound
+        } finally {
+            epgInFlight.remove(sid)
+        }
     }
 
     private fun liveSiblings(): List<MediaItem> =

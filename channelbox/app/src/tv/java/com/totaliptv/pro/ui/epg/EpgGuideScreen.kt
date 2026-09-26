@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
@@ -163,9 +164,11 @@ fun EpgGuideScreen(
     // Bumps on every category load so a stale click from a prior category cannot play.
     var guideLoadGen by remember { mutableStateOf(0) }
     var showGameDay by remember { mutableStateOf(false) }
+    var bulkSettled by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedCategoryId) {
         // Always rebind EPG for the visible channel set on category chip change.
+        bulkSettled = false
         val myGen = guideLoadGen + 1
         guideLoadGen = myGen
         status = "Loading guide… | $selectedCategoryName"
@@ -182,6 +185,7 @@ fun EpgGuideScreen(
                 "No channels in $selectedCategoryName."
             }
             loading = false
+            bulkSettled = true
             return@LaunchedEffect
         }
 
@@ -192,6 +196,7 @@ fun EpgGuideScreen(
 
         if (!repository.hasXtreamEpg()) {
             status = "EPG requires an Xtream source. Showing channel list only. | $selectedCategoryName"
+            bulkSettled = true
             return@LaunchedEffect
         }
 
@@ -214,10 +219,11 @@ fun EpgGuideScreen(
         } else {
             "Timeline | $n channels | $selectedCategoryName | ${timeFmt.format(Date())}"
         }
+        bulkSettled = true
     }
 
-    LaunchedEffect(selectedCategoryId, listState) {
-        if (!repository.hasXtreamEpg()) return@LaunchedEffect
+    LaunchedEffect(selectedCategoryId, listState, bulkSettled) {
+        if (!bulkSettled || !repository.hasXtreamEpg()) return@LaunchedEffect
         var batch: kotlinx.coroutines.Job? = null
         snapshotFlow {
             val first = listState.firstVisibleItemIndex.coerceAtLeast(0)
@@ -243,30 +249,48 @@ fun EpgGuideScreen(
                 if (order.isEmpty()) return@collect
                 batch?.cancel()
                 batch = launch {
-                supervisorScope {
-                    for (idx in order) {
-                        val ch = channels.getOrNull(idx) ?: continue
-                        launch {
-                            val filled = withContext(Dispatchers.IO) {
-                                try {
-                                    repository.loadGuideRow(ch)
-                                } catch (ce: CancellationException) {
-                                    throw ce
-                                } catch (_: Throwable) {
-                                    EpgChannelRow(channel = ch)
-                                }
-                            }
-                            if (!isActive || guideLoadGen != gen) return@launch
-                            val nowFirst = listState.firstVisibleItemIndex.coerceAtLeast(0)
-                            val nowVisible = listState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(8)
-                            val stillNear = idx in nowFirst until (nowFirst + nowVisible + GuideEpgLoad.BUFFER_ROWS)
-                            if (!stillNear) return@launch
-                            rows = GuideEpgLoad.applyRow(rows, filled)
-                            val n = rows.count { it.programs.isNotEmpty() || it.nowNext.now != null }
-                            status = "Timeline | $n / ${channels.size} | $selectedCategoryName"
+                    val pending = ArrayDeque<EpgChannelRow>()
+                    fun drain(): List<EpgChannelRow> = synchronized(pending) {
+                        if (pending.isEmpty()) emptyList() else pending.toList().also { pending.clear() }
+                    }
+                    fun paint(snap: List<EpgChannelRow>) {
+                        if (snap.isEmpty() || guideLoadGen != gen) return
+                        var next = rows
+                        for (filled in snap) next = GuideEpgLoad.applyRow(next, filled)
+                        rows = next
+                        val n = rows.count { it.programs.isNotEmpty() || it.nowNext.now != null }
+                        status = "Timeline | $n / ${channels.size} | $selectedCategoryName"
+                    }
+                    val flusher = launch {
+                        while (isActive) {
+                            delay(GuideEpgLoad.UI_BATCH_MS)
+                            paint(drain())
                         }
                     }
-                }
+                    supervisorScope {
+                        for (idx in order) {
+                            val ch = channels.getOrNull(idx) ?: continue
+                            launch {
+                                val filled = withContext(Dispatchers.IO) {
+                                    try {
+                                        repository.loadGuideRow(ch)
+                                    } catch (ce: CancellationException) {
+                                        throw ce
+                                    } catch (_: Throwable) {
+                                        EpgChannelRow(channel = ch)
+                                    }
+                                }
+                                if (!isActive || guideLoadGen != gen) return@launch
+                                val nowFirst = listState.firstVisibleItemIndex.coerceAtLeast(0)
+                                val nowVisible = listState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(8)
+                                val stillNear = idx in nowFirst until (nowFirst + nowVisible + GuideEpgLoad.BUFFER_ROWS)
+                                if (!stillNear) return@launch
+                                synchronized(pending) { pending.add(filled) }
+                            }
+                        }
+                    }
+                    flusher.cancel()
+                    paint(drain())
                 }
             }
     }
@@ -624,7 +648,7 @@ private fun TimelineRow(
                     contentAlignment = Alignment.Center
                 ) {
                     NetworkImage(
-                        url = row.channel.logoUrl,
+                        url = com.totaliptv.pro.data.LogoUrls.forPlayback(row.channel.streamUrl, row.channel.logoUrl),
                         contentDescription = row.channel.name,
                         modifier = Modifier.fillMaxSize().padding(3.dp),
                         contentScale = ContentScale.Fit,

@@ -11,10 +11,14 @@ object SensitiveText {
     private val privateIp = Regex(
         """\b(?:192\.168(?:\.\d{1,3}){2}|10(?:\.\d{1,3}){3}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})\b"""
     )
+    private val urlHost = Regex("""(?i)\bhttps?://[^/\s?#]+""")
 
     fun redact(raw: String?): String {
         if (raw.isNullOrBlank()) return ""
-        return pathSecret.replace(querySecret.replace(raw, "$1***"), "$1***/***/")
+        val secrets = pathSecret.replace(querySecret.replace(raw, "$1***"), "$1***/***/")
+        return urlHost.replace(secrets) { match ->
+            if (match.value.startsWith("https://", ignoreCase = true)) "https://server" else "http://server"
+        }
     }
 
     /** Logcat line: exception type plus a redacted message, never the raw stack. */

@@ -44,7 +44,7 @@ class GuideEpgLoadTest {
             alreadyStarted = emptySet()
         )
         assertEquals(GuideEpgLoad.PARALLEL, batch.size)
-        assertEquals((40 until 43).toList(), batch)
+        assertEquals((40 until 42).toList(), batch)
     }
 
     @Test
@@ -105,6 +105,57 @@ class GuideEpgLoadTest {
     }
 
     @Test
+    fun emptyResultStaysCachedAndXmltvSkipsShortEpg() {
+        val now = 1_000_000L
+        assertTrue(GuideEpgLoad.cacheFresh(now - 1_000L, now))
+        assertFalse(
+            GuideEpgLoad.shouldFetchShort(
+                cachedAtMs = now - 1_000L,
+                nowMs = now,
+                bulkCovers = false,
+                inFlight = false,
+                shortAllowed = true
+            )
+        )
+        assertFalse(
+            GuideEpgLoad.shouldFetchShort(
+                cachedAtMs = 0L,
+                nowMs = now,
+                bulkCovers = true,
+                inFlight = false,
+                shortAllowed = true
+            )
+        )
+        assertFalse(
+            GuideEpgLoad.shouldFetchShort(
+                cachedAtMs = 0L,
+                nowMs = now,
+                bulkCovers = false,
+                inFlight = true,
+                shortAllowed = true
+            )
+        )
+        assertFalse(
+            GuideEpgLoad.shouldFetchShort(
+                cachedAtMs = 0L,
+                nowMs = now,
+                bulkCovers = false,
+                inFlight = false,
+                shortAllowed = false
+            )
+        )
+        assertTrue(
+            GuideEpgLoad.shouldFetchShort(
+                cachedAtMs = 0L,
+                nowMs = now,
+                bulkCovers = false,
+                inFlight = false,
+                shortAllowed = true
+            )
+        )
+    }
+
+    @Test
     fun applyRowReplacesMatchingChannelOnly() {
         fun live(id: String, name: String) = MediaItem(
             id = id,
@@ -154,7 +205,7 @@ class GuideEpgLoadTest {
         assertTrue(repo.contains("fun peekCachedGuideRow"))
         assertTrue(repo.contains("suspend fun loadGuideRow"))
         assertTrue(repo.contains("xtreamApi.fetchShortEpg"))
-        assertEquals(3, GuideEpgLoad.PARALLEL)
+        assertEquals(2, GuideEpgLoad.PARALLEL)
         assertEquals(4, GuideEpgLoad.BUFFER_ROWS)
     }
 }
