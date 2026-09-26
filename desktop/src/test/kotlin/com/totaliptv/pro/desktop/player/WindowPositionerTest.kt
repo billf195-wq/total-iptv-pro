@@ -107,30 +107,60 @@ class WindowPositionerTest {
     }
 
     @Test
-    fun linuxHalfCoversTheFullMonitorHeight() {
-        val monitors = listOf(
+    fun linuxHalvesStayInsideTheMonitorWorkArea() {
+        val hdmi = WindowPositioner.ScreenBounds(0, 0, 1920, 1080)
+        val dp1 = WindowPositioner.ScreenBounds(1920, 0, 1920, 1080)
+        val gtk = listOf(
             WindowPositioner.ScreenBounds(0, 0, 1920, 1080),
-            WindowPositioner.ScreenBounds(1920, 0, 1920, 1080)
+            WindowPositioner.ScreenBounds(1920, 40, 1920, 993)
         )
-        val left = WindowPositioner.coverFullMonitorHeight(
-            WindowPositioner.ScreenBounds(1920, 37, 960, 1043),
-            monitors
-        )
-        val right = WindowPositioner.coverFullMonitorHeight(
-            WindowPositioner.ScreenBounds(2880, 37, 960, 1043),
-            monitors
-        )
-        assertEquals(WindowPositioner.ScreenBounds(1920, 0, 960, 1080), left)
-        assertEquals(WindowPositioner.ScreenBounds(2880, 0, 960, 1080), right)
-        assertEquals(2880, left.x + left.width)
+        val dpWork = LinuxX11WindowPlacer.usableWorkArea(dp1, gtk, null)
+        assertEquals(WindowPositioner.ScreenBounds(1920, 40, 1920, 993), dpWork)
+        val (left, right) = LinuxX11WindowPlacer.halvesInWorkArea(dp1, dpWork)
+        assertEquals(WindowPositioner.ScreenBounds(1920, 40, 960, 993), left)
+        assertEquals(WindowPositioner.ScreenBounds(2880, 40, 960, 993), right)
         assertEquals(right.x, left.x + left.width)
-        assertEquals(monitors[1].y + monitors[1].height, left.y + left.height)
 
-        val unchanged = WindowPositioner.coverFullMonitorHeight(
-            WindowPositioner.ScreenBounds(1920, 37, 960, 1043),
-            emptyList()
+        val requestedLeft = WindowPositioner.ScreenBounds(1920, 0, 960, 1080)
+        val requestedRight = WindowPositioner.ScreenBounds(2880, 0, 960, 1080)
+        assertEquals(left, LinuxX11WindowPlacer.halfInsideWorkArea(requestedLeft, dp1, gtk, null))
+        assertEquals(right, LinuxX11WindowPlacer.halfInsideWorkArea(requestedRight, dp1, gtk, null))
+
+        val hdmiWork = LinuxX11WindowPlacer.usableWorkArea(hdmi, gtk, null)
+        assertEquals(hdmi, hdmiWork)
+
+        val netOnly = LinuxX11WindowPlacer.usableWorkArea(
+            dp1,
+            emptyList(),
+            WindowPositioner.ScreenBounds(0, 40, 3840, 993)
         )
-        assertEquals(WindowPositioner.ScreenBounds(1920, 37, 960, 1043), unchanged)
+        assertEquals(WindowPositioner.ScreenBounds(1920, 40, 1920, 993), netOnly)
+        val (netLeft, netRight) = WindowPositioner.splitHalves(netOnly)
+        assertEquals(WindowPositioner.ScreenBounds(1920, 40, 960, 993), netLeft)
+        assertEquals(WindowPositioner.ScreenBounds(2880, 40, 960, 993), netRight)
+
+        assertEquals(dp1, LinuxX11WindowPlacer.usableWorkArea(dp1, emptyList(), null))
+
+        val gtkValues = listOf(0L, 0L, 1920L, 1080L, 1920L, 40L, 1920L, 993L)
+        assertEquals(gtk, LinuxX11WindowPlacer.cardinalRects(gtkValues))
+        val netValues = listOf(0L, 40L, 3840L, 993L)
+        assertEquals(
+            WindowPositioner.ScreenBounds(0, 40, 3840, 993),
+            LinuxX11WindowPlacer.cardinalRect(netValues, 0)
+        )
+
+        assertTrue(
+            LinuxX11WindowPlacer.geometryMatches(
+                WindowPositioner.ScreenBounds(1922, 42, 958, 991),
+                WindowPositioner.ScreenBounds(1920, 40, 960, 993)
+            )
+        )
+        assertFalse(
+            LinuxX11WindowPlacer.geometryMatches(
+                WindowPositioner.ScreenBounds(960, 0, 960, 1080),
+                WindowPositioner.ScreenBounds(1920, 40, 960, 993)
+            )
+        )
     }
 
     @Test

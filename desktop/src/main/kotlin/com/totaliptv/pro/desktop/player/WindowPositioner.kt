@@ -126,24 +126,6 @@ object WindowPositioner {
         return awtWorkArea()
     }
 
-    /**
-     * Stretch a Game Day half to the full height of the monitor that contains it.
-     * GNOME may still reserve the top bar; the request is the whole output.
-     * The half's x and width stay put so the two pictures still meet.
-     */
-    fun coverFullMonitorHeight(half: ScreenBounds, monitors: List<ScreenBounds>): ScreenBounds {
-        if (monitors.isEmpty() || half.width <= 0 || half.height <= 0) return half
-        val cx = half.x + half.width / 2
-        val cy = half.y + half.height / 2
-        val monitor = monitors.firstOrNull { m ->
-            cx >= m.x && cx < m.x + m.width && cy >= m.y && cy < m.y + m.height
-        } ?: monitors.firstOrNull { m ->
-            half.x >= m.x && half.x < m.x + m.width
-        } ?: return half
-        if (monitor.height <= 0) return half
-        return ScreenBounds(half.x, monitor.y, half.width, monitor.height)
-    }
-
     internal fun awtMonitorBounds(): List<ScreenBounds> {
         return try {
             GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices.map { device ->

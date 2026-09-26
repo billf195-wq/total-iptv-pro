@@ -29,6 +29,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * The window is matched to the VLC pid with XRes (`XResQueryClientIds` on
  * libXRes.so.1). If that library is missing, `_NET_WM_PID` is used instead.
+ *
+ * Each half is fitted to that monitor's usable work area (`_GTK_WORKAREAS_D*`,
+ * else the monitor clipped to `_NET_WORKAREA`). A 1080-tall window does not
+ * fit DP-1 under the GNOME top bar, and GNOME then moves it to the other output.
  */
 object LinuxX11WindowPlacer {
     private const val CLIENT_MESSAGE = 33
@@ -45,6 +49,7 @@ object LinuxX11WindowPlacer {
     private const val XEVENT_BYTES = 192
     private const val CW_OVERRIDE_REDIRECT = 512L
     private const val MIN_VIDEO_PX = 80
+    private const val PLACEMENT_TOLERANCE_PX = 4
 
     private val handlerInstalled = AtomicBoolean(false)
     private val swallowXErrors = object : X11ErrorHandler {
@@ -68,30 +73,37 @@ object LinuxX11WindowPlacer {
             PlaybackDebugLog.note("split-x11: unsupported pointer size ${Native.LONG_SIZE}")
             return
         }
-        val target = WindowPositioner.coverFullMonitorHeight(
-            ScreenBounds(x, y, width, height),
-            WindowPositioner.awtMonitorBounds()
-        )
+        val requested = ScreenBounds(x, y, width, height)
         scope.launch(Dispatchers.IO) {
             var loggedPlace = false
             var loggedMiss = false
             var misses = 0
-            for (i in 0 until 80) {
-                if (!isActive) return@launch
-                if (process != null && !process.isAlive) return@launch
-                when (val result = runCatching { placePid(pid, target) }.getOrElse { PlaceResult.Failed(it.message) }) {
+            var lastMismatch: String? = null
+            fun noteResult(result: PlaceResult): Boolean {
+                when (result) {
                     is PlaceResult.Unavailable -> {
                         PlaybackDebugLog.note("split-x11: ${result.detail}")
-                        return@launch
+                        return true
                     }
                     is PlaceResult.Placed -> {
                         if (!loggedPlace) {
                             PlaybackDebugLog.note(
                                 "split-x11: placed pid=$pid via ${result.pidSource} " +
                                     "window=0x${result.window.toString(16)} " +
-                                    "at ${target.x},${target.y} ${target.width}x${target.height}"
+                                    "at ${boundsText(result.actual)}"
                             )
                             loggedPlace = true
+                        }
+                    }
+                    is PlaceResult.Misplaced -> {
+                        val actual = boundsText(result.actual)
+                        if (actual != lastMismatch) {
+                            PlaybackDebugLog.note(
+                                "split-x11: pid=$pid wanted ${boundsText(result.wanted)} " +
+                                    "but window is $actual"
+                            )
+                            lastMismatch = actual
+                            loggedPlace = false
                         }
                     }
                     is PlaceResult.NotYet -> {
@@ -108,12 +120,20 @@ object LinuxX11WindowPlacer {
                         }
                     }
                 }
+                return false
+            }
+            for (i in 0 until 80) {
+                if (!isActive) return@launch
+                if (process != null && !process.isAlive) return@launch
+                val result = runCatching { placePid(pid, requested) }.getOrElse { PlaceResult.Failed(it.message) }
+                if (noteResult(result)) return@launch
                 delay(150)
             }
             while (isActive) {
                 if (process != null && !process.isAlive) break
                 delay(1000)
-                runCatching { placePid(pid, target) }
+                val result = runCatching { placePid(pid, requested) }.getOrElse { PlaceResult.Failed(it.message) }
+                if (noteResult(result)) break
             }
         }
     }
@@ -177,7 +197,83 @@ object LinuxX11WindowPlacer {
 
     internal fun xresSpecFieldOffset(name: String): Int = XResClientIdSpec().offsetOf(name)
 
-    private fun placePid(pid: Long, target: ScreenBounds): PlaceResult {
+    /**
+     * Usable rectangle for [monitor]. Prefer the `_GTK_WORKAREAS_D*` entry that
+     * intersects it, else the monitor clipped to `_NET_WORKAREA`, else the monitor.
+     */
+    internal fun usableWorkArea(
+        monitor: ScreenBounds,
+        gtkWorkAreas: List<ScreenBounds>,
+        netWorkArea: ScreenBounds?
+    ): ScreenBounds {
+        val gtk = gtkWorkAreas
+            .mapNotNull { area -> intersectRects(monitor, area) }
+            .maxByOrNull { it.width.toLong() * it.height }
+        if (gtk != null) return gtk
+        if (netWorkArea != null) {
+            intersectRects(monitor, netWorkArea)?.let { return it }
+        }
+        return monitor
+    }
+
+    /** Left and right halves of a monitor's usable work area. */
+    internal fun halvesInWorkArea(monitor: ScreenBounds, workArea: ScreenBounds): Pair<ScreenBounds, ScreenBounds> {
+        return WindowPositioner.splitHalves(usableWorkArea(monitor, listOf(workArea), null))
+    }
+
+    /**
+     * Map a requested half (from the full monitor) onto the left or right half
+     * of that monitor's usable work area.
+     */
+    internal fun halfInsideWorkArea(
+        requested: ScreenBounds,
+        monitor: ScreenBounds,
+        gtkWorkAreas: List<ScreenBounds>,
+        netWorkArea: ScreenBounds?
+    ): ScreenBounds {
+        val usable = usableWorkArea(monitor, gtkWorkAreas, netWorkArea)
+        val (left, right) = WindowPositioner.splitHalves(usable)
+        return if (isLeftHalf(requested, monitor)) left else right
+    }
+
+    internal fun geometryMatches(actual: ScreenBounds, target: ScreenBounds, tolerance: Int = PLACEMENT_TOLERANCE_PX): Boolean {
+        return kotlin.math.abs(actual.x - target.x) <= tolerance &&
+            kotlin.math.abs(actual.y - target.y) <= tolerance &&
+            kotlin.math.abs(actual.width - target.width) <= tolerance &&
+            kotlin.math.abs(actual.height - target.height) <= tolerance
+    }
+
+    internal fun cardinalRects(values: List<Long>): List<ScreenBounds> {
+        val rects = mutableListOf<ScreenBounds>()
+        var index = 0
+        while (index * 4 + 3 < values.size) {
+            cardinalRect(values, index)?.let { rects += it }
+            index++
+        }
+        return rects
+    }
+
+    internal fun cardinalRect(values: List<Long>, index: Int): ScreenBounds? {
+        val i = index * 4
+        if (i < 0 || i + 3 >= values.size) return null
+        val width = values[i + 2].toInt()
+        val height = values[i + 3].toInt()
+        if (width <= 0 || height <= 0) return null
+        return ScreenBounds(values[i].toInt(), values[i + 1].toInt(), width, height)
+    }
+
+    internal fun intersectRects(a: ScreenBounds, b: ScreenBounds): ScreenBounds? {
+        val x1 = maxOf(a.x, b.x)
+        val y1 = maxOf(a.y, b.y)
+        val x2 = minOf(a.x + a.width, b.x + b.width)
+        val y2 = minOf(a.y + a.height, b.y + b.height)
+        val width = x2 - x1
+        val height = y2 - y1
+        if (width <= 0 || height <= 0) return null
+        return ScreenBounds(x1, y1, width, height)
+    }
+
+    private fun placePid(pid: Long, requested: ScreenBounds): PlaceResult {
         val x11 = x11OrNull() ?: return PlaceResult.Unavailable("libX11 unavailable")
         val dpy = x11.XOpenDisplay(null) ?: return PlaceResult.Unavailable("XOpenDisplay failed")
         ensureErrorHandler(x11)
@@ -199,15 +295,77 @@ object LinuxX11WindowPlacer {
             }
             val video = chooseVideo(x11, dpy, mine) ?: return PlaceResult.NotYet("no video-sized window")
             val source = pidSource(x11, dpy, video, pid)
+            val target = resolveWorkAreaHalf(x11, dpy, root, requested)
             if (!moveWindow(x11, dpy, root, video, target)) {
                 return PlaceResult.Failed("XMoveResizeWindow")
             }
-            x11.XFlush(dpy)
-            return PlaceResult.Placed(video, source)
+            x11.XSync(dpy, 0)
+            val actual = windowBounds(x11, dpy, root, video)
+                ?: return PlaceResult.NotYet("no geometry after move")
+            if (!geometryMatches(actual, target)) {
+                return PlaceResult.Misplaced(video, target, actual)
+            }
+            return PlaceResult.Placed(video, source, actual)
         } finally {
             runCatching { x11.XCloseDisplay(dpy) }
         }
     }
+
+    private fun resolveWorkAreaHalf(x11: X11Lib, dpy: Pointer, root: Long, requested: ScreenBounds): ScreenBounds {
+        val monitor = monitorContaining(requested, WindowPositioner.awtMonitorBounds()) ?: return requested
+        val desktop = currentDesktop(x11, dpy, root)
+        val gtk = readGtkWorkAreas(x11, dpy, root, desktop)
+        val net = readNetWorkArea(x11, dpy, root, desktop)
+        return halfInsideWorkArea(requested, monitor, gtk, net)
+    }
+
+    private fun currentDesktop(x11: X11Lib, dpy: Pointer, root: Long): Int {
+        val atom = intern(x11, dpy, "_NET_CURRENT_DESKTOP", onlyIfExists = true) ?: return 0
+        return readProperty(x11, dpy, root, atom, XA_CARDINAL, 4)
+            .firstOrNull()
+            ?.toInt()
+            ?.coerceAtLeast(0)
+            ?: 0
+    }
+
+    private fun readGtkWorkAreas(x11: X11Lib, dpy: Pointer, root: Long, desktop: Int): List<ScreenBounds> {
+        val atom = intern(x11, dpy, "_GTK_WORKAREAS_D$desktop", onlyIfExists = true) ?: return emptyList()
+        return cardinalRects(readProperty(x11, dpy, root, atom, XA_CARDINAL, 256))
+    }
+
+    private fun readNetWorkArea(x11: X11Lib, dpy: Pointer, root: Long, desktop: Int): ScreenBounds? {
+        val atom = intern(x11, dpy, "_NET_WORKAREA", onlyIfExists = true) ?: return null
+        val values = readProperty(x11, dpy, root, atom, XA_CARDINAL, 64)
+        return cardinalRect(values, desktop) ?: cardinalRect(values, 0)
+    }
+
+    private fun monitorContaining(target: ScreenBounds, monitors: List<ScreenBounds>): ScreenBounds? {
+        if (monitors.isEmpty()) return null
+        val cx = target.x + target.width / 2
+        val cy = target.y + target.height / 2
+        monitors.firstOrNull { m ->
+            cx >= m.x && cx < m.x + m.width && cy >= m.y && cy < m.y + m.height
+        }?.let { return it }
+        return monitors
+            .mapNotNull { monitor -> intersectRects(target, monitor)?.let { monitor to it } }
+            .maxByOrNull { it.second.width.toLong() * it.second.height }
+            ?.first
+    }
+
+    private fun isLeftHalf(requested: ScreenBounds, monitor: ScreenBounds): Boolean {
+        val mid = monitor.x + monitor.width / 2
+        val cx = requested.x + requested.width / 2
+        return cx < mid
+    }
+
+    private fun windowBounds(x11: X11Lib, dpy: Pointer, root: Long, window: Long): ScreenBounds? {
+        val origin = rootOrigin(x11, dpy, window, root) ?: return null
+        val size = geometry(x11, dpy, window) ?: return null
+        return ScreenBounds(origin.first, origin.second, size.first, size.second)
+    }
+
+    private fun boundsText(bounds: ScreenBounds): String =
+        "${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}"
 
     private fun moveWindow(x11: X11Lib, dpy: Pointer, root: Long, window: Long, target: ScreenBounds): Boolean {
         clearMotifDecorations(x11, dpy, window)
@@ -436,8 +594,8 @@ object LinuxX11WindowPlacer {
         x11.XChangeWindowAttributes(dpy, NativeLong(window), NativeLong(CW_OVERRIDE_REDIRECT), attrs)
     }
 
-    private fun intern(x11: X11Lib, dpy: Pointer, name: String): Long? {
-        val atom = x11.XInternAtom(dpy, name, 0).toLong()
+    private fun intern(x11: X11Lib, dpy: Pointer, name: String, onlyIfExists: Boolean = false): Long? {
+        val atom = x11.XInternAtom(dpy, name, if (onlyIfExists) 1 else 0).toLong()
         return atom.takeIf { it != 0L }
     }
 
@@ -515,7 +673,8 @@ object LinuxX11WindowPlacer {
     )
 
     private sealed class PlaceResult {
-        data class Placed(val window: Long, val pidSource: String) : PlaceResult()
+        data class Placed(val window: Long, val pidSource: String, val actual: ScreenBounds) : PlaceResult()
+        data class Misplaced(val window: Long, val wanted: ScreenBounds, val actual: ScreenBounds) : PlaceResult()
         data class NotYet(val detail: String) : PlaceResult()
         data class Unavailable(val detail: String) : PlaceResult()
         data class Failed(val detail: String?) : PlaceResult()
