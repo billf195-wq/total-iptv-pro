@@ -148,6 +148,27 @@ class WindowPositionerTest {
     }
 
     @Test
+    fun windowsMonitorFollowsTheAppWindowCenter() {
+        val left = WindowPositioner.MonitorRects(
+            full = WindowPositioner.ScreenBounds(0, 0, 1920, 1080),
+            work = WindowPositioner.ScreenBounds(0, 40, 1920, 1040)
+        )
+        val right = WindowPositioner.MonitorRects(
+            full = WindowPositioner.ScreenBounds(1920, 0, 1920, 100),
+            work = WindowPositioner.ScreenBounds(1920, 0, 1920, 100)
+        )
+        val onLeft = WindowPositioner.ScreenBounds(100, 100, 1280, 800)
+        assertEquals(left, WindowPositioner.monitorContainingCenter(onLeft, listOf(left, right)))
+        // More pixels sit on the tall left monitor, but the center is on the right.
+        val centerOnRight = WindowPositioner.ScreenBounds(1000, -200, 1840, 400)
+        assertEquals(right, WindowPositioner.monitorContainingCenter(centerOnRight, listOf(left, right)))
+        assertEquals(right.work, WindowPositioner.splitBoundsFor(right))
+        assertEquals(right.full, WindowPositioner.fullscreenBoundsFor(right))
+        assertEquals(left.work, WindowPositioner.splitBoundsFor(left))
+        assertEquals(left.full, WindowPositioner.fullscreenBoundsFor(left))
+    }
+
+    @Test
     fun linuxSplitAudioStaysLeftUntilFocusIsStable() {
         val left = 10L
         val right = 20L

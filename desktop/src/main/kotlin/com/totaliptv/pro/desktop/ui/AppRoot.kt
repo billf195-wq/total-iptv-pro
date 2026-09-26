@@ -638,7 +638,6 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     }
 
     LaunchedEffect(splitSession != null) {
-        if (AppPaths.isWindows) return@LaunchedEffect
         if (splitSession == null) return@LaunchedEffect
         // The player mutates one session object. Remember the side we last
         // showed, or a click in VLC never changes the highlighted button.
@@ -944,14 +943,14 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     onStopSplit = { stopPlayback() },
                     onOpenSeries = { openSeries(it) },
                     onCloseSeries = {
-                        if (!AppPaths.isWindows && splitSession != null) stopPlayback()
+                        if (splitSession != null) stopPlayback()
                         seriesDetail = null
                         seriesError = null
                         seriesLoading = false
                     },
                     onOpenVod = { openVod(it) },
                     onCloseVod = {
-                        if (!AppPaths.isWindows && splitSession != null) stopPlayback()
+                        if (splitSession != null) stopPlayback()
                         vodDetail = null
                         vodError = null
                         vodLoading = false

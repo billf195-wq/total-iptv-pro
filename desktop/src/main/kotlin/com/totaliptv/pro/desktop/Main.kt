@@ -112,8 +112,7 @@ fun main() = application(exitProcessOnExit = true) {
                         }
                         true
                     }
-                    keyDown && event.key == Key.Escape &&
-                        !AppPaths.isWindows && StreamPlayer.isSplitActive() -> {
+                    keyDown && event.key == Key.Escape && StreamPlayer.isSplitActive() -> {
                         StreamPlayer.stop()
                         if (state.placement == WindowPlacement.Fullscreen) {
                             state.placement = WindowPlacement.Floating

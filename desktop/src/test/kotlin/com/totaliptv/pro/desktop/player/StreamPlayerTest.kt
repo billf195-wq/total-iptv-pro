@@ -188,7 +188,17 @@ class StreamPlayerTest {
         )
         assertEquals(windows, StreamPlayer.vlcCommandForMonitorFullscreen(windows, enabled = false))
         assertTrue(windows.contains("--fullscreen"))
+        assertTrue(windows.contains("--ignore-config"))
+        assertTrue(windows.contains("--rc-quiet"))
         assertFalse(StreamPlayer.useX11MonitorFullscreen(windows = true, fullscreen = true, displayAvailable = true))
+        assertTrue(StreamPlayer.useWin32MonitorFullscreen(windows = true, fullscreen = true))
+        assertFalse(StreamPlayer.useWin32MonitorFullscreen(windows = false, fullscreen = true))
+        assertFalse(StreamPlayer.useWin32MonitorFullscreen(windows = true, fullscreen = false))
+        val placedWindows = StreamPlayer.vlcCommandForMonitorFullscreen(windows, enabled = true)
+        assertFalse(placedWindows.contains("--fullscreen"), placedWindows.toString())
+        assertTrue(placedWindows.contains("--ignore-config"))
+        assertTrue(placedWindows.contains("--rc-quiet"))
+        assertEquals(windows.filterNot { it == "--fullscreen" }, placedWindows)
     }
 
     @Test
@@ -358,6 +368,8 @@ class StreamPlayerTest {
                 "--extraintf=rc",
                 "--rc-host=127.0.0.1:4213",
                 "--rc-quiet",
+                "--key-leave-fullscreen=Unset",
+                "--key-quit=${StreamPlayer.LINUX_SPLIT_QUIT_KEYS}",
                 "--meta-title=Total IPTV Pro — Right",
                 url
             ),
@@ -365,9 +377,10 @@ class StreamPlayerTest {
         )
         assertFalse(windows.contains("--intf=dummy"))
         assertFalse(windows.contains("--zoom=0.5"))
-        assertFalse(windows.any { it.startsWith("--key-quit") })
         assertFalse(windows.contains("--control=hotkeys"))
-        assertFalse(windows.contains("--key-leave-fullscreen=Unset"))
+        assertFalse(windows.any { it.startsWith("--key-nav-") })
+        assertTrue(windows.contains("--rc-quiet"))
+        assertTrue(windows.contains("--ignore-config"))
     }
 
     @Test

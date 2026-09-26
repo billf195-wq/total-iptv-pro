@@ -60,7 +60,6 @@ import com.totaliptv.pro.desktop.data.ResumeStore
 import com.totaliptv.pro.desktop.data.SeriesDetail
 import com.totaliptv.pro.desktop.data.VodDetail
 import com.totaliptv.pro.desktop.dvr.DvrRecordUi
-import com.totaliptv.pro.desktop.util.AppPaths
 import kotlinx.coroutines.delay
 import com.totaliptv.pro.desktop.dvr.DvrRecorder
 import com.totaliptv.pro.desktop.dvr.RecordingEntry
@@ -297,53 +296,43 @@ fun BrowseScreen(
                 }
                 if (splitActive) {
                     Text("Game Day", style = MaterialTheme.typography.bodyMedium, color = TipBlue)
-                    if (!AppPaths.isWindows) {
-                        Button(
-                            onClick = onStopSplit,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = TipRecordActive,
-                                contentColor = TipOnRecordActive
-                            )
-                        ) {
-                            Text("Stop Game Day", fontWeight = FontWeight.Bold, color = TipOnRecordActive)
-                        }
-                        Button(
-                            onClick = { onSplitAudioLeft(true) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (splitAudioLeft) TipBlue else TipSurfaceAlt,
-                                contentColor = if (splitAudioLeft) TipOnAmber else TipOnBg
-                            )
-                        ) {
-                            Text(
-                                "Sound: Left",
-                                fontWeight = if (splitAudioLeft) FontWeight.Bold else FontWeight.Medium,
-                                color = if (splitAudioLeft) TipOnAmber else TipOnBg
-                            )
-                        }
-                        Button(
-                            onClick = { onSplitAudioLeft(false) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (!splitAudioLeft) TipBlue else TipSurfaceAlt,
-                                contentColor = if (!splitAudioLeft) TipOnAmber else TipOnBg
-                            )
-                        ) {
-                            Text(
-                                "Sound: Right",
-                                fontWeight = if (!splitAudioLeft) FontWeight.Bold else FontWeight.Medium,
-                                color = if (!splitAudioLeft) TipOnAmber else TipOnBg
-                            )
-                        }
-                    } else {
-                        TextButton(onClick = { onSplitAudioLeft(true) }) {
-                            Text(if (splitAudioLeft) "Audio: Left" else "Audio left", color = TipOnBg)
-                        }
-                        TextButton(onClick = { onSplitAudioLeft(false) }) {
-                            Text(if (!splitAudioLeft) "Audio: Right" else "Audio right", color = TipOnBg)
-                        }
-                        TextButton(onClick = onStopSplit) { Text("Stop split") }
+                    Button(
+                        onClick = onStopSplit,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = TipRecordActive,
+                            contentColor = TipOnRecordActive
+                        )
+                    ) {
+                        Text("Stop Game Day", fontWeight = FontWeight.Bold, color = TipOnRecordActive)
+                    }
+                    Button(
+                        onClick = { onSplitAudioLeft(true) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (splitAudioLeft) TipBlue else TipSurfaceAlt,
+                            contentColor = if (splitAudioLeft) TipOnAmber else TipOnBg
+                        )
+                    ) {
+                        Text(
+                            "Sound: Left",
+                            fontWeight = if (splitAudioLeft) FontWeight.Bold else FontWeight.Medium,
+                            color = if (splitAudioLeft) TipOnAmber else TipOnBg
+                        )
+                    }
+                    Button(
+                        onClick = { onSplitAudioLeft(false) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (!splitAudioLeft) TipBlue else TipSurfaceAlt,
+                            contentColor = if (!splitAudioLeft) TipOnAmber else TipOnBg
+                        )
+                    ) {
+                        Text(
+                            "Sound: Right",
+                            fontWeight = if (!splitAudioLeft) FontWeight.Bold else FontWeight.Medium,
+                            color = if (!splitAudioLeft) TipOnAmber else TipOnBg
+                        )
                     }
                 }
                 if (playingTitle != null) {

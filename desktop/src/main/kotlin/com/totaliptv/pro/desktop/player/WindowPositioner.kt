@@ -6,6 +6,7 @@ import com.sun.jna.platform.win32.BaseTSD
 import com.sun.jna.platform.win32.User32
 import com.sun.jna.platform.win32.WinDef
 import com.sun.jna.platform.win32.WinUser
+import com.sun.jna.ptr.IntByReference
 import com.sun.jna.win32.StdCallLibrary
 import com.totaliptv.pro.desktop.util.AppPaths
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +18,7 @@ import java.awt.GraphicsEnvironment
 import java.awt.Toolkit
 import java.awt.Window
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.swing.SwingUtilities
 
@@ -24,8 +26,13 @@ object WindowPositioner {
 
     data class ScreenBounds(val x: Int, val y: Int, val width: Int, val height: Int)
 
+    /** Full monitor rectangle and the taskbar-excluded work area, in physical pixels. */
+    data class MonitorRects(val full: ScreenBounds, val work: ScreenBounds)
+
     @Volatile
     private var appWindow: Window? = null
+
+    private val placedSplitPids = ConcurrentHashMap.newKeySet<Long>()
 
     /** The Compose frame, so playback can follow the monitor it is on. */
     fun attachAppWindow(window: Window?) {
@@ -40,6 +47,33 @@ object WindowPositioner {
 
     internal fun monitorOrFallback(appMonitor: ScreenBounds?, fallback: ScreenBounds): ScreenBounds =
         appMonitor ?: fallback
+
+    /**
+     * The monitor whose full bounds contain the app window's center.
+     * A window that covers more of another display still follows its center.
+     * If the center is in a gap, the nearest monitor is used.
+     */
+    internal fun monitorContainingCenter(window: ScreenBounds, monitors: List<MonitorRects>): MonitorRects? {
+        if (window.width <= 0 || window.height <= 0 || monitors.isEmpty()) return null
+        val cx = window.x + window.width / 2
+        val cy = window.y + window.height / 2
+        monitors.firstOrNull { containsPoint(it.full, cx, cy) }?.let { return it }
+        return monitors.minByOrNull { monitor ->
+            val mx = monitor.full.x + monitor.full.width / 2
+            val my = monitor.full.y + monitor.full.height / 2
+            val dx = mx.toLong() - cx
+            val dy = my.toLong() - cy
+            dx * dx + dy * dy
+        }
+    }
+
+    internal fun containsPoint(bounds: ScreenBounds, x: Int, y: Int): Boolean =
+        x >= bounds.x && y >= bounds.y && x < bounds.x + bounds.width && y < bounds.y + bounds.height
+
+    /** Game Day halves use the work area. Single play covers the full monitor. */
+    internal fun splitBoundsFor(monitor: MonitorRects): ScreenBounds = monitor.work
+
+    internal fun fullscreenBoundsFor(monitor: MonitorRects): ScreenBounds = monitor.full
 
     /**
      * Extra pixels Windows 10/11 DWM adds outside the visible frame.
@@ -145,6 +179,161 @@ object WindowPositioner {
         return awtWorkArea()
     }
 
+    /**
+     * Work area of the monitor that contains the app window's center.
+     * Coordinates are per-monitor v2 physical pixels, the same space the
+     * snap loop uses. Falls back to the primary work area.
+     */
+    fun windowsSplitBounds(): ScreenBounds = readWindowsAppMonitor().work
+
+    /** Borderless-cover the full monitor that holds the app window. */
+    fun fullscreenOnAppMonitorAsync(scope: CoroutineScope, process: Process?, pid: Long) {
+        if (!AppPaths.isWindows) return
+        val full = readWindowsAppMonitor().full
+        snapWindowAsync(scope, process, pid, full.x, full.y, full.width, full.height)
+    }
+
+    /**
+     * Focusing or clicking a Game Day video window selects that side's audio.
+     * Startup focus from Windows opening the right window is ignored until
+     * both halves have been placed and focus has been still for
+     * [LinuxX11WindowPlacer.FOCUS_STABLE_MS]. Arrow keys are not handled here.
+     */
+    fun watchSplitFocus(scope: CoroutineScope, left: Process, right: Process, onSide: (SplitSide) -> Unit) {
+        if (!AppPaths.isWindows) return
+        scope.launch(Dispatchers.IO) {
+            val focus = LinuxX11WindowPlacer.SplitFocusAudio()
+            val leftId = 1L
+            val rightId = 2L
+            try {
+                while (isActive && (left.isAlive || right.isAlive)) {
+                    val leftPid = left.pid()
+                    val rightPid = right.pid()
+                    var side: SplitSide? = null
+                    var baseline = 0L
+                    withDpiAware {
+                        focus.noteBothPlaced(leftPid in placedSplitPids && rightPid in placedSplitPids)
+                        val pointer = pointerOnSplit(leftPid, rightPid, leftId, rightId)
+                        val clicked = focus.onPointerButton(pointer.first, pointer.second, leftId, rightId)
+                        val active = foregroundSplitId(leftPid, rightPid, leftId, rightId)
+                        val focused = if (clicked != null) {
+                            null
+                        } else {
+                            focus.onActive(active, leftId, rightId, System.nanoTime() / 1_000_000L)
+                        }
+                        baseline = focus.consumeBaseline()
+                        side = clicked ?: focused
+                    }
+                    if (baseline != 0L) {
+                        PlaybackDebugLog.note("split-win: focus baseline; audio stays on the current side")
+                    }
+                    val chosen = side
+                    if (chosen != null) {
+                        PlaybackDebugLog.note("split-win: audio ${chosen.name}")
+                        onSide(chosen)
+                    }
+                    delay(150)
+                }
+            } catch (t: Throwable) {
+                PlaybackDebugLog.note("split-win: audio watch stopped: ${t.message}")
+            }
+        }
+    }
+
+    private fun readWindowsAppMonitor(): MonitorRects {
+        if (!AppPaths.isWindows) {
+            val bounds = linuxPlaybackMonitor()
+            return MonitorRects(bounds, bounds)
+        }
+        val read = try {
+            CompletableFuture.supplyAsync {
+                var result: MonitorRects? = null
+                withDpiAware { result = monitorForAppWindow() }
+                result
+            }.get(1500, TimeUnit.MILLISECONDS)
+        } catch (_: Throwable) {
+            null
+        }
+        return read ?: primaryMonitor()
+    }
+
+    private fun monitorForAppWindow(): MonitorRects? {
+        val window = appWindow ?: return primaryMonitor()
+        val hwnd = try {
+            val ptr = Native.getComponentPointer(window)
+            if (ptr == null || Pointer.nativeValue(ptr) == 0L) null else WinDef.HWND(ptr)
+        } catch (_: Throwable) {
+            null
+        } ?: return primaryMonitor()
+        val rect = readWindowRect(User32.INSTANCE, hwnd) ?: return primaryMonitor()
+        val cx = rect.x + rect.width / 2
+        val cy = rect.y + rect.height / 2
+        return monitorAt(cx, cy, WinUser.MONITOR_DEFAULTTONEAREST) ?: primaryMonitor()
+    }
+
+    private fun primaryMonitor(): MonitorRects {
+        return monitorAt(0, 0, WinUser.MONITOR_DEFAULTTOPRIMARY)
+            ?: MonitorRects(ScreenBounds(0, 0, 1920, 1080), ScreenBounds(0, 0, 1920, 1040))
+    }
+
+    private fun monitorAt(x: Int, y: Int, flags: Int): MonitorRects? {
+        val user32 = User32.INSTANCE
+        val pt = WinDef.POINT.ByValue()
+        pt.x = x
+        pt.y = y
+        val monitor = user32.MonitorFromPoint(pt, flags) ?: return null
+        val info = WinUser.MONITORINFO()
+        if (!user32.GetMonitorInfo(monitor, info).booleanValue()) return null
+        val full = rectBounds(info.rcMonitor) ?: return null
+        val work = rectBounds(info.rcWork) ?: full
+        return MonitorRects(full, work)
+    }
+
+    private fun rectBounds(rect: WinDef.RECT): ScreenBounds? {
+        val width = rect.right - rect.left
+        val height = rect.bottom - rect.top
+        if (width <= 0 || height <= 0) return null
+        return ScreenBounds(rect.left, rect.top, width, height)
+    }
+
+    private fun foregroundSplitId(leftPid: Long, rightPid: Long, leftId: Long, rightId: Long): Long {
+        val hwnd = User32.INSTANCE.GetForegroundWindow() ?: return 0L
+        return when (hwndPid(hwnd)) {
+            leftPid -> leftId
+            rightPid -> rightId
+            else -> 0L
+        }
+    }
+
+    private fun pointerOnSplit(leftPid: Long, rightPid: Long, leftId: Long, rightId: Long): Pair<Boolean, Long> {
+        val down = buttonDown()
+        val pt = WinDef.POINT()
+        if (!User32.INSTANCE.GetCursorPos(pt)) return down to 0L
+        val at = WinDef.POINT.ByValue()
+        at.x = pt.x
+        at.y = pt.y
+        val hwnd = winPoint?.WindowFromPoint(at)
+        val id = when (hwnd?.let { hwndPid(it) }) {
+            leftPid -> leftId
+            rightPid -> rightId
+            else -> 0L
+        }
+        return down to id
+    }
+
+    private fun buttonDown(): Boolean {
+        val api = User32.INSTANCE
+        return listOf(VK_LBUTTON, VK_RBUTTON, VK_MBUTTON).any { key ->
+            api.GetAsyncKeyState(key).toInt() and 0x8000 != 0
+        }
+    }
+
+    private fun hwndPid(hwnd: WinDef.HWND): Long {
+        val procId = IntByReference()
+        User32.INSTANCE.GetWindowThreadProcessId(hwnd, procId)
+        return procId.value.toLong() and 0xFFFFFFFFL
+    }
+
     internal fun awtMonitorBounds(): List<ScreenBounds> {
         return try {
             GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices.map { device ->
@@ -196,6 +385,7 @@ object WindowPositioner {
         return try {
             var found = false
             withDpiAware { found = placeProcessWindows(pid, x, y, width, height) }
+            if (found) placedSplitPids.add(pid)
             found
         } catch (_: Throwable) {
             false
@@ -519,6 +709,18 @@ object WindowPositioner {
         }
     }
 
+    private val winPoint: WinPointLib? by lazy {
+        try {
+            Native.load("user32", WinPointLib::class.java)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private interface WinPointLib : StdCallLibrary {
+        fun WindowFromPoint(point: WinDef.POINT.ByValue): WinDef.HWND?
+    }
+
     private val dpiUser32: DpiUser32? by lazy {
         try {
             Native.load("user32", DpiUser32::class.java)
@@ -570,6 +772,9 @@ object WindowPositioner {
     private const val SWP_NOACTIVATE = 0x0010
     private const val SWP_FRAMECHANGED = 0x0020
     private const val DWMWA_EXTENDED_FRAME_BOUNDS = 9
+    private const val VK_LBUTTON = 0x01
+    private const val VK_RBUTTON = 0x02
+    private const val VK_MBUTTON = 0x04
 
     /** `((DPI_AWARENESS_CONTEXT)-4)` — per-monitor v2. */
     private val DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: Pointer = Pointer.createConstant(-4)
