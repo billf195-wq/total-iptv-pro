@@ -45,7 +45,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.totaliptv.pro.desktop.AppVersion
 import com.totaliptv.pro.desktop.data.Catalog
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
@@ -489,7 +488,6 @@ private fun rememberBannerBitmap(): ImageBitmap? = remember {
 @Composable
 private fun TopBanner(banner: ImageBitmap?) {
     if (banner == null) return
-    // The artwork already says Total IPTV Pro. Version sits in the empty corner.
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -498,26 +496,15 @@ private fun TopBanner(banner: ImageBitmap?) {
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val ratio = banner.width.toFloat() / banner.height.toFloat().coerceAtLeast(1f)
-        Box(
-            Modifier
+        Image(
+            bitmap = banner,
+            contentDescription = SplashBranding.APP_TITLE,
+            modifier = Modifier
                 .fillMaxHeight()
-                .aspectRatio(ratio)
-        ) {
-            Image(
-                bitmap = banner,
-                contentDescription = SplashBranding.APP_TITLE,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit,
-                alignment = Alignment.CenterStart
-            )
-            BannerVersionBadge(
-                versionName = AppVersion.VERSION_NAME,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 8.dp, bottom = 6.dp)
-            )
-        }
+                .wrapContentWidth(),
+            contentScale = ContentScale.Fit,
+            alignment = Alignment.CenterStart
+        )
     }
 }
 
