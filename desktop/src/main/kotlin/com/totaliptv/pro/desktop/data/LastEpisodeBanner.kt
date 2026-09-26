@@ -6,6 +6,14 @@ package com.totaliptv.pro.desktop.data
  */
 object LastEpisodeBanner {
     const val AUTO_DISMISS_MS: Long = 4_000L
+    /** Next-episode chrome at the start of an episode. Windows and Linux. */
+    const val INTRO_SHOW_MS: Long = 6_000L
+    /** After the pointer moves, hide again once it has been still this long. */
+    const val MOUSE_HIDE_MS: Long = 5_000L
+    /** Show again when VLC get_time/get_length says this much (or less) remains. */
+    const val ENDING_WINDOW_MS: Long = 60_000L
+
+    enum class Reveal { INTRO, ENDING, MOUSE, HIDDEN }
 
     fun isKnownLastEpisode(
         episodes: List<SeriesEpisode>,
@@ -74,7 +82,34 @@ object LastEpisodeBanner {
         if (mode == Mode.HIDDEN) return false
         if (key != null && dismissedKey == key) return false
         val shown = firstShownAtMs ?: return true
-        return !isAutoDismissed(shown, nowMs)
+        val limit = if (mode == Mode.NEXT) INTRO_SHOW_MS else AUTO_DISMISS_MS
+        return nowMs - shown < limit
+    }
+
+    /**
+     * Next banner: about 6s at episode start, again in the last minute when
+     * position and duration are known, and whenever the pointer moves (5s).
+     * Last-episode chrome keeps the 4s intro. A user dismiss hides until the pointer moves.
+     */
+    fun reveal(
+        mode: Mode,
+        startedAtMs: Long,
+        nowMs: Long,
+        mouseMovedAtMs: Long?,
+        positionMs: Long?,
+        lengthMs: Long?,
+        userDismissed: Boolean
+    ): Reveal {
+        if (mode == Mode.HIDDEN) return Reveal.HIDDEN
+        val mouseFresh = mouseMovedAtMs != null && nowMs - mouseMovedAtMs < MOUSE_HIDE_MS
+        if (mouseFresh) return Reveal.MOUSE
+        if (userDismissed) return Reveal.HIDDEN
+        if (mode == Mode.LAST_BRIEF) {
+            return if (nowMs - startedAtMs < AUTO_DISMISS_MS) Reveal.INTRO else Reveal.HIDDEN
+        }
+        val remaining = if (positionMs != null && lengthMs != null && lengthMs > 0L) lengthMs - positionMs else null
+        if (remaining != null && remaining in 0L..ENDING_WINDOW_MS) return Reveal.ENDING
+        return if (nowMs - startedAtMs < INTRO_SHOW_MS) Reveal.INTRO else Reveal.HIDDEN
     }
 
     /**

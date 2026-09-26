@@ -3,6 +3,7 @@ package com.totaliptv.pro.desktop.data
 import com.totaliptv.pro.desktop.player.PlaybackAdvance
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -47,7 +48,9 @@ class SeriesAdvanceTest {
             seriesName = "Show",
             seriesId = 3,
             durationMs = 45_000,
-            exitCode = 0
+            exitCode = 0,
+            positionMs = 2_400_000,
+            lengthMs = 2_450_000
         )
         val play = assertIs<SeriesAdvance.Outcome.PlayNext>(outcome)
         assertEquals(PlaybackAdvance.REASON_AUTO_ADVANCE, play.reason)
@@ -72,6 +75,26 @@ class SeriesAdvanceTest {
         )
         val stop = assertIs<SeriesAdvance.Outcome.Stop>(outcome)
         assertEquals(PlaybackAdvance.REASON_SKIPPED_SHORT_PLAY, stop.reason)
+    }
+
+    @Test
+    fun closingVlcMidEpisodeDoesNotAdvance() {
+        val e1 = ep(1, 1)
+        val e2 = ep(1, 2)
+        val plan = SeriesLaunch.plan(e1.toMediaItem("Show", 3), listOf(e1, e2), "Show", 3)
+        val outcome = SeriesAdvance.afterNaturalEnd(
+            start = plan.start,
+            plan = plan,
+            episodes = listOf(e1, e2),
+            seriesName = "Show",
+            seriesId = 3,
+            durationMs = 76_000,
+            exitCode = 0,
+            positionMs = 76_000,
+            lengthMs = 2_400_000
+        )
+        val stop = assertIs<SeriesAdvance.Outcome.Stop>(outcome)
+        assertEquals(PlaybackAdvance.REASON_USER_STOP, stop.reason)
     }
 
     @Test
@@ -136,7 +159,12 @@ class SeriesAdvanceTest {
     fun appRootWiresShortPlayGuardAndSameUrlStop() {
         val root = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/ui/AppRoot.kt").readText()
         assertTrue(root.contains("SeriesAdvance.afterNaturalEnd"))
-        assertTrue(root.contains("PlaybackAdvance.REASON_SAME_URL"))
+        assertTrue(root.contains("StreamPlayer.lastPositionMs"))
+        assertTrue(root.contains("StreamPlayer.lastReachedEof"))
+        val stop = root.substringAfter("is SeriesAdvance.Outcome.Stop")
+        assertTrue(stop.contains("onPlayerExited()"))
+        assertTrue(stop.contains("setSeriesSession(null)"))
+        assertFalse(stop.contains("REASON_SAME_URL"))
         assertTrue(root.contains("SeriesAdvance.afterSkip"))
         assertTrue(root.contains("live = live"))
         assertTrue(root.contains("PlaybackAdvance.REASON_SKIPPED_LIVE"))

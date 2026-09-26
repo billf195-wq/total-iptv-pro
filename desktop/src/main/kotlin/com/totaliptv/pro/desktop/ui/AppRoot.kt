@@ -529,7 +529,10 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         seriesName = plan.seriesName.ifBlank { sessionNow?.seriesName ?: lastSeriesName },
                         seriesId = plan.seriesId ?: sessionNow?.seriesId ?: lastSeriesId,
                         durationMs = durationMs,
-                        exitCode = exitCode
+                        exitCode = exitCode,
+                        positionMs = StreamPlayer.lastPositionMs.takeIf { it > 0L },
+                        lengthMs = StreamPlayer.lastLengthMs.takeIf { it > 0L },
+                        reachedEof = StreamPlayer.lastReachedEof
                     )
                     PlaybackDebugLog.record(
                         episodeId = plan.currentEpisode?.id ?: startWithSeries.id,
@@ -560,11 +563,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                                     playingTitle = null
                                     playingItem = null
                                     seriesNextHost?.onPlayerExited()
-                                    if (outcome.reason == PlaybackAdvance.REASON_SAME_URL ||
-                                        outcome.reason == PlaybackAdvance.REASON_NO_NEXT
-                                    ) {
-                                        setSeriesSession(null)
-                                    }
+                                    setSeriesSession(null)
                                 }
                             }
                         }
@@ -814,22 +813,6 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
             handle.close()
             seriesNextHost?.disposeOverlay()
         }
-    }
-
-    val bannerKey = seriesSession?.let { "${it.seriesId}|${it.current.id}|${it.current.streamUrl}" }
-    LaunchedEffect(bannerKey) {
-        val key = bannerKey ?: return@LaunchedEffect
-        val session = seriesSession ?: return@LaunchedEffect
-        val mode = LastEpisodeBanner.overlayMode(
-            session.episodes,
-            session.current.season,
-            session.current.episodeNum,
-            session.current.id,
-            session.current.streamUrl
-        )
-        if (mode == LastEpisodeBanner.Mode.HIDDEN) return@LaunchedEffect
-        delay(LastEpisodeBanner.AUTO_DISMISS_MS)
-        seriesNextHost?.dismissLastIfMatching(key)
     }
 
     SideEffect {

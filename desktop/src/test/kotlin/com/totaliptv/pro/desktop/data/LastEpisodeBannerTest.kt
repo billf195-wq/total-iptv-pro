@@ -65,11 +65,26 @@ class LastEpisodeBannerTest {
             )
         )
         assertTrue(
-            LastEpisodeBanner.overlayStillVisible(LastEpisodeBanner.Mode.NEXT, shown, shown + 3_999)
+            LastEpisodeBanner.overlayStillVisible(LastEpisodeBanner.Mode.NEXT, shown, shown + 5_999)
         )
         assertFalse(
-            LastEpisodeBanner.overlayStillVisible(LastEpisodeBanner.Mode.NEXT, shown, shown + 4_000)
+            LastEpisodeBanner.overlayStillVisible(LastEpisodeBanner.Mode.NEXT, shown, shown + 6_000)
         )
+        assertEquals(LastEpisodeBanner.Reveal.INTRO, LastEpisodeBanner.reveal(
+            LastEpisodeBanner.Mode.NEXT, shown, shown + 1_000, null, null, null, false
+        ))
+        assertEquals(LastEpisodeBanner.Reveal.HIDDEN, LastEpisodeBanner.reveal(
+            LastEpisodeBanner.Mode.NEXT, shown, shown + 6_000, null, 30_000, 2_400_000, false
+        ))
+        assertEquals(LastEpisodeBanner.Reveal.ENDING, LastEpisodeBanner.reveal(
+            LastEpisodeBanner.Mode.NEXT, shown, shown + 60_000, null, 2_360_000, 2_400_000, false
+        ))
+        assertEquals(LastEpisodeBanner.Reveal.MOUSE, LastEpisodeBanner.reveal(
+            LastEpisodeBanner.Mode.NEXT, shown, shown + 60_000, shown + 58_000, null, null, true
+        ))
+        assertEquals(LastEpisodeBanner.Reveal.HIDDEN, LastEpisodeBanner.reveal(
+            LastEpisodeBanner.Mode.NEXT, shown, shown + 60_000, shown + 50_000, null, null, true
+        ))
         assertFalse(
             LastEpisodeBanner.overlayStillVisible(
                 LastEpisodeBanner.Mode.NEXT,
@@ -126,10 +141,15 @@ class LastEpisodeBannerTest {
         assertTrue(overlay.contains("nowMs: Long"))
         val dismissBlock = overlay.substringAfter("fun sync(").substringBefore("fun dismissLastIfMatching")
         assertFalse(dismissBlock.contains("AppPaths.isWindows"), "Windows must not fork dismiss logic")
-        assertTrue(root.contains("dismissLastIfMatching"))
+        assertTrue(root.contains("setSeriesSession(null)"))
         assertTrue(root.contains("LastEpisodeBanner.AUTO_DISMISS_MS"))
-        assertTrue(overlay.contains("shouldShow"))
+        assertTrue(overlay.contains("LastEpisodeBanner.reveal"))
+        assertTrue(overlay.contains("INTRO_SHOW_MS") || overlay.contains("reveal("))
         assertTrue(overlay.contains("player-exited"))
+        assertTrue(overlay.contains("sampleMouse"))
+        assertEquals(6_000L, LastEpisodeBanner.INTRO_SHOW_MS)
+        assertEquals(5_000L, LastEpisodeBanner.MOUSE_HIDE_MS)
+        assertEquals(60_000L, LastEpisodeBanner.ENDING_WINDOW_MS)
         assertTrue(overlay.contains("WindowPositioner.playbackMonitor()"))
         assertFalse(overlay.contains("Mode.NEXT) {\n            resetLastBrief()"))
         val (x, y) = com.totaliptv.pro.desktop.ui.overlayOrigin(

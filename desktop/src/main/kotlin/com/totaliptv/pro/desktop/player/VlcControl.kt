@@ -74,4 +74,39 @@ object VlcControl {
             null
         }
     }
+
+    /** VLC RC `status` reports `( state ended )` when the input reaches EOF. */
+    fun queryEnded(port: Int = 4214): Boolean {
+        val text = readCommand(port, "status") ?: return false
+        return Regex("""\(\s*state\s+ended\s*\)""", RegexOption.IGNORE_CASE).containsMatchIn(text)
+    }
+
+    private fun readCommand(port: Int, command: String): String? {
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", port), 500)
+                socket.soTimeout = 600
+                val out = socket.getOutputStream()
+                val inp = socket.getInputStream()
+                out.write("$command\n".toByteArray(StandardCharsets.UTF_8))
+                out.flush()
+                val sb = StringBuilder()
+                val buffer = ByteArray(1024)
+                val deadline = System.currentTimeMillis() + 600
+                while (System.currentTimeMillis() < deadline) {
+                    try {
+                        val read = inp.read(buffer)
+                        if (read <= 0) break
+                        sb.append(String(buffer, 0, read, StandardCharsets.UTF_8))
+                        if (sb.contains("state")) break
+                    } catch (_: java.net.SocketTimeoutException) {
+                        break
+                    }
+                }
+                sb.toString().ifBlank { null }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
 }

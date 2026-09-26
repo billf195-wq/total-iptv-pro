@@ -85,6 +85,18 @@ object StreamPlayer {
     @Volatile
     var lastPlaybackDurationMs: Long = 0L
         private set
+    /** Last VLC `get_time`, milliseconds. Zero until a sample arrives. */
+    @Volatile
+    var lastPositionMs: Long = 0L
+        private set
+    /** Last VLC `get_length`, milliseconds. Zero until a sample arrives. */
+    @Volatile
+    var lastLengthMs: Long = 0L
+        private set
+    /** True once RC status reported `( state ended )`. */
+    @Volatile
+    var lastReachedEof: Boolean = false
+        private set
 
     @Volatile
     var splitSession: SplitSession? = null
@@ -171,12 +183,21 @@ object StreamPlayer {
                 delay(2000)
                 while (proc.isAlive) {
                     val prog = VlcControl.queryProgress(PROGRESS_RC_PORT)
-                    if (prog != null && prog.totalLengthSeconds > 0) {
-                        onProgress(
-                            prog.currentTimeSeconds * 1000L,
-                            prog.totalLengthSeconds * 1000L,
-                            prog.percent
+                    if (prog != null) {
+                        notePlaybackSample(
+                            positionMs = prog.currentTimeSeconds * 1000L,
+                            lengthMs = prog.totalLengthSeconds * 1000L
                         )
+                        if (prog.totalLengthSeconds > 0) {
+                            onProgress(
+                                prog.currentTimeSeconds * 1000L,
+                                prog.totalLengthSeconds * 1000L,
+                                prog.percent
+                            )
+                        }
+                    }
+                    if (VlcControl.queryEnded(PROGRESS_RC_PORT)) {
+                        notePlaybackSample(lastPositionMs, lastLengthMs, ended = true)
                     }
                     delay(2000)
                 }
@@ -362,6 +383,15 @@ object StreamPlayer {
         lastLaunchAtMs = nowMs
         lastExitCode = null
         lastPlaybackDurationMs = 0L
+        lastPositionMs = 0L
+        lastLengthMs = 0L
+        lastReachedEof = false
+    }
+
+    internal fun notePlaybackSample(positionMs: Long, lengthMs: Long, ended: Boolean = false) {
+        if (positionMs >= 0L) lastPositionMs = positionMs
+        if (lengthMs > 0L) lastLengthMs = lengthMs
+        if (ended) lastReachedEof = true
     }
 
     internal fun markExit(exitCode: Int, nowMs: Long = System.currentTimeMillis()) {
