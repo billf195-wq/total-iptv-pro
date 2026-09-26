@@ -30,8 +30,9 @@ class TvContentThemeTest {
         val banner = browse.substringAfter("private fun TopBanner(").substringBefore("@Composable\nprivate fun BrowseContentPane")
         assertTrue(banner.contains(".tvChromeBackground()"), "top bar must use the flat chrome fill")
         assertTrue(!banner.contains("SplashBrandTitle"), "top bar must not repeat the title beside the banner")
-        assertTrue(banner.contains("BannerVersionBadge"), "version stays on the banner image")
-        assertEquals("v1.2.22", SplashBranding.bannerVersionLabel("1.2.22"))
+        assertTrue(!banner.contains("BannerVersionBadge") && !banner.contains("VERSION_NAME"), "top bar shows the banner image only")
+        val settings = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/ui/SettingsScreen.kt").readText()
+        assertTrue(settings.contains("AppVersion.VERSION_NAME"), "Settings still shows the version")
         assertTrue(
             browse.contains(".fillMaxHeight()\n                    .tvChromeBackground()"),
             "sidebar panel must use the flat chrome fill"
