@@ -15,8 +15,11 @@ import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import android.util.TypedValue
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -232,14 +235,16 @@ class PlayerActivity : ComponentActivity() {
         }
         root.addView(playerView)
 
+        val display = resources.displayMetrics
+        val overscanX = NextEpisodeChrome.overscanPx(display.widthPixels)
+        val overscanY = NextEpisodeChrome.overscanPx(display.heightPixels)
+        val overlayPad = (12f * display.density).toInt().coerceAtLeast(8)
         overlay = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(48, 40, 48, 32)
+            setPadding(overlayPad, overlayPad, overlayPad, overlayPad)
             setBackgroundColor(0x66000000)
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            )
+            clipChildren = false
+            clipToPadding = false
         }
         titleView = TextView(this).apply {
             text = mediaTitle
@@ -266,11 +271,13 @@ class PlayerActivity : ComponentActivity() {
         }
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.START
+            gravity = Gravity.CENTER_VERTICAL or Gravity.START
+            clipChildren = false
         }
         fun controlBtn(label: String, action: () -> Unit) = Button(this).apply {
             text = label
             isAllCaps = false
+            applyContentSizedButton(this)
             setOnClickListener {
                 showOverlayTemporarily()
                 action()
@@ -330,8 +337,48 @@ class PlayerActivity : ComponentActivity() {
         overlay!!.addView(epgView)
         overlay!!.addView(audioLabelView)
         overlay!!.addView(statusView)
-        overlay!!.addView(controls)
-        root.addView(overlay)
+        val controlScroll = HorizontalScrollView(this).apply {
+            isFillViewport = false
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipToPadding = false
+            isFocusable = false
+            isFocusableInTouchMode = false
+            addView(
+                controls,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+        overlay!!.addView(
+            controlScroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        val banner = overlay!!
+        banner.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        )
+        val overlayHost = NextEpisodeOverlayHost(
+            this,
+            NextEpisodeChrome.overlayMaxHeightPx(display.heightPixels, overscanY)
+        ).apply {
+            clipToPadding = false
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP
+            ).apply {
+                setMargins(overscanX, overscanY, overscanX, overscanY)
+            }
+            addView(banner)
+        }
+        root.addView(overlayHost)
         setContentView(root)
         enterImmersiveFullscreen()
 
@@ -1592,16 +1639,99 @@ class PlayerActivity : ComponentActivity() {
             }
             val label = next.name.substringAfter(" — ").ifBlank { next.name }
             nextEpisodeDialog?.dismiss()
-            nextEpisodeDialog = AlertDialog.Builder(this@PlayerActivity)
-                .setTitle("Episode finished")
-                .setMessage("Play next?\n\n$label")
-                .setPositiveButton("Play next") { _, _ -> playSeriesEpisode(next) }
-                .setNegativeButton("Home") { _, _ -> finish() }
-                .setOnCancelListener { /* stay on ended screen */ }
-                .create()
+            nextEpisodeDialog = buildNextEpisodeDialog(label, next)
             nextEpisodeDialog?.show()
-            // D-pad: focus Play next
-            nextEpisodeDialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.requestFocus()
+            nextEpisodeDialog?.let { dialog ->
+                val dm = resources.displayMetrics
+                val overscanX = NextEpisodeChrome.overscanPx(dm.widthPixels)
+                val width = (dm.widthPixels - overscanX * 2).coerceAtLeast(1)
+                dialog.window?.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
+                applyContentSizedButton(dialog.getButton(AlertDialog.BUTTON_POSITIVE))
+                applyContentSizedButton(dialog.getButton(AlertDialog.BUTTON_NEGATIVE))
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.requestFocus()
+            }
+        }
+    }
+
+    /**
+     * End-of-episode prompt. Title and buttons use a smaller text size and
+     * wrap their height. The episode label scrolls inside the safe area
+     * instead of being clipped on a short screen or under TV overscan.
+     */
+    private fun buildNextEpisodeDialog(
+        label: String,
+        next: com.totaliptv.pro.data.model.MediaItem
+    ): AlertDialog {
+        val dm = resources.displayMetrics
+        val scaled = dm.density * resources.configuration.fontScale.coerceAtLeast(0.5f)
+        val overscanY = NextEpisodeChrome.overscanPx(dm.heightPixels)
+        val padH = NextEpisodeChrome.horizontalPaddingPx(dm.density)
+        val padV = NextEpisodeChrome.verticalPaddingPx(scaled)
+        val title = TextView(this).apply {
+            text = "Episode finished"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, NextEpisodeChrome.DIALOG_TITLE_SP)
+            setTypeface(typeface, Typeface.BOLD)
+            includeFontPadding = true
+            setPadding(padH, padV, padH, padV / 2)
+        }
+        val message = TextView(this).apply {
+            text = "Play next?\n\n$label"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, NextEpisodeChrome.DIALOG_MESSAGE_SP)
+            includeFontPadding = true
+            setPadding(padH, padV, padH, padV)
+        }
+        val scroll = NextEpisodeMessageScroll(
+            this,
+            NextEpisodeChrome.messageMaxHeightPx(dm.heightPixels, overscanY, scaled)
+        ).apply {
+            addView(
+                message,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+        return AlertDialog.Builder(this)
+            .setCustomTitle(title)
+            .setView(scroll)
+            .setPositiveButton("Play next") { _, _ -> playSeriesEpisode(next) }
+            .setNegativeButton("Home") { _, _ -> finish() }
+            .setOnCancelListener { /* stay on ended screen */ }
+            .create()
+    }
+
+    /**
+     * Button height follows the label. A theme minHeight clips descenders when
+     * the font scale is large.
+     */
+    private fun applyContentSizedButton(btn: Button?) {
+        if (btn == null) return
+        val dm = resources.displayMetrics
+        val scaled = dm.density * resources.configuration.fontScale.coerceAtLeast(0.5f)
+        btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, NextEpisodeChrome.BUTTON_TEXT_SP)
+        btn.minHeight = 0
+        btn.minimumHeight = 0
+        btn.minWidth = 0
+        btn.minimumWidth = 0
+        btn.maxLines = Int.MAX_VALUE
+        btn.includeFontPadding = true
+        btn.gravity = Gravity.CENTER
+        btn.setPadding(
+            NextEpisodeChrome.horizontalPaddingPx(dm.density),
+            NextEpisodeChrome.verticalPaddingPx(scaled),
+            NextEpisodeChrome.horizontalPaddingPx(dm.density),
+            NextEpisodeChrome.verticalPaddingPx(scaled)
+        )
+        val lp = btn.layoutParams
+        if (lp == null) {
+            btn.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        } else {
+            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            btn.layoutParams = lp
         }
     }
 
