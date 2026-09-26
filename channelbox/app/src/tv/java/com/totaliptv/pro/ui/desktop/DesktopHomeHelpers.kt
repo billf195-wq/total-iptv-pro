@@ -1,7 +1,5 @@
 package com.totaliptv.pro.ui.desktop
 
-import com.totaliptv.pro.artwork.MediaOrder
-import com.totaliptv.pro.artwork.TvRatings
 import com.totaliptv.pro.data.model.MediaItem
 import java.util.Calendar
 
@@ -16,33 +14,28 @@ data class TopRatedRow(val title: String, val items: List<MediaItem>)
 
 /** Process-wide cache so Movies→Home with unchanged revision skips ranking entirely. */
 object TopRatedCache {
-    @Volatile private var catalogRevision: Int = Int.MIN_VALUE
-    @Volatile private var ratingRevision: Int = Int.MIN_VALUE
+    @Volatile private var revision: Int = Int.MIN_VALUE
     @Volatile private var movies: TopRatedRow? = null
     @Volatile private var series: TopRatedRow? = null
 
-    fun movies(catalogRevision: Int, ratingRevision: Int): TopRatedRow? =
-        movies.takeIf { this.catalogRevision == catalogRevision && this.ratingRevision == ratingRevision }
+    fun movies(revision: Int): TopRatedRow? = movies.takeIf { this.revision == revision }
+    fun series(revision: Int): TopRatedRow? = series.takeIf { this.revision == revision }
 
-    fun series(catalogRevision: Int, ratingRevision: Int): TopRatedRow? =
-        series.takeIf { this.catalogRevision == catalogRevision && this.ratingRevision == ratingRevision }
-
-    fun put(catalogRevision: Int, ratingRevision: Int, movies: TopRatedRow, series: TopRatedRow) {
+    fun put(revision: Int, movies: TopRatedRow, series: TopRatedRow) {
         this.movies = movies
         this.series = series
-        this.catalogRevision = catalogRevision
-        this.ratingRevision = ratingRevision
+        this.revision = revision
     }
 
     fun clear() {
-        catalogRevision = Int.MIN_VALUE
-        ratingRevision = Int.MIN_VALUE
+        revision = Int.MIN_VALUE
         movies = null
         series = null
     }
 }
 
-private fun scoreOf(scores: Map<String, Double>, item: MediaItem): Double = scores[item.id] ?: 0.0
+private fun MediaItem.ratingScore(): Double =
+    displayRating()?.toDoubleOrNull()?.takeIf { it > 0.0 } ?: 0.0
 
 fun isLikelyAmerican(item: MediaItem): Boolean {
     val group = item.groupTitle?.lowercase().orEmpty()
@@ -79,11 +72,11 @@ fun isLikelyNew(
 }
 
 /** Cap + prefer rated titles so ranking stays O(SCAN_CAP), not full-catalog O(n log n). */
-private fun cappedScan(items: List<MediaItem>, scores: Map<String, Double>): List<MediaItem> {
+private fun cappedScan(items: List<MediaItem>): List<MediaItem> {
     if (items.size <= SCAN_CAP) return items
     val out = ArrayList<MediaItem>(SCAN_CAP)
     for (it in items) {
-        if (scoreOf(scores, it) > 0.0) {
+        if (it.ratingScore() > 0.0) {
             out.add(it)
             if (out.size >= SCAN_CAP) return out
         }
@@ -92,59 +85,58 @@ private fun cappedScan(items: List<MediaItem>, scores: Map<String, Double>): Lis
         val need = SCAN_CAP - out.size
         val start = (items.size - need).coerceAtLeast(0)
         for (i in start until items.size) {
-            if (scoreOf(scores, items[i]) <= 0.0) out.add(items[i])
+            if (items[i].ratingScore() <= 0.0) out.add(items[i])
             if (out.size >= SCAN_CAP) break
         }
     }
     return out
 }
 
-private fun topByRating(list: List<MediaItem>, scores: Map<String, Double>): List<MediaItem> {
-    return MediaOrder.sortByRank(list, scores).take(TOP_N)
-}
-
-private fun byAdded(list: List<MediaItem>): List<MediaItem> {
-    return list.sortedWith(MediaOrder.byAddedDescending()).take(TOP_N)
+private fun topByRating(list: List<MediaItem>): List<MediaItem> {
+    if (list.size <= TOP_N) return list.sortedByDescending { it.ratingScore() }
+    // Partial top-N without sorting the entire list when still large.
+    return list.asSequence()
+        .sortedByDescending { it.ratingScore() }
+        .take(TOP_N)
+        .toList()
 }
 
 fun pickTopRatedMovies(items: List<MediaItem>): TopRatedRow {
-    val scores = TvRatings.rankScores(items)
-    val scan = cappedScan(items, scores)
-    val rated = scan.filter { scoreOf(scores, it) > 0.0 }
+    val scan = cappedScan(items)
+    val rated = scan.filter { it.ratingScore() > 0.0 }
     val pool = rated.ifEmpty { scan }
 
-    val americanNew = topByRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) }, scores)
+    val americanNew = topByRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) })
     if (americanNew.size >= MIN_FILTERED) {
         return TopRatedRow("Top rated new American movies", americanNew)
     }
-    val newOnly = topByRating(pool.filter { isLikelyNew(it) }, scores)
+    val newOnly = topByRating(pool.filter { isLikelyNew(it) })
     if (newOnly.size >= MIN_FILTERED) {
         return TopRatedRow("Top rated new movies", newOnly)
     }
-    val overall = topByRating(pool, scores)
+    val overall = topByRating(pool)
     return TopRatedRow(
         "Top rated movies",
-        overall.ifEmpty { byAdded(scan) }
+        overall.ifEmpty { scan.sortedByDescending { it.addedMs ?: 0L }.take(TOP_N) }
     )
 }
 
 fun pickTopRatedSeries(items: List<MediaItem>): TopRatedRow {
-    val scores = TvRatings.rankScores(items)
-    val scan = cappedScan(items, scores)
-    val rated = scan.filter { scoreOf(scores, it) > 0.0 }
+    val scan = cappedScan(items)
+    val rated = scan.filter { it.ratingScore() > 0.0 }
     val pool = rated.ifEmpty { scan }
 
-    val americanNew = topByRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) }, scores)
+    val americanNew = topByRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) })
     if (americanNew.size >= MIN_FILTERED) {
         return TopRatedRow("Top rated new American series", americanNew)
     }
-    val newOnly = topByRating(pool.filter { isLikelyNew(it) }, scores)
+    val newOnly = topByRating(pool.filter { isLikelyNew(it) })
     if (newOnly.size >= MIN_FILTERED) {
         return TopRatedRow("Top rated new series", newOnly)
     }
-    val overall = topByRating(pool, scores)
+    val overall = topByRating(pool)
     return TopRatedRow(
         "Top rated series",
-        overall.ifEmpty { byAdded(scan) }
+        overall.ifEmpty { scan.sortedByDescending { it.addedMs ?: 0L }.take(TOP_N) }
     )
 }

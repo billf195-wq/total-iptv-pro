@@ -20,8 +20,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,11 +35,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
+import coil.request.ImageRequest
 import coil.compose.AsyncImage
-import com.totaliptv.pro.artwork.ArtworkRole
-import com.totaliptv.pro.artwork.ArtworkRuntime
-import com.totaliptv.pro.artwork.tvImageRequest
-import com.totaliptv.pro.artwork.tvRatingLabel
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.theme.LiveMarker
@@ -83,8 +78,7 @@ fun DesktopPosterCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     showTitle: Boolean = true,
-    focusRequester: FocusRequester? = null,
-    onFocused: () -> Unit = {}
+    focusRequester: FocusRequester? = null
 ) {
     val safeName = item.name.ifBlank { "Untitled" }
     val cardMod = if (modifier === Modifier) {
@@ -93,9 +87,6 @@ fun DesktopPosterCard(
         modifier.widthIn(max = TipDimens.PosterWidth)
     }
     TipFocusable(onClick = onClick, modifier = cardMod, focusRequester = focusRequester) { focused ->
-        LaunchedEffect(focused) {
-            if (focused) onFocused()
-        }
         Column(
             Modifier
                 .fillMaxWidth()
@@ -117,18 +108,12 @@ fun DesktopPosterCard(
                 val url = runCatching { item.artworkUrl() }.getOrNull()
                 if (!url.isNullOrBlank()) {
                     val context = LocalContext.current
-                    val sharp by ArtworkRuntime.sharp.collectAsState()
-                    val imageWidth = TipDimens.PosterWidth - (TipDimens.PosterPad * 2)
-                    val imageHeight = imageWidth * 1.5f
-                    val model = remember(url, sharp, imageWidth, imageHeight) {
-                        tvImageRequest(
-                            context,
-                            url,
-                            ArtworkRole.POSTER,
-                            sharp,
-                            imageWidth.value,
-                            imageHeight.value
-                        )
+                    val model = remember(url) {
+                        ImageRequest.Builder(context)
+                            .data(url)
+                            .size(200, 300)
+                            .crossfade(false)
+                            .build()
                     }
                     AsyncImage(
                         model = model,
@@ -146,7 +131,7 @@ fun DesktopPosterCard(
                         )
                     }
                 }
-                val ratingLabel = item.tvRatingLabel()
+                val ratingLabel = item.displayRating()
                 if (ratingLabel != null) {
                     Text(
                         text = "★ $ratingLabel",
@@ -201,12 +186,8 @@ fun LiveRowItem(
             ) {
                 val url = item.logoUrl ?: item.artworkUrl()
                 if (url != null) {
-                    val context = LocalContext.current
-                    val model = remember(url) {
-                        tvImageRequest(context, url, ArtworkRole.LOGO, sharp = false)
-                    }
                     AsyncImage(
-                        model = model,
+                        model = url,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit

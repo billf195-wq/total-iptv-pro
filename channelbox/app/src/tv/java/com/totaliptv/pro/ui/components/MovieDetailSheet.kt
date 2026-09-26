@@ -50,7 +50,6 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.data.local.WatchProgressStore
-import com.totaliptv.pro.artwork.tvRatingLabel
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
@@ -246,10 +245,7 @@ fun MovieDetailSheet(
                     contentDescription = enriched.name,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit,
-                    placeholderLabel = enriched.name.take(1).uppercase(),
-                    role = com.totaliptv.pro.artwork.ArtworkRole.DETAIL,
-                    tileWidth = 168.dp,
-                    tileHeight = 252.dp
+                    placeholderLabel = enriched.name.take(1).uppercase()
                 )
             }
             Column(
@@ -272,10 +268,9 @@ fun MovieDetailSheet(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                val ratingLabel = enriched.tvRatingLabel()
                 val meta = listOfNotNull(
                     enriched.groupTitle?.takeIf { it.isNotBlank() },
-                    ratingLabel?.let { "★ $it" },
+                    enriched.displayRating()?.let { "★ $it" },
                     if (canResume && pct != null) "Resume at $pct%" else null
                 ).joinToString("  ·  ")
                 if (meta.isNotBlank()) {

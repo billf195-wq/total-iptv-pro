@@ -60,8 +60,6 @@ import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.update.AppUpdateChecker
 import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
-import com.totaliptv.pro.artwork.TmdbKeyFile
-import com.totaliptv.pro.ui.components.DpadSearchField
 import com.totaliptv.pro.ui.components.FocusableCard
 import com.totaliptv.pro.ui.theme.FocusBorder
 import com.totaliptv.pro.ui.theme.AppearanceMode
@@ -91,9 +89,6 @@ fun SettingsScreen(
     val accentPreset by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
     val appLayoutMode by app.preferences.appLayoutMode.collectAsState(initial = AppLayoutMode.CLASSIC)
     val posterColumns by app.preferences.posterColumns.collectAsState(initial = 6)
-    val sharpPosters by app.preferences.sharpPosters.collectAsState(initial = true)
-    val tmdbRatings by app.preferences.tmdbRatings.collectAsState(initial = true)
-    val tmdbApiKey by app.preferences.tmdbApiKey.collectAsState(initial = "")
     val updateBaseUrl by app.preferences.updateBaseUrl.collectAsState(
         initial = AppPreferences.DEFAULT_UPDATE_BASE_URL
     )
@@ -428,49 +423,6 @@ fun SettingsScreen(
                         )
                     }
                 }
-            }
-
-            item { SectionTitle("Artwork") }
-            item {
-                FocusableCard(
-                    title = "Sharp posters (HD artwork)",
-                    subtitle = if (sharpPosters) "On — larger TMDB artwork" else "Off",
-                    onClick = {
-                        scope.launch { app.preferences.setSharpPosters(!sharpPosters) }
-                    }
-                )
-            }
-            item {
-                FocusableCard(
-                    title = "TMDB ratings",
-                    subtitle = if (tmdbRatings) "On — vote average on tiles and Top rated" else "Off — provider ratings",
-                    onClick = {
-                        scope.launch { app.preferences.setTmdbRatings(!tmdbRatings) }
-                    }
-                )
-            }
-            item {
-                Text(
-                    "TMDB API key",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    "v3 32-hex key or v4 token starting with eyJ. A leading Bearer is stripped. Blank reads tmdb-api-key.txt at ${TmdbKeyFile.ADB_PATH}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                    modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
-                )
-                var keyDraft by remember { mutableStateOf<String?>(null) }
-                DpadSearchField(
-                    value = keyDraft ?: tmdbApiKey,
-                    onValueChange = { value ->
-                        keyDraft = value
-                        scope.launch { app.preferences.setTmdbApiKey(value) }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = "TMDB API key"
-                )
             }
 
             item { SectionTitle("Personal DVR") }

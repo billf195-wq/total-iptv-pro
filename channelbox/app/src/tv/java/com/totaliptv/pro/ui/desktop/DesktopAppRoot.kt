@@ -36,8 +36,6 @@ import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
-import com.totaliptv.pro.artwork.RankPace
-import com.totaliptv.pro.artwork.TvRatings
 import com.totaliptv.pro.ui.components.MovieDetailSheet
 import com.totaliptv.pro.ui.epg.EpgGuideScreen
 import com.totaliptv.pro.ui.theme.AccentPreset
@@ -47,8 +45,6 @@ import com.totaliptv.pro.ui.onboarding.OnboardingScreen
 import android.widget.Toast
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.launch
@@ -241,27 +237,14 @@ fun DesktopAppRoot(
                 // Prefetch Home ranking off the main thread while browsing other sections.
                 // Avoids Movies→Home doing pickTopRated* synchronously during section switch.
                 LaunchedEffect(revision, vodLoading, movies.size, series.size) {
-                    TvRatings.enqueueBackfill(movies, series)
-                    var lastRankMs = -1L
-                    var seenRevision = TvRatings.revision.value
-                    suspend fun rankIfDue(force: Boolean) {
-                        if (!force) {
-                            val wait = RankPace.delayMs(lastRankMs, System.currentTimeMillis(), TvRatings.isIdle())
-                            if (wait > 0L) delay(wait)
-                        }
-                        yield()
-                        val ranked = withContext(Dispatchers.Default) {
-                            pickTopRatedMovies(movies) to pickTopRatedSeries(series)
-                        }
-                        TopRatedCache.put(revision, seenRevision, ranked.first, ranked.second)
-                        lastRankMs = System.currentTimeMillis()
+                    if (TopRatedCache.movies(revision) != null && TopRatedCache.series(revision) != null) {
+                        return@LaunchedEffect
                     }
-                    rankIfDue(force = true)
-                    TvRatings.revision.collect { rev ->
-                        if (rev == seenRevision) return@collect
-                        seenRevision = rev
-                        rankIfDue(force = false)
+                    yield()
+                    val ranked = withContext(Dispatchers.Default) {
+                        pickTopRatedMovies(movies) to pickTopRatedSeries(series)
                     }
+                    TopRatedCache.put(revision, ranked.first, ranked.second)
                 }
 
                 Box(Modifier.fillMaxSize().background(TipBg)) {

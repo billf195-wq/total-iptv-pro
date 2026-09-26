@@ -55,8 +55,6 @@ data class MediaItem(
     val categoryIds: List<String> = emptyList(),
     /** Display rating for posters (e.g. "8.2"); null/blank = hide badge. */
     val rating: String? = null,
-    /** Xtream `tmdb` / `tmdb_id` when the provider sent one. */
-    val tmdbId: String? = null,
     /** Xtream youtube_trailer — video id or URL; null = no preview. */
     val youtubeTrailer: String? = null,
     /** Plot / synopsis from get_vod_info / get_series_info when resolved. */
