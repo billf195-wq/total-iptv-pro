@@ -636,6 +636,18 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         setSeriesSession(null)
     }
 
+    LaunchedEffect(splitSession) {
+        if (AppPaths.isWindows) return@LaunchedEffect
+        val shown = splitSession ?: return@LaunchedEffect
+        while (splitSession === shown) {
+            if (StreamPlayer.splitSession == null) {
+                stopPlayback()
+                break
+            }
+            delay(250)
+        }
+    }
+
     fun playSplit(left: MediaItem, right: MediaItem) {
         scope.launch {
             try {
@@ -920,12 +932,14 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     onStopSplit = { stopPlayback() },
                     onOpenSeries = { openSeries(it) },
                     onCloseSeries = {
+                        if (!AppPaths.isWindows && splitSession != null) stopPlayback()
                         seriesDetail = null
                         seriesError = null
                         seriesLoading = false
                     },
                     onOpenVod = { openVod(it) },
                     onCloseVod = {
+                        if (!AppPaths.isWindows && splitSession != null) stopPlayback()
                         vodDetail = null
                         vodError = null
                         vodLoading = false

@@ -24,6 +24,7 @@ import com.totaliptv.pro.desktop.data.PreferencesStore
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
 import com.totaliptv.pro.desktop.input.WindowsTopMost
 import com.totaliptv.pro.desktop.player.StreamPlayer
+import com.totaliptv.pro.desktop.util.AppPaths
 import com.totaliptv.pro.desktop.ui.AppRoot
 import com.totaliptv.pro.desktop.ui.SeriesNextHost
 import com.totaliptv.pro.desktop.ui.SplashBranding
@@ -109,6 +110,14 @@ fun main() = application(exitProcessOnExit = true) {
                             WindowPlacement.Floating
                         } else {
                             WindowPlacement.Fullscreen
+                        }
+                        true
+                    }
+                    keyDown && event.key == Key.Escape &&
+                        !AppPaths.isWindows && StreamPlayer.isSplitActive() -> {
+                        StreamPlayer.stop()
+                        if (state.placement == WindowPlacement.Fullscreen) {
+                            state.placement = WindowPlacement.Floating
                         }
                         true
                     }

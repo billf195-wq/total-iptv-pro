@@ -227,6 +227,11 @@ object StreamPlayer {
             rightProcess = rightProc
         )
         splitSession = session
+        if (!AppPaths.isWindows) {
+            scope.launch(Dispatchers.IO) {
+                watchLinuxSplitPartner(session)
+            }
+        }
         WindowPositioner.snapWindowAsync(
             scope, leftProc, leftProc.pid(), leftHalf.x, leftHalf.y, leftHalf.width, leftHalf.height
         )
@@ -266,6 +271,30 @@ object StreamPlayer {
         session.rightProcess?.destroyForcibly()
         splitSession = null
     }
+
+    /**
+     * Linux Game Day windows have no title bar. When either VLC exits (q, Esc,
+     * or the app stopping one side), kill the partner so both sides go together.
+     */
+    private suspend fun watchLinuxSplitPartner(session: SplitSession) {
+        while (splitSession === session) {
+            val leftAlive = session.leftProcess?.isAlive == true
+            val rightAlive = session.rightProcess?.isAlive == true
+            if (splitPartnerShouldStop(leftAlive, rightAlive)) {
+                if (splitSession === session) {
+                    session.leftProcess?.destroyForcibly()
+                    session.rightProcess?.destroyForcibly()
+                    if (splitSession === session) splitSession = null
+                }
+                return
+            }
+            delay(200)
+        }
+    }
+
+    /** True when either side has exited, so the other Game Day VLC must be killed. */
+    internal fun splitPartnerShouldStop(leftAlive: Boolean, rightAlive: Boolean): Boolean =
+        !leftAlive || !rightAlive
 
     fun stop() {
         stoppedByUser = true
@@ -477,8 +506,9 @@ object StreamPlayer {
      * Linux: `--intf=dummy` so there is no Qt control window (GNOME was stacking
      * those on the left monitor). `--zoom=0.5` keeps a 1080p stream from opening
      * at full-monitor size, which GNOME auto-maximizes. `--extraintf=rc` and
-     * `--rc-host` stay so audio switching still works. Placement is X11, not
-     * `--video-x` (XWayland ignores it).
+     * `--rc-host` stay so audio switching still works. `--control=hotkeys` loads
+     * the hotkeys module (dummy does not), with q and Esc bound to quit.
+     * Placement is X11, not `--video-x` (XWayland ignores it).
      */
     internal fun splitSideCommand(
         binary: String,
@@ -545,11 +575,23 @@ object StreamPlayer {
         args += "--video-x=$x"
         args += "--video-y=$y"
         args += "--extraintf=rc"
+        // VLC joins `control` onto extraintf with ':'. A comma is one module name
+        // and would not load hotkeys. Dummy has no key handler without this.
+        args += "--control=hotkeys"
+        // leave-fullscreen is registered before quit and owns Esc. Unset frees Esc.
+        args += "--key-leave-fullscreen=Unset"
+        args += "--key-quit=$LINUX_SPLIT_QUIT_KEYS"
         args += "--rc-host=127.0.0.1:$port"
         args += "--meta-title=$title"
         args += url
         return args
     }
+
+    /**
+     * Keys that quit a Linux Game Day window. Tab-separated, matching VLC's
+     * `init_action` parser. Ctrl+q stays so the default quit chord still works.
+     */
+    internal const val LINUX_SPLIT_QUIT_KEYS = "q\tEsc\tCtrl+q"
 
     @Suppress("UNUSED_PARAMETER")
     internal fun mpvCommand(

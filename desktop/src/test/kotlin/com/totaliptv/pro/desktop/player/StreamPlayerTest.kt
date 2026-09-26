@@ -277,12 +277,17 @@ class StreamPlayerTest {
                 "--video-x=1920",
                 "--video-y=37",
                 "--extraintf=rc",
+                "--control=hotkeys",
+                "--key-leave-fullscreen=Unset",
+                "--key-quit=${StreamPlayer.LINUX_SPLIT_QUIT_KEYS}",
                 "--rc-host=127.0.0.1:4212",
                 "--meta-title=Total IPTV Pro — Left",
                 url
             ),
             linux
         )
+        assertEquals("q\tEsc\tCtrl+q", StreamPlayer.LINUX_SPLIT_QUIT_KEYS)
+        assertTrue(linux.any { it.startsWith("--key-quit=") && it.contains("\t") })
         assertFalse(linux.contains("--qt-minimal-view"))
         assertFalse(linux.contains("--no-embedded-video"))
         assertFalse(linux.contains("--no-qt-video-autoresize"))
@@ -330,6 +335,17 @@ class StreamPlayerTest {
         )
         assertFalse(windows.contains("--intf=dummy"))
         assertFalse(windows.contains("--zoom=0.5"))
+        assertFalse(windows.any { it.startsWith("--key-quit") })
+        assertFalse(windows.contains("--control=hotkeys"))
+        assertFalse(windows.contains("--key-leave-fullscreen=Unset"))
+    }
+
+    @Test
+    fun splitPartnerStopsWhenEitherSideExits() {
+        assertFalse(StreamPlayer.splitPartnerShouldStop(leftAlive = true, rightAlive = true))
+        assertTrue(StreamPlayer.splitPartnerShouldStop(leftAlive = false, rightAlive = true))
+        assertTrue(StreamPlayer.splitPartnerShouldStop(leftAlive = true, rightAlive = false))
+        assertTrue(StreamPlayer.splitPartnerShouldStop(leftAlive = false, rightAlive = false))
     }
 
     @Test
