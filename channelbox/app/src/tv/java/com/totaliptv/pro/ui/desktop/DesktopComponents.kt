@@ -49,7 +49,7 @@ import com.totaliptv.pro.ui.components.NetworkImage
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.theme.LiveMarker
 import com.totaliptv.pro.ui.home.HomeShelfFit
-import com.totaliptv.pro.ui.splash.AppBannerArt
+import com.totaliptv.pro.ui.splash.AppBrandName
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -361,9 +361,12 @@ fun SidebarBrand(modifier: Modifier = Modifier) {
     Box(
         modifier
             .fillMaxWidth()
-            .background(TipBg)
-            .padding(bottom = 4.dp)
+            .background(TipBg),
+        contentAlignment = Alignment.Center
     ) {
-        AppBannerArt(Modifier.height(HomeShelfFit.sidebarLogo))
+        AppBrandName(
+            color = TipGoldText,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }

@@ -93,7 +93,8 @@ class HomeShelfFitTest {
             .substringAfter("fun AppTopNav")
             .substringBefore("fun ClassicBrandBar")
         assertTrue(nav.contains("HomeShelfFit.classicNav"))
-        assertTrue(nav.contains("HomeShelfFit.classicLogo"))
+        assertTrue(nav.contains("AppBrandName("))
+        assertFalse(nav.contains("AppBannerArt("))
         for (path in classicPages.drop(1)) {
             val text = File(path).readText()
             assertTrue(path, text.contains("ClassicBrandBar()"))
@@ -116,10 +117,14 @@ class HomeShelfFitTest {
             .substringAfter("fun PhonePageHeader")
             .substringBefore("fun PhoneSectionTitle")
         assertTrue(header.contains("HomeShelfFit.phoneTopOffset"))
-        assertTrue(header.contains("HomeShelfFit.classicLogo"))
-        assertTrue(header.contains("AppBannerArt("))
+        assertTrue(header.contains("AppBrandName("))
+        assertFalse(header.contains("AppBannerArt("))
         assertTrue(header.contains("Color(0xFF000000)"))
         assertFalse(header.contains("text = title"))
+        assertEquals(18f, HomeShelfFit.brandNameSp.value, 0.01f)
+        assertTrue(HomeShelfFit.brandNameFitsSidebar())
+        val rootPad = root.substringAfter("fun DesktopSidebar")
+        assertTrue(rootPad.contains("top = HomeShelfFit.pageTopOffset"))
         val phonePages = listOf(
             "src/phone/java/com/totaliptv/pro/ui/home/PhoneHomeScreen.kt",
             "src/phone/java/com/totaliptv/pro/ui/browse/PhoneBrowseScreen.kt",

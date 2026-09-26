@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,7 +30,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.ui.home.HomeShelfFit
-import com.totaliptv.pro.ui.splash.AppBannerArt
+import com.totaliptv.pro.ui.splash.AppBrandName
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.CinemaSurfaceHigh
@@ -195,27 +194,23 @@ fun PhoneLiveRow(
 }
 
 /**
- * Shared phone page header. Logo only — the bottom nav shows which page is open.
- * Content on every phone page starts under this [HomeShelfFit.phoneTopOffset] bar.
+ * Shared phone page header. The name is centered. Content starts under this
+ * [HomeShelfFit.phoneTopOffset] bar.
  */
 @Composable
-fun PhonePageHeader(
-    modifier: Modifier = Modifier,
-    trailing: @Composable (RowScope.() -> Unit)? = null
-) {
-    Row(
+fun PhonePageHeader(modifier: Modifier = Modifier) {
+    Box(
         modifier
             .fillMaxWidth()
             .height(HomeShelfFit.phoneTopOffset)
             .background(Color(0xFF000000))
             .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+        contentAlignment = Alignment.Center
     ) {
-        AppBannerArt(Modifier.height(HomeShelfFit.classicLogo))
-        if (trailing != null) {
-            Spacer(Modifier.weight(1f))
-            trailing()
-        }
+        AppBrandName(
+            color = OnCinema,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

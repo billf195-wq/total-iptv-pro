@@ -53,7 +53,7 @@ import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
 import coil.compose.AsyncImage
 import com.totaliptv.pro.ui.home.HomeShelfFit
-import com.totaliptv.pro.ui.splash.AppBannerArt
+import com.totaliptv.pro.ui.splash.AppBrandName
 import com.totaliptv.pro.ui.splash.SplashBranding
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.ClassicDimens
@@ -955,19 +955,22 @@ fun ErrorText(message: String, modifier: Modifier = Modifier) {
 
 
 /**
- * Logo row shared by classic pages that are not inside [AppTopNav].
- * Same height and logo as the hub nav, so every classic page starts at the same offset.
+ * Name row shared by classic pages that are not inside [AppTopNav].
+ * Same height as the hub nav, so every classic page starts at the same offset.
  */
 @Composable
 fun ClassicBrandBar(modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier
+    Box(
+        modifier
             .fillMaxWidth()
             .height(HomeShelfFit.classicNav)
             .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+        contentAlignment = Alignment.Center
     ) {
-        AppBannerArt(Modifier.height(HomeShelfFit.classicLogo))
+        AppBrandName(
+            color = OnCinema,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
@@ -1008,9 +1011,10 @@ fun AppTopNav(
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AppBannerArt(
-            modifier = Modifier.height(HomeShelfFit.classicLogo),
-            contentDescription = brandTitle.ifBlank { SplashBranding.APP_TITLE }
+        AppBrandName(
+            color = OnCinema,
+            text = brandTitle.ifBlank { SplashBranding.APP_TITLE },
+            modifier = Modifier.widthIn(max = 200.dp)
         )
         Spacer(Modifier.width(10.dp))
         Text(

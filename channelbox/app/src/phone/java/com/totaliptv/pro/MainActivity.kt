@@ -265,9 +265,6 @@ private fun PhoneAppRoot(
                 repository = repository,
                 onPlay = onPlay,
                 onPlayFromStart = onPlayFromStart,
-                onOpenLive = { tab = PhoneTab.Live },
-                onOpenMovies = { tab = PhoneTab.Movies },
-                onOpenSeries = { tab = PhoneTab.Series },
                 contentPadding = padding
             )
             PhoneTab.Live -> PhoneBrowseScreen(

@@ -2,6 +2,7 @@ package com.totaliptv.pro.ui.home
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * Home shelf sizes for a 1920×1080 Shield.
@@ -36,6 +37,24 @@ object HomeShelfFit {
     val classicPosterTitle = 26.dp
 
     val sidebarLogo = 36.dp
+
+    /**
+     * "Total IPTV Pro" in semi-bold is about 7 em wide. The desktop side panel
+     * is 220×0.70 dp with 16×0.70 dp padding on each side (131.6 dp inside).
+     * 18 sp × 7 em = 126 dp, so the name fits on one line. 20 sp would be 140 dp
+     * and would clip.
+     */
+    val brandNameSp = 18.sp
+    const val BRAND_NAME_EM = 7.0f
+
+    fun sidebarBrandInnerWidthDp(): Float {
+        val panel = 220f * 0.70f
+        val pad = 16f * 0.70f
+        return panel - pad * 2f
+    }
+
+    fun brandNameFitsSidebar(): Boolean =
+        brandNameSp.value * BRAND_NAME_EM <= sidebarBrandInnerWidthDp()
 
     /**
      * Catalog search field on Live, Movies, Series, and Search.

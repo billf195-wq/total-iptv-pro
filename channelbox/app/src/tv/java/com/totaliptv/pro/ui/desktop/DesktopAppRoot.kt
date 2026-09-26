@@ -564,7 +564,12 @@ private fun DesktopSidebar(
     Column(
         modifier
             .focusProperties { canFocus = focusEnabled }
-            .padding(TipDimens.SidebarPad),
+            .padding(
+                start = TipDimens.SidebarPad,
+                top = HomeShelfFit.pageTopOffset,
+                end = TipDimens.SidebarPad,
+                bottom = TipDimens.SidebarPad
+            ),
         verticalArrangement = Arrangement.spacedBy(TipDimens.NavGap)
     ) {
         SidebarBrand()

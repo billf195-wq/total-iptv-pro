@@ -16,7 +16,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -51,9 +50,6 @@ fun PhoneHomeScreen(
     repository: CatalogRepository,
     onPlay: (MediaItem) -> Unit,
     onPlayFromStart: (MediaItem) -> Unit,
-    onOpenLive: () -> Unit,
-    onOpenMovies: () -> Unit,
-    onOpenSeries: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp)
 ) {
     val context = LocalContext.current
@@ -108,23 +104,7 @@ fun PhoneHomeScreen(
             .padding(contentPadding)
     ) {
         Column(Modifier.fillMaxSize()) {
-            PhonePageHeader(trailing = {
-                TextButton(
-                    onClick = onOpenLive,
-                    modifier = Modifier.height(32.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                ) { Text("Live", maxLines = 1) }
-                TextButton(
-                    onClick = onOpenMovies,
-                    modifier = Modifier.height(32.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                ) { Text("Movies", maxLines = 1) }
-                TextButton(
-                    onClick = onOpenSeries,
-                    modifier = Modifier.height(32.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                ) { Text("Series", maxLines = 1) }
-            })
+            PhonePageHeader()
             when {
             loading && newlyMovies.isEmpty() && liveSample.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
