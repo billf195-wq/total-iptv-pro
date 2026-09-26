@@ -24,6 +24,7 @@ import com.totaliptv.pro.desktop.data.PreferencesStore
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
 import com.totaliptv.pro.desktop.input.WindowsTopMost
 import com.totaliptv.pro.desktop.player.StreamPlayer
+import com.totaliptv.pro.desktop.player.WindowPositioner
 import com.totaliptv.pro.desktop.util.AppPaths
 import com.totaliptv.pro.desktop.ui.AppRoot
 import com.totaliptv.pro.desktop.ui.SeriesNextHost
@@ -134,6 +135,7 @@ fun main() = application(exitProcessOnExit = true) {
             }
         ) {
             window.minimumSize = Dimension(960, 600)
+            WindowPositioner.attachAppWindow(window)
             AppRoot(seriesNextHost, onQuit = { quit() })
         }
     }

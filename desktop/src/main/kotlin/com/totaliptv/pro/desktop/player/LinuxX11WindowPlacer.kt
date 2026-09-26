@@ -43,7 +43,9 @@ object LinuxX11WindowPlacer {
     private const val FORMAT_32 = 32
     private const val XRES_CLIENT_ID_PID_MASK = 2
     private const val NET_WM_STATE_REMOVE = 0L
+    private const val NET_WM_STATE_ADD = 1L
     private const val NET_WM_STATE_SOURCE_APP = 1L
+    private const val XA_ATOM = 4L
     private const val MWM_HINTS_DECORATIONS = 2L
     private const val SUBSTRUCTURE_MASKS = 1572864L // Redirect | Notify
     private const val XEVENT_BYTES = 192
@@ -134,6 +136,91 @@ object LinuxX11WindowPlacer {
                 delay(1000)
                 val result = runCatching { placePid(pid, requested) }.getOrElse { PlaceResult.Failed(it.message) }
                 if (noteResult(result)) break
+            }
+        }
+    }
+
+    /**
+     * Fullscreen a single-play VLC window on [monitor]. The window is moved onto
+     * that monitor's work area first; GNOME will not move a window that is
+     * already fullscreen on another output. `_NET_WM_STATE_FULLSCREEN` is set
+     * only after that move.
+     */
+    fun fullscreenOnMonitorAsync(
+        scope: CoroutineScope,
+        process: Process?,
+        pid: Long,
+        monitor: ScreenBounds
+    ) {
+        if (System.getenv("DISPLAY").isNullOrBlank()) {
+            PlaybackDebugLog.note("playback-x11: DISPLAY is unset; VLC was not moved to the app monitor")
+            return
+        }
+        if (Native.LONG_SIZE != 8) {
+            PlaybackDebugLog.note("playback-x11: unsupported pointer size ${Native.LONG_SIZE}")
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            var loggedPlace = false
+            var loggedMiss = false
+            var misses = 0
+            var stable = 0
+            var lastMismatch: String? = null
+            fun noteResult(result: PlaceResult): Boolean {
+                when (result) {
+                    is PlaceResult.Unavailable -> {
+                        PlaybackDebugLog.note("playback-x11: ${result.detail}")
+                        return true
+                    }
+                    is PlaceResult.Placed -> {
+                        if (!loggedPlace) {
+                            PlaybackDebugLog.note(
+                                "playback-x11: fullscreen pid=$pid via ${result.pidSource} " +
+                                    "window=0x${result.window.toString(16)} " +
+                                    "on ${boundsText(monitor)} at ${boundsText(result.actual)}"
+                            )
+                            loggedPlace = true
+                        }
+                    }
+                    is PlaceResult.Misplaced -> {
+                        val actual = boundsText(result.actual)
+                        if (actual != lastMismatch) {
+                            PlaybackDebugLog.note(
+                                "playback-x11: pid=$pid wanted ${boundsText(monitor)} " +
+                                    "but window is $actual"
+                            )
+                            lastMismatch = actual
+                            loggedPlace = false
+                        }
+                    }
+                    is PlaceResult.NotYet -> {
+                        misses++
+                        if (!loggedMiss && misses == 8) {
+                            PlaybackDebugLog.note("playback-x11: pid=$pid not fullscreen yet (${result.detail})")
+                            loggedMiss = true
+                        }
+                    }
+                    is PlaceResult.Failed -> {
+                        if (!loggedMiss) {
+                            PlaybackDebugLog.note("playback-x11: fullscreen failed for pid=$pid: ${result.detail}")
+                            loggedMiss = true
+                        }
+                    }
+                }
+                return false
+            }
+            for (i in 0 until 80) {
+                if (!isActive) return@launch
+                if (process != null && !process.isAlive) return@launch
+                val result = runCatching { placeFullscreen(pid, monitor) }.getOrElse { PlaceResult.Failed(it.message) }
+                if (noteResult(result)) return@launch
+                if (result is PlaceResult.Placed) {
+                    stable++
+                    if (stable >= 8) return@launch
+                } else {
+                    stable = 0
+                }
+                delay(150)
             }
         }
     }
@@ -236,6 +323,21 @@ object LinuxX11WindowPlacer {
         return if (isLeftHalf(requested, monitor)) left else right
     }
 
+    /**
+     * A large window whose center is on [monitor]. Fullscreen success also
+     * requires the `_NET_WM_STATE_FULLSCREEN` atom; this only checks geometry.
+     */
+    internal fun fullscreenCoversMonitor(actual: ScreenBounds, monitor: ScreenBounds): Boolean {
+        val centerX = actual.x + actual.width / 2
+        val centerY = actual.y + actual.height / 2
+        val onMonitor = centerX >= monitor.x && centerX < monitor.x + monitor.width &&
+            centerY >= monitor.y && centerY < monitor.y + monitor.height
+        if (!onMonitor) return false
+        val wide = actual.width >= (monitor.width * 9) / 10
+        val tall = actual.height >= (monitor.height * 8) / 10
+        return wide && tall
+    }
+
     internal fun geometryMatches(actual: ScreenBounds, target: ScreenBounds, tolerance: Int = PLACEMENT_TOLERANCE_PX): Boolean {
         return kotlin.math.abs(actual.x - target.x) <= tolerance &&
             kotlin.math.abs(actual.y - target.y) <= tolerance &&
@@ -311,6 +413,60 @@ object LinuxX11WindowPlacer {
         }
     }
 
+    private fun placeFullscreen(pid: Long, monitor: ScreenBounds): PlaceResult {
+        val x11 = x11OrNull() ?: return PlaceResult.Unavailable("libX11 unavailable")
+        val dpy = x11.XOpenDisplay(null) ?: return PlaceResult.Unavailable("XOpenDisplay failed")
+        ensureErrorHandler(x11)
+        try {
+            val root = x11.XDefaultRootWindow(dpy).toLong()
+            if (root == 0L) return PlaceResult.Unavailable("no root window")
+            val windows = topLevelWindows(x11, dpy, root)
+            if (windows.isEmpty()) return PlaceResult.NotYet("no top-level windows")
+            val mine = windows.filter { pidSource(x11, dpy, it, pid) != "none" }
+            if (mine.isEmpty()) return PlaceResult.NotYet("pid not on any window")
+            val video = chooseVideo(x11, dpy, mine) ?: return PlaceResult.NotYet("no video-sized window")
+            val source = pidSource(x11, dpy, video, pid)
+            val current = windowBounds(x11, dpy, root, video)
+            if (current != null &&
+                stateHas(x11, dpy, video, "_NET_WM_STATE_FULLSCREEN") &&
+                fullscreenCoversMonitor(current, monitor)
+            ) {
+                return PlaceResult.Placed(video, source, current)
+            }
+            val desktop = currentDesktop(x11, dpy, root)
+            val anchor = usableWorkArea(
+                monitor,
+                readGtkWorkAreas(x11, dpy, root, desktop),
+                readNetWorkArea(x11, dpy, root, desktop)
+            )
+            if (!moveWindow(x11, dpy, root, video, anchor, borderless = false)) {
+                return PlaceResult.Failed("XMoveResizeWindow")
+            }
+            x11.XSync(dpy, 0)
+            val moved = windowBounds(x11, dpy, root, video)
+            val onTarget = moved != null &&
+                (fullscreenCoversMonitor(moved, monitor) || geometryMatches(moved, anchor))
+            if (!onTarget) {
+                if (moved != null && !fullscreenCoversMonitor(moved, monitor)) {
+                    return PlaceResult.Misplaced(video, anchor, moved)
+                }
+                return PlaceResult.NotYet("no geometry after move")
+            }
+            addNetWmState(x11, dpy, root, video, "_NET_WM_STATE_FULLSCREEN")
+            x11.XSync(dpy, 0)
+            val after = windowBounds(x11, dpy, root, video)
+            if (after != null &&
+                stateHas(x11, dpy, video, "_NET_WM_STATE_FULLSCREEN") &&
+                fullscreenCoversMonitor(after, monitor)
+            ) {
+                return PlaceResult.Placed(video, source, after)
+            }
+            return PlaceResult.NotYet("fullscreen requested on ${boundsText(monitor)}")
+        } finally {
+            runCatching { x11.XCloseDisplay(dpy) }
+        }
+    }
+
     private fun resolveWorkAreaHalf(x11: X11Lib, dpy: Pointer, root: Long, requested: ScreenBounds): ScreenBounds {
         val monitor = monitorContaining(requested, WindowPositioner.awtMonitorBounds()) ?: return requested
         val desktop = currentDesktop(x11, dpy, root)
@@ -367,8 +523,15 @@ object LinuxX11WindowPlacer {
     private fun boundsText(bounds: ScreenBounds): String =
         "${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}"
 
-    private fun moveWindow(x11: X11Lib, dpy: Pointer, root: Long, window: Long, target: ScreenBounds): Boolean {
-        clearMotifDecorations(x11, dpy, window)
+    private fun moveWindow(
+        x11: X11Lib,
+        dpy: Pointer,
+        root: Long,
+        window: Long,
+        target: ScreenBounds,
+        borderless: Boolean = true
+    ): Boolean {
+        if (borderless) clearMotifDecorations(x11, dpy, window)
         removeNetWmState(x11, dpy, root, window, "_NET_WM_STATE_MAXIMIZED_VERT", "_NET_WM_STATE_MAXIMIZED_HORZ")
         removeNetWmState(x11, dpy, root, window, "_NET_WM_STATE_FULLSCREEN", null)
         val moved = x11.XMoveResizeWindow(
@@ -459,6 +622,22 @@ object LinuxX11WindowPlacer {
     }
 
     private fun removeNetWmState(x11: X11Lib, dpy: Pointer, root: Long, window: Long, first: String, second: String?) {
+        changeNetWmState(x11, dpy, root, window, NET_WM_STATE_REMOVE, first, second)
+    }
+
+    private fun addNetWmState(x11: X11Lib, dpy: Pointer, root: Long, window: Long, name: String) {
+        changeNetWmState(x11, dpy, root, window, NET_WM_STATE_ADD, name, null)
+    }
+
+    private fun changeNetWmState(
+        x11: X11Lib,
+        dpy: Pointer,
+        root: Long,
+        window: Long,
+        action: Long,
+        first: String,
+        second: String?
+    ) {
         val state = intern(x11, dpy, "_NET_WM_STATE") ?: return
         val a = intern(x11, dpy, first) ?: return
         val b = second?.let { intern(x11, dpy, it) } ?: 0L
@@ -469,11 +648,17 @@ object LinuxX11WindowPlacer {
         event.setLong(32, window)
         event.setLong(40, state)
         event.setInt(48, FORMAT_32)
-        event.setLong(56, NET_WM_STATE_REMOVE)
+        event.setLong(56, action)
         event.setLong(64, a)
         event.setLong(72, b)
         event.setLong(80, NET_WM_STATE_SOURCE_APP)
         x11.XSendEvent(dpy, NativeLong(root), 0, NativeLong(SUBSTRUCTURE_MASKS), event)
+    }
+
+    private fun stateHas(x11: X11Lib, dpy: Pointer, window: Long, name: String): Boolean {
+        val prop = intern(x11, dpy, "_NET_WM_STATE") ?: return false
+        val want = intern(x11, dpy, name) ?: return false
+        return readProperty(x11, dpy, window, prop, XA_ATOM, 64).any { it == want }
     }
 
     private fun clearMotifDecorations(x11: X11Lib, dpy: Pointer, window: Long) {

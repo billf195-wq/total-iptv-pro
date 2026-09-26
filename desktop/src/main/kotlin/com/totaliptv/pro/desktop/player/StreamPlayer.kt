@@ -133,6 +133,11 @@ object StreamPlayer {
         stopProcessOnly()
         val treatLive = live || isLiveStreamUrl(clean.first())
         val resumeAt = if (treatLive) null else startPositionSeconds
+        val x11Fullscreen = useX11MonitorFullscreen(
+            AppPaths.isWindows,
+            fullscreen,
+            !System.getenv("DISPLAY").isNullOrBlank()
+        )
         val resolved = resolvePlayerCommand(clean, preferredPlayer, treatLive, resumeAt, fullscreen)
             ?: error(
                 if (AppPaths.isWindows) {
@@ -143,15 +148,20 @@ object StreamPlayer {
             )
         lastLaunchWasPlaylist = resolved.playlist
         lastBinary = resolved.command.first()
+        val launchCommand = vlcCommandForMonitorFullscreen(resolved.command, x11Fullscreen)
         if (AppPaths.isWindows) {
             killWindowsPlayerTree(resolved.command.first())
         }
         markLaunch()
-        val proc = ProcessBuilder(resolved.command)
+        val proc = ProcessBuilder(launchCommand)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .start()
         current = proc
+        if (x11Fullscreen && scope != null && launchCommand.none { it == "--fullscreen" }) {
+            val monitor = WindowPositioner.linuxPlaybackMonitor()
+            LinuxX11WindowPlacer.fullscreenOnMonitorAsync(scope, proc, proc.pid(), monitor)
+        }
         if (onProgress != null && scope != null && !treatLive && resolved.command.first().contains("vlc", ignoreCase = true)) {
             progressJob = scope.launch(Dispatchers.IO) {
                 delay(2000)
@@ -198,7 +208,11 @@ object StreamPlayer {
         stop()
         stoppedByUser = false
 
-        val bounds = WindowPositioner.getPrimaryScreenBounds()
+        val bounds = if (AppPaths.isWindows) {
+            WindowPositioner.getPrimaryScreenBounds()
+        } else {
+            WindowPositioner.linuxPlaybackMonitor()
+        }
         val (leftHalf, rightHalf) = WindowPositioner.splitHalves(bounds)
 
         val leftCmd = splitSideCommand(
@@ -442,6 +456,30 @@ object StreamPlayer {
      */
     @Suppress("UNUSED_PARAMETER")
     internal fun treatsLaunchAsPlaylist(player: String, urlCount: Int, windows: Boolean): Boolean = false
+
+    /**
+     * Linux VLC fullscreen follows the app's monitor via the X11 placer.
+     * `--fullscreen` would open on the primary output and GNOME will not move it.
+     * Windows keeps the flag. No DISPLAY means there is nothing to place, so the
+     * flag stays.
+     */
+    internal fun useX11MonitorFullscreen(
+        windows: Boolean,
+        fullscreen: Boolean,
+        displayAvailable: Boolean
+    ): Boolean = !windows && fullscreen && displayAvailable
+
+    /** Drop `--fullscreen` only from a Linux VLC argv that the X11 placer will fullscreen. */
+    internal fun vlcCommandForMonitorFullscreen(command: List<String>, enabled: Boolean): List<String> {
+        if (!enabled) return command
+        val name = command.firstOrNull()
+            ?.substringAfterLast('\\')
+            ?.substringAfterLast('/')
+            ?.lowercase()
+            ?: return command
+        if (name != "vlc" && name != "vlc.exe") return command
+        return command.filterNot { it == "--fullscreen" }
+    }
 
     /**
      * **First URL only** on Linux and Windows.

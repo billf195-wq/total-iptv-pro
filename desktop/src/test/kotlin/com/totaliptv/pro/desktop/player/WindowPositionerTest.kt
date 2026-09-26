@@ -107,6 +107,47 @@ class WindowPositionerTest {
     }
 
     @Test
+    fun linuxPlaybackFollowsTheAppMonitor() {
+        val hdmi = WindowPositioner.ScreenBounds(0, 0, 1920, 1080)
+        val dp1 = WindowPositioner.ScreenBounds(1920, 0, 1920, 1080)
+        assertEquals(hdmi, WindowPositioner.monitorOrFallback(hdmi, dp1))
+        assertEquals(dp1, WindowPositioner.monitorOrFallback(null, dp1))
+
+        val gtk = listOf(
+            hdmi,
+            WindowPositioner.ScreenBounds(1920, 40, 1920, 993)
+        )
+        val (left, right) = WindowPositioner.splitHalves(hdmi)
+        assertEquals(
+            WindowPositioner.ScreenBounds(0, 0, 960, 1080),
+            LinuxX11WindowPlacer.halfInsideWorkArea(left, hdmi, gtk, null)
+        )
+        assertEquals(
+            WindowPositioner.ScreenBounds(960, 0, 960, 1080),
+            LinuxX11WindowPlacer.halfInsideWorkArea(right, hdmi, gtk, null)
+        )
+
+        val (dpLeft, dpRight) = WindowPositioner.splitHalves(dp1)
+        assertEquals(
+            WindowPositioner.ScreenBounds(1920, 40, 960, 993),
+            LinuxX11WindowPlacer.halfInsideWorkArea(dpLeft, dp1, gtk, null)
+        )
+        assertEquals(
+            WindowPositioner.ScreenBounds(2880, 40, 960, 993),
+            LinuxX11WindowPlacer.halfInsideWorkArea(dpRight, dp1, gtk, null)
+        )
+
+        assertTrue(LinuxX11WindowPlacer.fullscreenCoversMonitor(WindowPositioner.ScreenBounds(0, 0, 1920, 1080), hdmi))
+        assertTrue(LinuxX11WindowPlacer.fullscreenCoversMonitor(WindowPositioner.ScreenBounds(0, 0, 1920, 1043), hdmi))
+        assertFalse(LinuxX11WindowPlacer.fullscreenCoversMonitor(dp1, hdmi))
+        assertFalse(LinuxX11WindowPlacer.fullscreenCoversMonitor(WindowPositioner.ScreenBounds(0, 0, 800, 600), hdmi))
+        assertEquals(
+            WindowPositioner.ScreenBounds(1920, 40, 1920, 993),
+            LinuxX11WindowPlacer.usableWorkArea(dp1, gtk, null)
+        )
+    }
+
+    @Test
     fun linuxHalvesStayInsideTheMonitorWorkArea() {
         val hdmi = WindowPositioner.ScreenBounds(0, 0, 1920, 1080)
         val dp1 = WindowPositioner.ScreenBounds(1920, 0, 1920, 1080)

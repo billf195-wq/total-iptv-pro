@@ -163,6 +163,35 @@ class StreamPlayerTest {
     }
 
     @Test
+    fun linuxFullscreenFollowsTheAppMonitorAndWindowsKeepsTheFlag() {
+        assertTrue(StreamPlayer.useX11MonitorFullscreen(windows = false, fullscreen = true, displayAvailable = true))
+        assertFalse(StreamPlayer.useX11MonitorFullscreen(windows = true, fullscreen = true, displayAvailable = true))
+        assertFalse(StreamPlayer.useX11MonitorFullscreen(windows = false, fullscreen = false, displayAvailable = true))
+        assertFalse(StreamPlayer.useX11MonitorFullscreen(windows = false, fullscreen = true, displayAvailable = false))
+
+        val url = "http://example.test/movie.mp4"
+        val linux = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf(url), windows = false, fullscreen = true)
+        val placed = StreamPlayer.vlcCommandForMonitorFullscreen(linux, enabled = true)
+        assertTrue(linux.contains("--fullscreen"))
+        assertFalse(placed.contains("--fullscreen"), placed.toString())
+        assertEquals(linux.filterNot { it == "--fullscreen" }, placed)
+
+        val mpv = StreamPlayer.mpvCommand("mpv", listOf(url), windows = false, fullscreen = true)
+        assertEquals(mpv, StreamPlayer.vlcCommandForMonitorFullscreen(mpv, enabled = true))
+        assertTrue(mpv.contains("--fullscreen"))
+
+        val windows = StreamPlayer.vlcCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            listOf(url),
+            windows = true,
+            fullscreen = true
+        )
+        assertEquals(windows, StreamPlayer.vlcCommandForMonitorFullscreen(windows, enabled = false))
+        assertTrue(windows.contains("--fullscreen"))
+        assertFalse(StreamPlayer.useX11MonitorFullscreen(windows = true, fullscreen = true, displayAvailable = true))
+    }
+
+    @Test
     fun linuxLiveVlcAlsoOmitsPlayAndExit() {
         val live = StreamPlayer.vlcCommand(
             "/usr/bin/vlc",

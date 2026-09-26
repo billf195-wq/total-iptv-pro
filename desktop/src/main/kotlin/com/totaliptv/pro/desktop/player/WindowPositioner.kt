@@ -15,12 +15,31 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.awt.GraphicsEnvironment
 import java.awt.Toolkit
+import java.awt.Window
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import javax.swing.SwingUtilities
 
 object WindowPositioner {
 
     data class ScreenBounds(val x: Int, val y: Int, val width: Int, val height: Int)
+
+    @Volatile
+    private var appWindow: Window? = null
+
+    /** The Compose frame, so playback can follow the monitor it is on. */
+    fun attachAppWindow(window: Window?) {
+        appWindow = window
+    }
+
+    /**
+     * Linux playback target: the monitor that currently holds the app window,
+     * or the default screen when that window is not attached yet.
+     */
+    fun linuxPlaybackMonitor(): ScreenBounds = monitorOrFallback(readAppMonitor(), defaultMonitorBounds())
+
+    internal fun monitorOrFallback(appMonitor: ScreenBounds?, fallback: ScreenBounds): ScreenBounds =
+        appMonitor ?: fallback
 
     /**
      * Extra pixels Windows 10/11 DWM adds outside the visible frame.
@@ -187,6 +206,49 @@ object WindowPositioner {
         try {
             withDpiAware { placeProcessWindows(pid, x, y, width, height) }
         } catch (_: Throwable) {
+        }
+    }
+
+    private fun readAppMonitor(): ScreenBounds? {
+        val window = appWindow ?: return null
+        val read = {
+            val bounds = try {
+                window.graphicsConfiguration?.bounds
+            } catch (_: Throwable) {
+                null
+            }
+            if (bounds == null || bounds.width <= 0 || bounds.height <= 0) {
+                null
+            } else {
+                ScreenBounds(bounds.x, bounds.y, bounds.width, bounds.height)
+            }
+        }
+        return try {
+            if (SwingUtilities.isEventDispatchThread()) {
+                read()
+            } else {
+                var result: ScreenBounds? = null
+                SwingUtilities.invokeAndWait { result = read() }
+                result
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun defaultMonitorBounds(): ScreenBounds {
+        return try {
+            val bounds = GraphicsEnvironment.getLocalGraphicsEnvironment()
+                .defaultScreenDevice
+                .defaultConfiguration
+                .bounds
+            if (bounds.width > 0 && bounds.height > 0) {
+                ScreenBounds(bounds.x, bounds.y, bounds.width, bounds.height)
+            } else {
+                awtWorkArea()
+            }
+        } catch (_: Throwable) {
+            awtWorkArea()
         }
     }
 
