@@ -85,7 +85,7 @@ import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.ui.theme.ClassicDimens
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.tipScreenBrush
-import com.totaliptv.pro.ui.theme.CinemaBgElevated
+import com.totaliptv.pro.ui.theme.CinemaBg
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.WarningAmber
@@ -586,7 +586,7 @@ fun HomeScreen(
                             modifier = Modifier
                                 .width(ClassicDimens.CategoryRailWidth)
                                 .fillMaxHeight()
-                                .background(CinemaBgElevated)
+                                .background(CinemaBg)
                                 .padding(vertical = 6.dp, horizontal = 6.dp)
                         ) {
                             if (hubTab == HubTab.Live) {

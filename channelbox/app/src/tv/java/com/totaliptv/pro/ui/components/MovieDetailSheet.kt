@@ -57,7 +57,8 @@ import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.xtream.XtreamApi
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.theme.BrandBlue
-import com.totaliptv.pro.ui.theme.CinemaBgElevated
+import com.totaliptv.pro.ui.theme.CinemaBg
+import com.totaliptv.pro.ui.theme.LocalTipColors
 import com.totaliptv.pro.ui.theme.FocusBorder
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
@@ -217,14 +218,17 @@ fun MovieDetailSheet(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xE607090D)),
+            .background(if (LocalTipColors.current.isDark) Color(0xFF000000) else Color(0x99000000)),
         contentAlignment = Alignment.Center
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth(0.90f)
                 .fillMaxHeight(0.88f)
-                .background(CinemaBgElevated, RoundedCornerShape(16.dp))
+                .background(
+                    if (LocalTipColors.current.isDark) CinemaBg else Color.White,
+                    RoundedCornerShape(16.dp)
+                )
                 .border(2.dp, FocusBorder.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
                 .padding(20.dp),
             horizontalArrangement = Arrangement.spacedBy(20.dp)

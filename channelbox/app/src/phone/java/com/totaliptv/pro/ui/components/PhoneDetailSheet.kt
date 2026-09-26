@@ -31,6 +31,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
+import com.totaliptv.pro.ui.theme.LocalTipColors
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -154,7 +156,8 @@ fun PhoneDetailSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState
+        sheetState = sheetState,
+        containerColor = if (LocalTipColors.current.isDark) Color(0xFF000000) else MaterialTheme.colorScheme.surface
     ) {
         Column(
             modifier = Modifier

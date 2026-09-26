@@ -18,10 +18,13 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.VideoLibrary
 import com.totaliptv.pro.ui.dvr.PhoneRecordingsScreen
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
+import com.totaliptv.pro.ui.theme.LocalTipColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -187,10 +190,14 @@ private fun PhoneAppRoot(
         return
     }
 
+    val pageBlack = LocalTipColors.current.isDark
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        containerColor = if (pageBlack) Color(0xFF000000) else MaterialTheme.colorScheme.background,
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = if (pageBlack) Color(0xFF000000) else MaterialTheme.colorScheme.surface
+            ) {
                 PhoneTab.entries.forEach { t ->
                     NavigationBarItem(
                         selected = tab == t,

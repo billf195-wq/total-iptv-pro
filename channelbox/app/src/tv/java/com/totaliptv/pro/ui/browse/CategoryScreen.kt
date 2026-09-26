@@ -67,7 +67,7 @@ import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.ui.theme.ClassicDimens
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.tipScreenBrush
-import com.totaliptv.pro.ui.theme.CinemaBgElevated
+import com.totaliptv.pro.ui.theme.CinemaBg
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 
@@ -299,7 +299,7 @@ fun BrowseScreen(
                     modifier = Modifier
                         .width(ClassicDimens.CategoryRailWidth)
                         .fillMaxHeight()
-                        .background(CinemaBgElevated)
+                        .background(CinemaBg)
                         .padding(vertical = 8.dp, horizontal = 10.dp)
                 ) {
                     Text(

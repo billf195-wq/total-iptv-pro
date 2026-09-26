@@ -33,8 +33,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -195,11 +193,7 @@ fun SearchScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF07090D), Color(0xFF0B0F16), Color(0xFF07090D))
-                )
-            )
+            .background(tipScreenBrush())
             .padding(horizontal = 24.dp, vertical = 12.dp)
     ) {
         // Stable top chrome — always composed, never keyed by query/results.

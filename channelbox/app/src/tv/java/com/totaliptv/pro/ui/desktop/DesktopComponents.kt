@@ -283,7 +283,7 @@ fun TopBanner(modifier: Modifier = Modifier) {
         modifier = modifier
             .fillMaxWidth()
             .height(TipDimens.BannerHeight)
-            .background(TipSurface)
+            .background(TipBg)
             .padding(start = TipDimens.dp(20), end = TipDimens.dp(16), top = TipDimens.dp(12), bottom = TipDimens.dp(12)),
         verticalAlignment = Alignment.CenterVertically
     ) {

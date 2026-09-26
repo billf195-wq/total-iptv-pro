@@ -291,7 +291,7 @@ fun DesktopAppRoot(
                             modifier = Modifier
                                 .width(TipDimens.SidebarWidth)
                                 .fillMaxHeight()
-                                .background(TipSurface)
+                                .background(TipBg)
                         )
                         Column(
                             Modifier

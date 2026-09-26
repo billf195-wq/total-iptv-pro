@@ -40,7 +40,7 @@ fun OnboardingScreen(
             fun dp(v: Int) = (v * context.resources.displayMetrics.density).toInt()
 
             val root = ScrollView(context).apply {
-                setBackgroundColor(AndroidColor.parseColor("#0B1220"))
+                setBackgroundColor(AndroidColor.parseColor("#000000"))
                 isFillViewport = true
             }
             val column = LinearLayout(context).apply {

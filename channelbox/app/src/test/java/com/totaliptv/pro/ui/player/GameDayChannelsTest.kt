@@ -59,6 +59,24 @@ class GameDayChannelsTest {
         assertTrue(theme.contains("SolidColor"))
     }
 
+    @Test
+    fun darkPageBackgroundCoversEveryScreenThroughSettings() {
+        fun text(path: String) = File(path).readText()
+        assertTrue(text("src/tv/java/com/totaliptv/pro/ui/search/SearchScreen.kt").contains("tipScreenBrush()"))
+        assertFalse(text("src/tv/java/com/totaliptv/pro/ui/search/SearchScreen.kt").contains("0xFF07090D"))
+        assertTrue(text("src/tv/java/com/totaliptv/pro/ui/home/HomeScreen.kt").contains(".background(CinemaBg)"))
+        assertTrue(text("src/tv/java/com/totaliptv/pro/ui/browse/CategoryScreen.kt").contains(".background(CinemaBg)"))
+        assertTrue(text("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopAppRoot.kt").contains(".background(TipBg)"))
+        assertTrue(text("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopComponents.kt").contains(".background(TipBg)"))
+        assertTrue(text("src/tv/java/com/totaliptv/pro/ui/components/MovieDetailSheet.kt").contains("0xFF000000"))
+        assertTrue(text("src/main/java/com/totaliptv/pro/ui/splash/LogoSplash.kt").contains("0xFF000000"))
+        assertTrue(text("src/main/java/com/totaliptv/pro/ui/onboarding/OnboardingScreen.kt").contains("#000000"))
+        assertTrue(text("src/main/res/values/themes.xml").contains("#FF000000"))
+        assertTrue(text("src/phone/java/com/totaliptv/pro/MainActivity.kt").contains("0xFF000000"))
+        assertTrue(text("src/phone/java/com/totaliptv/pro/ui/components/PhoneDetailSheet.kt").contains("0xFF000000"))
+        assertTrue(text("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopComponents.kt").contains(".background(TipSurface)"))
+    }
+
     private fun channel(
         id: String,
         name: String,

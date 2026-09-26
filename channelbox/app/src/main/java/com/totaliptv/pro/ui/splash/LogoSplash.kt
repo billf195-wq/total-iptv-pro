@@ -110,7 +110,7 @@ fun LogoBannerSplash(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0B0F14)),
+            .background(Color(0xFF000000)),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
