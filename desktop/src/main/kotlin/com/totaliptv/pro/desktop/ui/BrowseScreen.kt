@@ -545,7 +545,7 @@ private fun BrowseContentPane(
         if (kind == ContentKind.LIVE) {
             LiveChannelMapping.filterLiveChannels(allItems, selectedCategoryId, query)
         } else {
-            val base = allItems.asSequence()
+            val base = HomeDedupe.dropIdenticalIds(allItems).asSequence()
                 .filter { selectedCategoryId == null || it.categoryId == selectedCategoryId }
                 .filter {
                     query.isBlank() || it.name.contains(query, ignoreCase = true) ||

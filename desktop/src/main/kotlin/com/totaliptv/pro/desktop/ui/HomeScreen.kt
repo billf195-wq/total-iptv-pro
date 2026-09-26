@@ -134,10 +134,16 @@ fun isLikelyNew(
  */
 fun pickTopRatedMovies(
     catalog: Catalog,
+    resume: List<ResumeStore.ResumeEntry> = emptyList(),
+    shownElsewhere: List<MediaItem> = emptyList(),
+    resolvedId: (MediaItem) -> String? = HomeDedupe::providerTmdbId,
     rank: (MediaItem) -> Double = { TmdbRatings.providerScore(it) }
 ): TopRatedRow = pickTopRated(
     items = catalog.vodItems,
     rank = rank,
+    resume = resume,
+    shownElsewhere = shownElsewhere,
+    resolvedId = resolvedId,
     american = "Top rated new American movies",
     newer = "Top rated new movies",
     overall = "Top rated movies"
@@ -149,10 +155,16 @@ fun pickTopRatedMovies(
  */
 fun pickTopRatedSeries(
     catalog: Catalog,
+    resume: List<ResumeStore.ResumeEntry> = emptyList(),
+    shownElsewhere: List<MediaItem> = emptyList(),
+    resolvedId: (MediaItem) -> String? = HomeDedupe::providerTmdbId,
     rank: (MediaItem) -> Double = { TmdbRatings.providerScore(it) }
 ): TopRatedRow = pickTopRated(
     items = catalog.seriesItems,
     rank = rank,
+    resume = resume,
+    shownElsewhere = shownElsewhere,
+    resolvedId = resolvedId,
     american = "Top rated new American series",
     newer = "Top rated new series",
     overall = "Top rated series"
@@ -161,10 +173,14 @@ fun pickTopRatedSeries(
 private fun pickTopRated(
     items: List<MediaItem>,
     rank: (MediaItem) -> Double,
+    resume: List<ResumeStore.ResumeEntry>,
+    shownElsewhere: List<MediaItem>,
+    resolvedId: (MediaItem) -> String?,
     american: String,
     newer: String,
     overall: String
 ): TopRatedRow {
+    val catalogIndex = items.withIndex().associate { it.value.id to it.index }
     val keyed = items.map { item ->
         val raw = try {
             rank(item)
@@ -178,7 +194,13 @@ private fun pickTopRated(
     val pool = eligible.ifEmpty { keyed }
 
     fun top(list: List<Pair<MediaItem, RatingSortKey>>): List<MediaItem> =
-        RatingOrder.sortKeyed(list).take(TOP_N)
+        HomeDedupe.dedupe(
+            RatingOrder.sortKeyed(list),
+            catalogIndex = catalogIndex,
+            resume = resume,
+            shownElsewhere = shownElsewhere,
+            resolvedId = resolvedId
+        ).take(TOP_N)
 
     val americanNew = top(pool.filter { isLikelyAmerican(it.first) && isLikelyNew(it.first) })
     if (americanNew.size >= MIN_FILTERED) return TopRatedRow(american, americanNew)
@@ -188,7 +210,16 @@ private fun pickTopRated(
 
     val all = top(pool)
     if (all.isNotEmpty()) return TopRatedRow(overall, all)
-    return TopRatedRow(overall, RatingOrder.sortRecent(items).take(TOP_N))
+    return TopRatedRow(
+        overall,
+        HomeDedupe.dedupe(
+            RatingOrder.sortRecent(items),
+            catalogIndex = catalogIndex,
+            resume = resume,
+            shownElsewhere = shownElsewhere,
+            resolvedId = resolvedId
+        ).take(TOP_N)
+    )
 }
 
 fun resolveContinueItems(
@@ -222,28 +253,43 @@ fun HomeScreen(
 ) {
     val columns = posterColumns.let { if (it in setOf(5, 6, 8, 11)) it else 11 }
     val continuePairs = remember(resumeEntries, catalog, columns) {
-        resolveContinueItems(resumeEntries, catalog).take(columns)
+        HomeDedupe.dedupeContinue(resolveContinueItems(resumeEntries, catalog)).take(columns)
+    }
+    val continueShown = remember(continuePairs) {
+        continuePairs.map { (entry, media) -> media ?: HomeDedupe.placeholder(entry) }
     }
     val ratingsOn = ArtworkSettings.ratingsActive()
     // Bumped once per visit, after the visible batch settles or the 10s cap.
     // Later rating batches update badges only; they do not reshuffle this row.
     var sortGeneration by remember { mutableIntStateOf(0) }
     val homeListState = rememberLazyListState()
-    val movieRow = remember(catalog, sortGeneration, ratingsOn) {
+    val movieRow = remember(catalog, sortGeneration, ratingsOn, resumeEntries, continueShown) {
         val cache = TmdbRatingStore.snapshot()
-        runCatching { pickTopRatedMovies(catalog) { TmdbRatingStore.rankScore(it, cache) } }
-            .getOrElse {
-                RatingOrder.logFailure(it)
-                TopRatedRow("Top rated movies", emptyList())
-            }
+        runCatching {
+            pickTopRatedMovies(
+                catalog,
+                resume = resumeEntries,
+                shownElsewhere = continueShown,
+                resolvedId = { TmdbRatingStore.resolvedId(it, cache) }
+            ) { TmdbRatingStore.rankScore(it, cache) }
+        }.getOrElse {
+            RatingOrder.logFailure(it)
+            TopRatedRow("Top rated movies", emptyList())
+        }
     }
-    val seriesRow = remember(catalog, sortGeneration, ratingsOn) {
+    val seriesRow = remember(catalog, sortGeneration, ratingsOn, resumeEntries, continueShown) {
         val cache = TmdbRatingStore.snapshot()
-        runCatching { pickTopRatedSeries(catalog) { TmdbRatingStore.rankScore(it, cache) } }
-            .getOrElse {
-                RatingOrder.logFailure(it)
-                TopRatedRow("Top rated series", emptyList())
-            }
+        runCatching {
+            pickTopRatedSeries(
+                catalog,
+                resume = resumeEntries,
+                shownElsewhere = continueShown,
+                resolvedId = { TmdbRatingStore.resolvedId(it, cache) }
+            ) { TmdbRatingStore.rankScore(it, cache) }
+        }.getOrElse {
+            RatingOrder.logFailure(it)
+            TopRatedRow("Top rated series", emptyList())
+        }
     }
     LaunchedEffect(catalog, ratingsOn) {
         if (!ratingsOn) return@LaunchedEffect

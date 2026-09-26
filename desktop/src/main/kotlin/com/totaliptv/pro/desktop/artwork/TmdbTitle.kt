@@ -31,6 +31,10 @@ object TmdbTitle {
     private val spacedCode = Regex(
         """(?i)^(en|eng|fr|de|es|pt|nl|ar|tr|ru|pl|multi|vf|vostfr)\s+(?=\S)"""
     )
+    /** Bracketed quality or language tags, not a real subtitle such as "(Part Two)". */
+    private val tagBracket = Regex(
+        """(?i)[\[{(]\s*(?:4k|uhd|fhd|hd|sd|hevc|hdr10|hdr|1080p|720p|2160p|480p|576p|x264|x265|h\.?264|h\.?265|bluray|blu-ray|web-?dl|webrip|english|french|german|spanish|italian|multi|vostfr|truefrench|vff|eng|en|fr|de|es|it|pt|nl|ar|tr|ru|pl|vf|vo)\s*[\]})]"""
+    )
 
     data class Query(val title: String, val year: Int, val kind: ContentKind)
 
@@ -44,22 +48,44 @@ object TmdbTitle {
     /** Null when the row has no usable title or no year, so a search would not be confident. */
     fun query(item: MediaItem): Query? {
         if (item.kind != ContentKind.VOD && item.kind != ContentKind.SERIES) return null
+        val parsed = parse(item) ?: return null
+        val year = parsed.year ?: return null
+        if (parsed.title.length < 2 || !parsed.title.any { it.isLetter() }) return null
+        return Query(parsed.title, year, item.kind)
+    }
+
+    /**
+     * Normalized title plus year, after quality tags, language prefixes, and
+     * bracketed tags are removed. Blank when the name has no letters.
+     * Year is omitted when it is unknown so two undated copies still match.
+     */
+    fun signature(item: MediaItem): String {
+        val parsed = parse(item) ?: return ""
+        val title = normalize(parsed.title)
+        if (title.isBlank()) return ""
+        return if (parsed.year != null) "$title|${parsed.year}" else title
+    }
+
+    private data class Parsed(val title: String, val year: Int?)
+
+    private fun parse(item: MediaItem): Parsed? {
         val name = item.name.replace('\u00A0', ' ').trim()
         if (name.isEmpty()) return null
         val paren = parenYear.find(name)?.groupValues?.getOrNull(1)?.toIntOrNull()
         val explicit = item.year?.takeIf { it in 1888..2100 }
         val trail = trailingYear.find(name)?.groupValues?.getOrNull(1)?.toIntOrNull()
-        val year = paren ?: explicit ?: trail ?: return null
+        val year = paren ?: explicit ?: trail
         var title = parenYear.replace(name, " ")
         title = quality.replace(title, " ")
+        title = tagBracket.replace(title, " ")
         title = stripPrefixes(title)
         title = tidy(title)
         if (paren == null && trail != null && trail == year) {
             val withoutTrail = tidy(title.replace(Regex("""\s+$trail\s*$"""), ""))
             if (withoutTrail.any { it.isLetter() }) title = withoutTrail
         }
-        if (title.length < 2 || !title.any { it.isLetter() }) return null
-        return Query(title, year, item.kind)
+        if (title.isNotEmpty() && !title.any { it.isLetter() }) return null
+        return Parsed(title, year)
     }
 
     fun lookupKey(query: Query): String {

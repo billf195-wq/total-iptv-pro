@@ -177,6 +177,19 @@ object TmdbRatingStore {
 
     fun peek(item: MediaItem): TmdbRating? = peekCached(item, snapshot())
 
+    /**
+     * Provider id when the row has one, otherwise the id a title search stored.
+     * Reads [cache] only, so a Home dedupe does not race the fetch threads.
+     */
+    fun resolvedId(item: MediaItem, cache: Map<String, TmdbRating> = snapshot()): String? {
+        val direct = item.tmdbId?.trim()?.takeIf { it.isNotEmpty() && it != "0" }
+        if (direct != null) return direct
+        val query = TmdbTitle.query(item) ?: return null
+        val rating = cache[TmdbTitle.lookupKey(query)] ?: return null
+        if (!rating.found) return null
+        return rating.tmdbId?.trim()?.takeIf { it.isNotEmpty() && it != "0" }
+    }
+
     private fun peekCached(item: MediaItem, cache: Map<String, TmdbRating>): TmdbRating? {
         val id = item.tmdbId?.trim()?.takeIf { it.isNotEmpty() && it != "0" }
         if (id != null) return cache[TmdbRatings.cacheKey(item.kind, id)] ?: alternate(cache, item.kind, id)
