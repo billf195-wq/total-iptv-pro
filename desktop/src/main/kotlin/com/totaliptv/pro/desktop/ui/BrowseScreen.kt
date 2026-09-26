@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.totaliptv.pro.desktop.artwork.ArtworkRole
+import com.totaliptv.pro.desktop.artwork.RatingOrder
 import com.totaliptv.pro.desktop.data.Catalog
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
@@ -552,13 +553,9 @@ private fun BrowseContentPane(
                 }
                 .toList()
             when (browseSort) {
-                BrowseSort.AZ -> base.sortedBy { it.name.lowercase() }
-                BrowseSort.ZA -> base.sortedByDescending { it.name.lowercase() }
-                BrowseSort.RECENT -> base.sortedWith(
-                    compareByDescending<MediaItem> { it.addedEpoch }
-                        .thenByDescending { it.xtreamStreamId ?: 0 }
-                        .thenBy { it.name.lowercase() }
-                )
+                BrowseSort.AZ -> RatingOrder.sortByTitle(base, descending = false)
+                BrowseSort.ZA -> RatingOrder.sortByTitle(base, descending = true)
+                BrowseSort.RECENT -> RatingOrder.sortRecent(base)
             }
         }
     }

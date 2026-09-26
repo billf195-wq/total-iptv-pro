@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Movie
@@ -19,7 +20,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +31,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.desktop.artwork.ArtworkSettings
+import com.totaliptv.pro.desktop.artwork.RatingOrder
+import com.totaliptv.pro.desktop.artwork.RatingSortKey
 import com.totaliptv.pro.desktop.artwork.TmdbRatingStore
 import com.totaliptv.pro.desktop.artwork.TmdbRatings
 import com.totaliptv.pro.desktop.data.Catalog
@@ -35,6 +40,7 @@ import com.totaliptv.pro.desktop.data.ContentKind
 import com.totaliptv.pro.desktop.data.MediaItem
 import com.totaliptv.pro.desktop.data.ResumeStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 private const val TOP_N = 11
@@ -122,36 +128,21 @@ fun isLikelyNew(
 }
 
 /**
- * Home movies row: pool = new American when thick enough; rank by rating desc.
+ * Home movies row: pool = new American when thick enough; rank by a snapshotted rating.
  * Labels stay honest — never say "American" / "new" unless that filter was applied.
  * [rank] defaults to the provider score with bogus 10.0s removed. Home passes TMDB rank when a key is on.
+ * The rank function is read once per title before sorting, never from inside the comparator.
  */
 fun pickTopRatedMovies(
     catalog: Catalog,
     rank: (MediaItem) -> Double = { TmdbRatings.providerScore(it) }
-): TopRatedRow {
-    val rated = catalog.vodItems.filter { rank(it) > 0.0 }
-    val pool = rated.ifEmpty { catalog.vodItems }
-
-    fun byRating(list: List<MediaItem>) =
-        list.sortedByDescending(rank).take(TOP_N)
-
-    val americanNew = byRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) })
-    if (americanNew.size >= MIN_FILTERED) {
-        return TopRatedRow("Top rated new American movies", americanNew)
-    }
-
-    val newOnly = byRating(pool.filter { isLikelyNew(it) })
-    if (newOnly.size >= MIN_FILTERED) {
-        return TopRatedRow("Top rated new movies", newOnly)
-    }
-
-    val overall = byRating(pool)
-    return TopRatedRow(
-        "Top rated movies",
-        overall.ifEmpty { catalog.vodItems.sortedByDescending { it.addedEpoch }.take(TOP_N) }
-    )
-}
+): TopRatedRow = pickTopRated(
+    items = catalog.vodItems,
+    rank = rank,
+    american = "Top rated new American movies",
+    newer = "Top rated new movies",
+    overall = "Top rated movies"
+)
 
 /**
  * Home series row: same rules as movies — prefer new American, then new, then overall by rating.
@@ -160,28 +151,45 @@ fun pickTopRatedMovies(
 fun pickTopRatedSeries(
     catalog: Catalog,
     rank: (MediaItem) -> Double = { TmdbRatings.providerScore(it) }
+): TopRatedRow = pickTopRated(
+    items = catalog.seriesItems,
+    rank = rank,
+    american = "Top rated new American series",
+    newer = "Top rated new series",
+    overall = "Top rated series"
+)
+
+private fun pickTopRated(
+    items: List<MediaItem>,
+    rank: (MediaItem) -> Double,
+    american: String,
+    newer: String,
+    overall: String
 ): TopRatedRow {
-    val rated = catalog.seriesItems.filter { rank(it) > 0.0 }
-    val pool = rated.ifEmpty { catalog.seriesItems }
-
-    fun byRating(list: List<MediaItem>) =
-        list.sortedByDescending(rank).take(TOP_N)
-
-    val americanNew = byRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) })
-    if (americanNew.size >= MIN_FILTERED) {
-        return TopRatedRow("Top rated new American series", americanNew)
+    val keyed = items.map { item ->
+        val raw = try {
+            rank(item)
+        } catch (t: Exception) {
+            RatingOrder.logFailure(t)
+            0.0
+        }
+        item to RatingOrder.key(item, raw)
     }
+    val eligible = keyed.filter { it.second.voteEligible }
+    val pool = eligible.ifEmpty { keyed }
 
-    val newOnly = byRating(pool.filter { isLikelyNew(it) })
-    if (newOnly.size >= MIN_FILTERED) {
-        return TopRatedRow("Top rated new series", newOnly)
-    }
+    fun top(list: List<Pair<MediaItem, RatingSortKey>>): List<MediaItem> =
+        RatingOrder.sortKeyed(list).take(TOP_N)
 
-    val overall = byRating(pool)
-    return TopRatedRow(
-        "Top rated series",
-        overall.ifEmpty { catalog.seriesItems.sortedByDescending { it.addedEpoch }.take(TOP_N) }
-    )
+    val americanNew = top(pool.filter { isLikelyAmerican(it.first) && isLikelyNew(it.first) })
+    if (americanNew.size >= MIN_FILTERED) return TopRatedRow(american, americanNew)
+
+    val newOnly = top(pool.filter { isLikelyNew(it.first) })
+    if (newOnly.size >= MIN_FILTERED) return TopRatedRow(newer, newOnly)
+
+    val all = top(pool)
+    if (all.isNotEmpty()) return TopRatedRow(overall, all)
+    return TopRatedRow(overall, RatingOrder.sortRecent(items).take(TOP_N))
 }
 
 fun resolveContinueItems(
@@ -219,11 +227,26 @@ fun HomeScreen(
     }
     val ratingRevision by TmdbRatingStore.revision.collectAsState()
     val ratingsOn = ArtworkSettings.ratingsActive()
-    val movieRow = remember(catalog, ratingRevision, ratingsOn) {
-        pickTopRatedMovies(catalog) { TmdbRatingStore.rankScore(it) }
+    var sortTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(ratingRevision) {
+        if (ratingRevision == 0) return@LaunchedEffect
+        delay(RatingOrder.SORT_QUIET_MS)
+        sortTick = ratingRevision
     }
-    val seriesRow = remember(catalog, ratingRevision, ratingsOn) {
-        pickTopRatedSeries(catalog) { TmdbRatingStore.rankScore(it) }
+    val homeListState = rememberLazyListState()
+    val movieRow = remember(catalog, sortTick, ratingsOn) {
+        runCatching { pickTopRatedMovies(catalog) { TmdbRatingStore.rankScore(it) } }
+            .getOrElse {
+                RatingOrder.logFailure(it)
+                TopRatedRow("Top rated movies", emptyList())
+            }
+    }
+    val seriesRow = remember(catalog, sortTick, ratingsOn) {
+        runCatching { pickTopRatedSeries(catalog) { TmdbRatingStore.rankScore(it) } }
+            .getOrElse {
+                RatingOrder.logFailure(it)
+                TopRatedRow("Top rated series", emptyList())
+            }
     }
     LaunchedEffect(catalog, ratingsOn, movieRow.items, seriesRow.items, continuePairs) {
         if (!ratingsOn) return@LaunchedEffect
@@ -237,6 +260,7 @@ fun HomeScreen(
 
     CompositionLocalProvider(LocalArtworkPage provides "Home") {
     LazyColumn(
+        state = homeListState,
         modifier = modifier.fillMaxSize().tvContentBackground().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
