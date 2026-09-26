@@ -110,6 +110,19 @@ object TvRatings {
         return TmdbRatings.rankScore(provider, active?.peek(item), active?.ratingsActive() == true)
     }
 
+    /** Scores copied once from the published rating table. Sorting must use this map, not [rankScore]. */
+    fun rankScores(items: List<MediaItem>): Map<String, Double> {
+        val active = engine
+        if (active == null) {
+            return items.associate { item ->
+                item.id to TmdbRatings.rankScore(TmdbRatings.providerScore(item.rating), null, false)
+            }
+        }
+        return active.rankScores(items)
+    }
+
+    fun isIdle(): Boolean = engine?.isIdle() != false
+
     fun enqueueVisible(item: MediaItem) {
         if (item.kind != ContentKind.VOD && item.kind != ContentKind.SERIES) return
         engine?.enqueue(listOf(item), front = true)

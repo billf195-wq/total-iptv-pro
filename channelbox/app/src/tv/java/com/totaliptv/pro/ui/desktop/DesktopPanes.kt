@@ -69,13 +69,32 @@ import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.data.update.AppUpdateChecker
 import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
+import androidx.compose.ui.focus.onFocusChanged
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import com.totaliptv.pro.artwork.RankPace
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private suspend fun restoreRowFocus(
+    items: List<MediaItem>,
+    id: String,
+    rowState: androidx.compose.foundation.lazy.LazyListState,
+    scope: String,
+    posterFocus: (String, String) -> FocusRequester
+) {
+    val index = items.indexOfFirst { it.id == id }
+    if (index < 0) return
+    yield()
+    runCatching { rowState.scrollToItem(index) }
+    yield()
+    runCatching { posterFocus(scope, id).requestFocus() }
+}
 
 @Composable
 fun HomePane(
@@ -96,39 +115,59 @@ fun HomePane(
 ) {
     // Never rank the full catalog synchronously on the first Home frame (Movies→Home ANR).
     // Warm from process cache when revision unchanged; otherwise compute off main after yield.
-    val ratingRevision by TvRatings.revision.collectAsState()
     var top by remember {
         mutableStateOf(
-            TopRatedCache.movies(catalogRevision, ratingRevision) ?: TopRatedRow("Top rated movies", emptyList())
+            TopRatedCache.movies(catalogRevision, 0) ?: TopRatedRow("Top rated movies", emptyList())
         )
     }
     var topSeries by remember {
         mutableStateOf(
-            TopRatedCache.series(catalogRevision, ratingRevision) ?: TopRatedRow("Top rated series", emptyList())
+            TopRatedCache.series(catalogRevision, 0) ?: TopRatedRow("Top rated series", emptyList())
         )
     }
-    LaunchedEffect(catalogRevision, ratingRevision, movies.size, series.size) {
-        TvRatings.enqueueBackfill(movies, series)
-        TopRatedCache.movies(catalogRevision, ratingRevision)?.let { cachedM ->
-            TopRatedCache.series(catalogRevision, ratingRevision)?.let { cachedS ->
-                top = cachedM
-                topSeries = cachedS
-                return@LaunchedEffect
-            }
-        }
-        // Paint Home chrome first; ranking can wait one frame.
-        yield()
-        val ranked = withContext(Dispatchers.Default) {
-            pickTopRatedMovies(movies) to pickTopRatedSeries(series)
-        }
-        TopRatedCache.put(catalogRevision, ratingRevision, ranked.first, ranked.second)
-        top = ranked.first
-        topSeries = ranked.second
-    }
+    var movieRowFocused by remember { mutableStateOf(false) }
+    var seriesRowFocused by remember { mutableStateOf(false) }
+    var focusedMovieId by remember { mutableStateOf<String?>(null) }
+    var focusedSeriesId by remember { mutableStateOf<String?>(null) }
     val homeListState = rememberLazyListState()
     val resumeRowState = rememberLazyListState()
     val moviesRowState = rememberLazyListState()
     val seriesRowState = rememberLazyListState()
+    LaunchedEffect(catalogRevision, movies.size, series.size) {
+        TvRatings.enqueueBackfill(movies, series)
+        var lastRankMs = -1L
+        var seenRevision = TvRatings.revision.value
+        suspend fun rankIfDue(force: Boolean) {
+            if (!force) {
+                val wait = RankPace.delayMs(lastRankMs, System.currentTimeMillis(), TvRatings.isIdle())
+                if (wait > 0L) delay(wait)
+            }
+            yield()
+            val keepMovie = movieRowFocused
+            val keepSeries = seriesRowFocused
+            val movieId = focusedMovieId
+            val seriesId = focusedSeriesId
+            val ranked = withContext(Dispatchers.Default) {
+                pickTopRatedMovies(movies) to pickTopRatedSeries(series)
+            }
+            TopRatedCache.put(catalogRevision, seenRevision, ranked.first, ranked.second)
+            top = ranked.first
+            topSeries = ranked.second
+            lastRankMs = System.currentTimeMillis()
+            if (keepMovie && movieId != null) {
+                restoreRowFocus(ranked.first.items, movieId, moviesRowState, "desk-movies", posterFocus)
+            }
+            if (keepSeries && seriesId != null) {
+                restoreRowFocus(ranked.second.items, seriesId, seriesRowState, "desk-series", posterFocus)
+            }
+        }
+        rankIfDue(force = true)
+        TvRatings.revision.collect { rev ->
+            if (rev == seenRevision) return@collect
+            seenRevision = rev
+            rankIfDue(force = false)
+        }
+    }
     val homeScopes = setOf("desk-cw", "desk-movies", "desk-series")
     LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope) {
         if (!pendingFocusRestore) return@LaunchedEffect
@@ -215,13 +254,15 @@ fun HomePane(
             } else {
                 LazyRow(
                     state = moviesRowState,
-                    horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
+                    horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap),
+                    modifier = Modifier.onFocusChanged { movieRowFocused = it.hasFocus }
                 ) {
                     itemsIndexed(top.items, key = { _, it -> it.id }) { index, item ->
                         DesktopPosterCard(
                             item,
                             onClick = { onPlay(item, index) },
-                            focusRequester = posterFocus("desk-movies", item.id)
+                            focusRequester = posterFocus("desk-movies", item.id),
+                            onFocused = { focusedMovieId = item.id }
                         )
                     }
                 }
@@ -234,13 +275,15 @@ fun HomePane(
             } else {
                 LazyRow(
                     state = seriesRowState,
-                    horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
+                    horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap),
+                    modifier = Modifier.onFocusChanged { seriesRowFocused = it.hasFocus }
                 ) {
                     itemsIndexed(topSeries.items, key = { _, it -> it.id }) { index, item ->
                         DesktopPosterCard(
                             item,
                             onClick = { onOpenSeries(item, index) },
-                            focusRequester = posterFocus("desk-series", item.id)
+                            focusRequester = posterFocus("desk-series", item.id),
+                            onFocused = { focusedSeriesId = item.id }
                         )
                     }
                 }
@@ -342,21 +385,16 @@ fun LivePane(
  */
 private fun sortDesktopRecentlyAdded(items: List<MediaItem>): List<MediaItem> {
     val anyAdded = items.any { (it.addedMs ?: 0L) > 0L }
-    if (anyAdded) {
-        return items.sortedWith(
-            compareByDescending<MediaItem> { it.addedMs ?: 0L }
-                .thenByDescending { it.xtreamStreamId ?: 0 }
-                .thenBy { it.name.lowercase() }
-        )
-    }
+    if (anyAdded) return items.sortedWith(com.totaliptv.pro.artwork.MediaOrder.byAddedDescending())
     val anySid = items.any { (it.xtreamStreamId ?: 0) > 0 }
     if (anySid) {
         return items.sortedWith(
             compareByDescending<MediaItem> { it.xtreamStreamId ?: 0 }
                 .thenBy { it.name.lowercase() }
+                .thenBy { it.id }
         )
     }
-    return items.sortedBy { it.name.lowercase() }
+    return items.sortedWith(com.totaliptv.pro.artwork.MediaOrder.byName(descending = false))
 }
 
 @Composable
@@ -398,9 +436,9 @@ fun BrowseGridPane(
         }
         list = list.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
         list = when (sort) {
-            "ZA" -> list.sortedByDescending { it.name.lowercase() }
+            "ZA" -> list.sortedWith(com.totaliptv.pro.artwork.MediaOrder.byName(descending = true))
             "RECENT" -> sortDesktopRecentlyAdded(list)
-            else -> list.sortedBy { it.name.lowercase() }
+            else -> list.sortedWith(com.totaliptv.pro.artwork.MediaOrder.byName(descending = false))
         }
         list
     }

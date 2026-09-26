@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,7 +83,8 @@ fun DesktopPosterCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     showTitle: Boolean = true,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    onFocused: () -> Unit = {}
 ) {
     val safeName = item.name.ifBlank { "Untitled" }
     val cardMod = if (modifier === Modifier) {
@@ -91,6 +93,9 @@ fun DesktopPosterCard(
         modifier.widthIn(max = TipDimens.PosterWidth)
     }
     TipFocusable(onClick = onClick, modifier = cardMod, focusRequester = focusRequester) { focused ->
+        LaunchedEffect(focused) {
+            if (focused) onFocused()
+        }
         Column(
             Modifier
                 .fillMaxWidth()

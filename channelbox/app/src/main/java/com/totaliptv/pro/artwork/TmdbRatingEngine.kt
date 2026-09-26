@@ -37,7 +37,8 @@ class TmdbRatingEngine(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val lock = Any()
-    private val memory = HashMap<String, TmdbRating>()
+    /** Immutable map swapped as a whole. Readers never see a map that a writer is mutating. */
+    private val tableState = MutableStateFlow<Map<String, TmdbRating>>(emptyMap())
     private val queued = HashSet<String>()
     private val queue = ArrayDeque<Pending>()
     private var loaded = false
@@ -47,15 +48,24 @@ class TmdbRatingEngine(
     private val draining = AtomicBoolean(false)
 
     fun peek(item: MediaItem): TmdbRating? {
-        val key = cacheKey(item) ?: return null
         ensureLoaded()
-        synchronized(lock) {
-            memory[key]?.let { return it }
-            val id = usableId(item.tmdbId) ?: return null
-            val primary = idKey(item.kind, id)
-            val alternate = idKey(otherKind(item.kind), id)
-            return memory[primary] ?: memory[alternate]
+        return lookup(tableState.value, item)
+    }
+
+    /** One frozen score per id. Safe to sort. Does not read the live table again. */
+    fun rankScores(items: List<MediaItem>): Map<String, Double> {
+        ensureLoaded()
+        val table = tableState.value
+        val enabled = ratingsActive()
+        val out = HashMap<String, Double>(items.size)
+        for (item in items) {
+            out[item.id] = TmdbRatings.rankScore(
+                TmdbRatings.providerScore(item.rating),
+                lookup(table, item),
+                enabled
+            )
         }
+        return out
     }
 
     fun displayScore(item: MediaItem): Double {
@@ -68,6 +78,19 @@ class TmdbRatingEngine(
         return TmdbRatings.rankScore(provider, peek(item), ratingsActive())
     }
 
+    /** True when nothing is waiting. The in-flight batch has already left the queue. */
+    fun isIdle(): Boolean = synchronized(lock) { queue.isEmpty() }
+
+    /** Test hook: publish one rating without going through the network. */
+    internal fun testingPut(key: String, rating: TmdbRating) {
+        synchronized(lock) {
+            val next = HashMap(tableState.value)
+            next[key] = rating
+            tableState.value = next
+        }
+        revisionState.value = revisionState.value + 1
+    }
+
     fun ratingsActive(): Boolean = ratingsEnabled() && TmdbAuth.isUsable(apiKey())
 
     fun enqueue(items: List<MediaItem>, front: Boolean) {
@@ -77,7 +100,7 @@ class TmdbRatingEngine(
         synchronized(lock) {
             val pending = items.mapNotNull { item ->
                 val key = cacheKey(item) ?: return@mapNotNull null
-                val cached = memory[key]
+                val cached = tableState.value[key]
                 if (cached != null && TmdbRatings.isFresh(cached, now)) return@mapNotNull null
                 if (!queued.add(key)) {
                     if (front) moveToFront(key)
@@ -179,6 +202,7 @@ class TmdbRatingEngine(
         var missed = 0
         var changed = false
         synchronized(lock) {
+            val next = HashMap(tableState.value)
             for ((job, rating) in results) {
                 queued.remove(job.cacheKey)
                 if (rating == null) {
@@ -188,12 +212,13 @@ class TmdbRatingEngine(
                     }
                     continue
                 }
-                memory[job.cacheKey] = rating
+                next[job.cacheKey] = rating
                 val id = rating.tmdbId?.takeIf { it.isNotBlank() }
-                if (id != null) memory[idKey(job.kind, id)] = rating
+                if (id != null) next[idKey(job.kind, id)] = rating
                 changed = true
                 if (rating.found) resolved += 1 else missed += 1
             }
+            if (changed) tableState.value = next
         }
         if (changed) {
             persist()
@@ -276,15 +301,24 @@ class TmdbRatingEngine(
             if (storeFile.isFile) {
                 runCatching {
                     val parsed = json.decodeFromString<RatingFile>(storeFile.readText())
-                    memory.putAll(parsed.entries)
+                    tableState.value = HashMap(parsed.entries)
                 }
             }
             loaded = true
         }
     }
 
+    private fun lookup(table: Map<String, TmdbRating>, item: MediaItem): TmdbRating? {
+        val key = cacheKey(item) ?: return null
+        table[key]?.let { return it }
+        val id = usableId(item.tmdbId) ?: return null
+        val primary = idKey(item.kind, id)
+        val alternate = idKey(otherKind(item.kind), id)
+        return table[primary] ?: table[alternate]
+    }
+
     private fun persist() {
-        val snapshot = synchronized(lock) { memory.toMap() }
+        val snapshot = tableState.value.toMap()
         runCatching {
             storeFile.parentFile?.mkdirs()
             val tmp = File(storeFile.parentFile, storeFile.name + ".tmp")

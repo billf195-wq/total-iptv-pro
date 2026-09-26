@@ -1,5 +1,6 @@
 package com.totaliptv.pro.ui.desktop
 
+import com.totaliptv.pro.artwork.MediaOrder
 import com.totaliptv.pro.artwork.TvRatings
 import com.totaliptv.pro.data.model.MediaItem
 import java.util.Calendar
@@ -41,7 +42,7 @@ object TopRatedCache {
     }
 }
 
-private fun MediaItem.ratingScore(): Double = TvRatings.rankScore(this)
+private fun scoreOf(scores: Map<String, Double>, item: MediaItem): Double = scores[item.id] ?: 0.0
 
 fun isLikelyAmerican(item: MediaItem): Boolean {
     val group = item.groupTitle?.lowercase().orEmpty()
@@ -78,11 +79,11 @@ fun isLikelyNew(
 }
 
 /** Cap + prefer rated titles so ranking stays O(SCAN_CAP), not full-catalog O(n log n). */
-private fun cappedScan(items: List<MediaItem>): List<MediaItem> {
+private fun cappedScan(items: List<MediaItem>, scores: Map<String, Double>): List<MediaItem> {
     if (items.size <= SCAN_CAP) return items
     val out = ArrayList<MediaItem>(SCAN_CAP)
     for (it in items) {
-        if (it.ratingScore() > 0.0) {
+        if (scoreOf(scores, it) > 0.0) {
             out.add(it)
             if (out.size >= SCAN_CAP) return out
         }
@@ -91,58 +92,59 @@ private fun cappedScan(items: List<MediaItem>): List<MediaItem> {
         val need = SCAN_CAP - out.size
         val start = (items.size - need).coerceAtLeast(0)
         for (i in start until items.size) {
-            if (items[i].ratingScore() <= 0.0) out.add(items[i])
+            if (scoreOf(scores, items[i]) <= 0.0) out.add(items[i])
             if (out.size >= SCAN_CAP) break
         }
     }
     return out
 }
 
-private fun topByRating(list: List<MediaItem>): List<MediaItem> {
-    if (list.size <= TOP_N) return list.sortedByDescending { it.ratingScore() }
-    // Partial top-N without sorting the entire list when still large.
-    return list.asSequence()
-        .sortedByDescending { it.ratingScore() }
-        .take(TOP_N)
-        .toList()
+private fun topByRating(list: List<MediaItem>, scores: Map<String, Double>): List<MediaItem> {
+    return MediaOrder.sortByRank(list, scores).take(TOP_N)
+}
+
+private fun byAdded(list: List<MediaItem>): List<MediaItem> {
+    return list.sortedWith(MediaOrder.byAddedDescending()).take(TOP_N)
 }
 
 fun pickTopRatedMovies(items: List<MediaItem>): TopRatedRow {
-    val scan = cappedScan(items)
-    val rated = scan.filter { it.ratingScore() > 0.0 }
+    val scores = TvRatings.rankScores(items)
+    val scan = cappedScan(items, scores)
+    val rated = scan.filter { scoreOf(scores, it) > 0.0 }
     val pool = rated.ifEmpty { scan }
 
-    val americanNew = topByRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) })
+    val americanNew = topByRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) }, scores)
     if (americanNew.size >= MIN_FILTERED) {
         return TopRatedRow("Top rated new American movies", americanNew)
     }
-    val newOnly = topByRating(pool.filter { isLikelyNew(it) })
+    val newOnly = topByRating(pool.filter { isLikelyNew(it) }, scores)
     if (newOnly.size >= MIN_FILTERED) {
         return TopRatedRow("Top rated new movies", newOnly)
     }
-    val overall = topByRating(pool)
+    val overall = topByRating(pool, scores)
     return TopRatedRow(
         "Top rated movies",
-        overall.ifEmpty { scan.sortedByDescending { it.addedMs ?: 0L }.take(TOP_N) }
+        overall.ifEmpty { byAdded(scan) }
     )
 }
 
 fun pickTopRatedSeries(items: List<MediaItem>): TopRatedRow {
-    val scan = cappedScan(items)
-    val rated = scan.filter { it.ratingScore() > 0.0 }
+    val scores = TvRatings.rankScores(items)
+    val scan = cappedScan(items, scores)
+    val rated = scan.filter { scoreOf(scores, it) > 0.0 }
     val pool = rated.ifEmpty { scan }
 
-    val americanNew = topByRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) })
+    val americanNew = topByRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) }, scores)
     if (americanNew.size >= MIN_FILTERED) {
         return TopRatedRow("Top rated new American series", americanNew)
     }
-    val newOnly = topByRating(pool.filter { isLikelyNew(it) })
+    val newOnly = topByRating(pool.filter { isLikelyNew(it) }, scores)
     if (newOnly.size >= MIN_FILTERED) {
         return TopRatedRow("Top rated new series", newOnly)
     }
-    val overall = topByRating(pool)
+    val overall = topByRating(pool, scores)
     return TopRatedRow(
         "Top rated series",
-        overall.ifEmpty { scan.sortedByDescending { it.addedMs ?: 0L }.take(TOP_N) }
+        overall.ifEmpty { byAdded(scan) }
     )
 }

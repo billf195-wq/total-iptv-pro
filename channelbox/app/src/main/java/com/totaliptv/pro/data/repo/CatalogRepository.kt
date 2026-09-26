@@ -431,14 +431,15 @@ class CatalogRepository(
         }
         val anyAdded = items.any { (it.addedMs ?: 0L) > 0L }
         if (anyAdded) {
-            return items.sortedWith(
-                compareByDescending<MediaItem> { it.addedMs ?: 0L }
-                    .thenByDescending { it.xtreamStreamId ?: 0 }
-            )
+            return items.sortedWith(com.totaliptv.pro.artwork.MediaOrder.byAddedDescending())
         }
         val anySid = items.any { (it.xtreamStreamId ?: 0) > 0 }
         if (anySid) {
-            return items.sortedByDescending { it.xtreamStreamId ?: 0 }
+            return items.sortedWith(
+                compareByDescending<MediaItem> { it.xtreamStreamId ?: 0 }
+                    .thenBy { it.name.lowercase() }
+                    .thenBy { it.id }
+            )
         }
         return items.asReversed()
     }
@@ -499,8 +500,8 @@ class CatalogRepository(
 
     fun sortCatalogItems(items: List<MediaItem>, mode: CatalogSort): List<MediaItem> =
         when (mode) {
-            CatalogSort.AZ -> items.sortedBy { it.name.lowercase() }
-            CatalogSort.ZA -> items.sortedByDescending { it.name.lowercase() }
+            CatalogSort.AZ -> items.sortedWith(com.totaliptv.pro.artwork.MediaOrder.byName(descending = false))
+            CatalogSort.ZA -> items.sortedWith(com.totaliptv.pro.artwork.MediaOrder.byName(descending = true))
             CatalogSort.RECENTLY_ADDED -> sortByRecentlyAdded(items)
         }
 
