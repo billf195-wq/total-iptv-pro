@@ -3,6 +3,7 @@ package com.totaliptv.pro.desktop.player
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 
 class WindowPositionerTest {
 
@@ -103,5 +104,55 @@ class WindowPositionerTest {
         val alreadyBorderless = WindowPositioner.FrameInsets(0, 0, 0, 0)
         val exact = WindowPositioner.outerForVisibleTarget(0, 0, 1720, 1392, alreadyBorderless)
         assertEquals(WindowPositioner.ScreenBounds(0, 0, 1720, 1392), exact)
+    }
+
+    @Test
+    fun linuxHalfCoversTheFullMonitorHeight() {
+        val monitors = listOf(
+            WindowPositioner.ScreenBounds(0, 0, 1920, 1080),
+            WindowPositioner.ScreenBounds(1920, 0, 1920, 1080)
+        )
+        val left = WindowPositioner.coverFullMonitorHeight(
+            WindowPositioner.ScreenBounds(1920, 37, 960, 1043),
+            monitors
+        )
+        val right = WindowPositioner.coverFullMonitorHeight(
+            WindowPositioner.ScreenBounds(2880, 37, 960, 1043),
+            monitors
+        )
+        assertEquals(WindowPositioner.ScreenBounds(1920, 0, 960, 1080), left)
+        assertEquals(WindowPositioner.ScreenBounds(2880, 0, 960, 1080), right)
+        assertEquals(2880, left.x + left.width)
+        assertEquals(right.x, left.x + left.width)
+        assertEquals(monitors[1].y + monitors[1].height, left.y + left.height)
+
+        val unchanged = WindowPositioner.coverFullMonitorHeight(
+            WindowPositioner.ScreenBounds(1920, 37, 960, 1043),
+            emptyList()
+        )
+        assertEquals(WindowPositioner.ScreenBounds(1920, 37, 960, 1043), unchanged)
+    }
+
+    @Test
+    fun xresClientIdSpecMatchesLp64Layout() {
+        assertEquals(16, LinuxX11WindowPlacer.xresSpecSize())
+        assertEquals(0, LinuxX11WindowPlacer.xresSpecFieldOffset("client"))
+        assertEquals(8, LinuxX11WindowPlacer.xresSpecFieldOffset("mask"))
+    }
+
+    @Test
+    fun linuxX11MovesItsOwnWindowWhenDisplayIsOpen() {
+        if (System.getenv("DISPLAY").isNullOrBlank()) return
+        val lib = LinuxX11WindowPlacer.findLibrary("libX11.so.6")
+        if (lib == null) return
+        assertTrue(lib.endsWith("libX11.so.6") || lib.contains("libX11.so.6"))
+        val placed = LinuxX11WindowPlacer.placeSyntheticWindow(40, 60, 320, 180)
+        assertTrue(placed.available, placed.detail)
+        assertEquals("xres", placed.pidSource, placed.detail)
+        assertEquals(40, placed.x, placed.detail)
+        assertEquals(60, placed.y, placed.detail)
+        assertEquals(320, placed.width, placed.detail)
+        assertEquals(180, placed.height, placed.detail)
+        assertFalse(placed.detail.isBlank())
     }
 }

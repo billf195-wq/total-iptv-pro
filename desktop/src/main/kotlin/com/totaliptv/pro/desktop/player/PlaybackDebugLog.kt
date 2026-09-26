@@ -102,6 +102,23 @@ object PlaybackDebugLog {
         }
     }
 
+    /** One line in the same playback debug log. Used when Game Day placement fails soft. */
+    fun note(message: String) {
+        runCatching {
+            val dir = AppPaths.configDir
+            Files.createDirectories(dir)
+            val path = file()
+            trimIfLarge(path)
+            val line = Instant.now().toString() + " " + message.replace('\n', ' ').take(500)
+            Files.writeString(
+                path,
+                line + System.lineSeparator(),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.APPEND
+            )
+        }
+    }
+
     fun record(
         episodeId: String?,
         season: Int?,

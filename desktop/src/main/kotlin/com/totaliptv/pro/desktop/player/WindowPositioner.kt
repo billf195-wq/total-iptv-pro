@@ -127,11 +127,40 @@ object WindowPositioner {
     }
 
     /**
+     * Stretch a Game Day half to the full height of the monitor that contains it.
+     * GNOME may still reserve the top bar; the request is the whole output.
+     * The half's x and width stay put so the two pictures still meet.
+     */
+    fun coverFullMonitorHeight(half: ScreenBounds, monitors: List<ScreenBounds>): ScreenBounds {
+        if (monitors.isEmpty() || half.width <= 0 || half.height <= 0) return half
+        val cx = half.x + half.width / 2
+        val cy = half.y + half.height / 2
+        val monitor = monitors.firstOrNull { m ->
+            cx >= m.x && cx < m.x + m.width && cy >= m.y && cy < m.y + m.height
+        } ?: monitors.firstOrNull { m ->
+            half.x >= m.x && half.x < m.x + m.width
+        } ?: return half
+        if (monitor.height <= 0) return half
+        return ScreenBounds(half.x, monitor.y, half.width, monitor.height)
+    }
+
+    internal fun awtMonitorBounds(): List<ScreenBounds> {
+        return try {
+            GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices.map { device ->
+                val bounds = device.defaultConfiguration.bounds
+                ScreenBounds(bounds.x, bounds.y, bounds.width, bounds.height)
+            }.filter { it.width > 0 && it.height > 0 }
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    /**
      * Locks a Game Day window on the visible target rectangle.
      * Windows expands that rectangle by the DWM resize border and strips the
      * caption and thick frame so the two pictures meet at the midpoint.
-     * Linux has no DWM inset; VLC `--video-x` / `--width` / `--no-video-deco`
-     * already place the undecorated windows on [splitHalves].
+     * Linux GNOME/XWayland ignores VLC `--video-x` / `--width`, so when DISPLAY
+     * is set the X11 placer moves each video window onto its half.
      */
     fun snapWindowAsync(
         scope: CoroutineScope,
@@ -142,7 +171,10 @@ object WindowPositioner {
         width: Int,
         height: Int
     ) {
-        if (!AppPaths.isWindows) return
+        if (!AppPaths.isWindows) {
+            LinuxX11WindowPlacer.snapWindowAsync(scope, process, pid, x, y, width, height)
+            return
+        }
         scope.launch(Dispatchers.IO) {
             for (i in 0 until 80) {
                 if (!isActive) break

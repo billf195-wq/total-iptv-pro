@@ -249,6 +249,90 @@ class StreamPlayerTest {
     }
 
     @Test
+    fun linuxGameDayUsesDummyInterfaceAndHalfZoom() {
+        val url = "http://example.test/live/left.m3u8"
+        val linux = StreamPlayer.splitSideCommand(
+            "/usr/bin/vlc",
+            url,
+            windows = false,
+            x = 1920,
+            y = 37,
+            width = 960,
+            height = 1043,
+            port = 4212,
+            title = "Total IPTV Pro — Left"
+        )
+        assertEquals(
+            listOf(
+                "/usr/bin/vlc",
+                "--intf=dummy",
+                "--no-one-instance",
+                "--no-playlist-enqueue",
+                "--no-video-title-show",
+                "--no-video-deco",
+                "--zoom=0.5",
+                "--audio-language=eng,en,english",
+                "--width=960",
+                "--height=1043",
+                "--video-x=1920",
+                "--video-y=37",
+                "--extraintf=rc",
+                "--rc-host=127.0.0.1:4212",
+                "--meta-title=Total IPTV Pro — Left",
+                url
+            ),
+            linux
+        )
+        assertFalse(linux.contains("--qt-minimal-view"))
+        assertFalse(linux.contains("--no-embedded-video"))
+        assertFalse(linux.contains("--no-qt-video-autoresize"))
+        assertFalse(linux.contains("--qt-continue=0"))
+        assertFalse(linux.contains("--no-qt-privacy-ask"))
+        assertFalse(linux.contains("--rc-quiet"))
+        assertFalse(linux.contains("--ignore-config"))
+
+        val windows = StreamPlayer.splitSideCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            url,
+            windows = true,
+            x = 0,
+            y = 0,
+            width = 960,
+            height = 1080,
+            port = 4213,
+            title = "Total IPTV Pro — Right"
+        )
+        assertEquals(
+            listOf(
+                """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+                "--ignore-config",
+                "--no-one-instance",
+                "--no-playlist-enqueue",
+                "--no-video-title-show",
+                "--no-qt-video-autoresize",
+                "--no-video-deco",
+                "--no-embedded-video",
+                "--qt-minimal-view",
+                "--qt-continue=0",
+                "--no-qt-privacy-ask",
+                "--audio-language=eng,en,english",
+                "--width=960",
+                "--height=1080",
+                "--video-x=0",
+                "--video-y=0",
+                "--extraintf=rc",
+                "--rc-host=127.0.0.1:4213",
+                "--rc-quiet",
+                "--meta-title=Total IPTV Pro — Right",
+                url
+            ),
+            windows
+        )
+        assertFalse(windows.contains("--intf=dummy"))
+        assertFalse(windows.contains("--zoom=0.5"))
+    }
+
+    @Test
     fun vlcNeverAsksToContinueAndSkipsThePrivacyDialog() {
         val url = "http://example.test/movie.mp4"
         val single = StreamPlayer.vlcCommand(

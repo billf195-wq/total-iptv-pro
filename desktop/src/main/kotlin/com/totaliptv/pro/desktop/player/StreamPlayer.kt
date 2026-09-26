@@ -472,11 +472,13 @@ object StreamPlayer {
     }
 
     /**
-     * One Game Day window. Same Qt quiet flags as [vlcCommand], without fullscreen.
-     * `--no-video-deco` and `--no-embedded-video` drop the title bar and the Qt
-     * frame. `--qt-minimal-view` hides the menu and playback controls so only
-     * the picture shows; audio and Stop stay in this app. Windows then snaps
-     * the visible DWM frame onto [x]/[width]; Linux uses these coordinates directly.
+     * One Game Day window.
+     * Windows: Qt minimal view, then [WindowPositioner] snaps the DWM frame.
+     * Linux: `--intf=dummy` so there is no Qt control window (GNOME was stacking
+     * those on the left monitor). `--zoom=0.5` keeps a 1080p stream from opening
+     * at full-monitor size, which GNOME auto-maximizes. `--extraintf=rc` and
+     * `--rc-host` stay so audio switching still works. Placement is X11, not
+     * `--video-x` (XWayland ignores it).
      */
     internal fun splitSideCommand(
         binary: String,
@@ -489,6 +491,9 @@ object StreamPlayer {
         port: Int,
         title: String
     ): List<String> {
+        if (!windows) {
+            return linuxSplitSideCommand(binary, url, x, y, width, height, port, title)
+        }
         val args = mutableListOf(binary)
         if (windows) args += "--ignore-config"
         args += "--no-one-instance"
@@ -508,6 +513,39 @@ object StreamPlayer {
         args += "--rc-host=127.0.0.1:$port"
         // Same Windows-only RC flag as [vlcCommand]. Linux keeps the RC socket.
         if (windows) args += "--rc-quiet"
+        args += "--meta-title=$title"
+        args += url
+        return args
+    }
+
+    /**
+     * Linux Game Day argv. No Qt interface flags: dummy has no control window,
+     * and a VLC build without the Qt plugin would reject those options.
+     */
+    private fun linuxSplitSideCommand(
+        binary: String,
+        url: String,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        port: Int,
+        title: String
+    ): List<String> {
+        val args = mutableListOf(binary)
+        args += "--intf=dummy"
+        args += "--no-one-instance"
+        args += "--no-playlist-enqueue"
+        args += "--no-video-title-show"
+        args += "--no-video-deco"
+        args += "--zoom=0.5"
+        args += VLC_AUDIO_LANGUAGE
+        args += "--width=$width"
+        args += "--height=$height"
+        args += "--video-x=$x"
+        args += "--video-y=$y"
+        args += "--extraintf=rc"
+        args += "--rc-host=127.0.0.1:$port"
         args += "--meta-title=$title"
         args += url
         return args
