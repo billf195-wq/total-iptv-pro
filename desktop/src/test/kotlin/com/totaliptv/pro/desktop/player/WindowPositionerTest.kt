@@ -148,7 +148,7 @@ class WindowPositionerTest {
     }
 
     @Test
-    fun linuxSplitAudioFollowsFocusAndArrowKeys() {
+    fun linuxSplitAudioFollowsFocusAndClicks() {
         val focus = LinuxX11WindowPlacer.SplitFocusAudio()
         val left = 10L
         val right = 20L
@@ -158,11 +158,6 @@ class WindowPositionerTest {
         assertEquals(SplitSide.RIGHT, focus.onActive(right, left, right))
         assertEquals(null, focus.onActive(0L, left, right))
         assertEquals(null, LinuxX11WindowPlacer.splitSideForWindow(99L, left, right))
-        assertEquals(SplitSide.LEFT, LinuxX11WindowPlacer.splitSideForKeysym(0xff51L))
-        assertEquals(SplitSide.RIGHT, LinuxX11WindowPlacer.splitSideForKeysym(0xff53L))
-        assertEquals(null, LinuxX11WindowPlacer.splitSideForKeysym(0x71L))
-        assertEquals(null, LinuxX11WindowPlacer.splitSideForKeysym(0xff1bL))
-        assertEquals(null, LinuxX11WindowPlacer.splitSideForKey(0xff51L, state = 4))
         val child = 30L
         val known = mapOf(child to SplitSide.RIGHT)
         assertEquals(

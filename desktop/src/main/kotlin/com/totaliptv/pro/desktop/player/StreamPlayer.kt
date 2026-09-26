@@ -266,7 +266,6 @@ object StreamPlayer {
 
     fun switchSplitAudio(side: SplitSide) {
         val session = splitSession ?: return
-        if (session.activeAudio == side) return
         session.activeAudio = side
         applySplitVolumes(session)
     }
@@ -623,9 +622,6 @@ object StreamPlayer {
         // leave-fullscreen is registered before quit and owns Esc. Unset frees Esc.
         args += "--key-leave-fullscreen=Unset"
         args += "--key-quit=$LINUX_SPLIT_QUIT_KEYS"
-        // Bare Left/Right are nav keys. Free them so the app can use them for audio.
-        args += "--key-nav-left=Unset"
-        args += "--key-nav-right=Unset"
         args += "--rc-host=127.0.0.1:$port"
         args += "--meta-title=$title"
         args += url

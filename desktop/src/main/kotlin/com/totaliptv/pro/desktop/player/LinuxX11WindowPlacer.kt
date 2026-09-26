@@ -52,14 +52,9 @@ object LinuxX11WindowPlacer {
     private const val CW_OVERRIDE_REDIRECT = 512L
     private const val MIN_VIDEO_PX = 80
     private const val PLACEMENT_TOLERANCE_PX = 4
-    private const val KEY_PRESS = 2
     private const val BUTTON_PRESS = 4
-    private const val KEY_AND_BUTTON_MASK = 5L // KeyPressMask | ButtonPressMask
+    private const val BUTTON_PRESS_MASK = 4L
     private const val EVENT_WINDOW_OFFSET = 32L
-    private const val EVENT_STATE_OFFSET = 80L
-    private const val KEY_MODIFIER_MASK = 0x4d // Shift | Control | Mod1 | Mod4
-    private const val XK_LEFT = 0xff51L
-    private const val XK_RIGHT = 0xff53L
 
     private val handlerInstalled = AtomicBoolean(false)
     private val swallowXErrors = object : X11ErrorHandler {
@@ -367,22 +362,6 @@ object LinuxX11WindowPlacer {
         return null
     }
 
-    /** Bare Left/Right in a Game Day video window. Other keys, including q and Esc, are ignored. */
-    internal fun splitSideForKeysym(keysym: Long): SplitSide? = when (keysym) {
-        XK_LEFT -> SplitSide.LEFT
-        XK_RIGHT -> SplitSide.RIGHT
-        else -> null
-    }
-
-    /**
-     * Shift, Ctrl, Alt, or Super stay with VLC (seek chords). Caps Lock and
-     * Num Lock do not count, or arrows would die while those locks are on.
-     */
-    internal fun splitSideForKey(keysym: Long, state: Int): SplitSide? {
-        if (state and KEY_MODIFIER_MASK != 0) return null
-        return splitSideForKeysym(keysym)
-    }
-
     /**
      * A click is often delivered to a child of the video window. Match the
      * event window, then its ancestors, against the windows we are watching.
@@ -480,9 +459,10 @@ object LinuxX11WindowPlacer {
     }
 
     /**
-     * While a Linux split is up: a click or focus change onto one video window,
-     * or Left/Right inside it, selects that side's audio. The first focus
-     * reading is ignored so playback still starts on the left.
+     * While a Linux split is up, a click or a focus change onto one video
+     * window selects that side's audio. Left and Right are not watched here;
+     * those keys already switch the split and must keep working as before.
+     * The first focus reading is ignored so playback still starts on the left.
      */
     fun watchSplitInput(scope: CoroutineScope, left: Process, right: Process, onSide: (SplitSide) -> Unit) {
         if (System.getenv("DISPLAY").isNullOrBlank() || Native.LONG_SIZE != 8) return
@@ -509,19 +489,17 @@ object LinuxX11WindowPlacer {
                         val event = Memory(XEVENT_BYTES.toLong())
                         x11.XNextEvent(dpy, event)
                         val type = event.getInt(0)
-                        val side = when (type) {
-                            KEY_PRESS -> splitSideForKey(keysymOf(x11, event), event.getInt(EVENT_STATE_OFFSET))
-                            BUTTON_PRESS -> {
-                                val eventWindow = event.getNativeLong(EVENT_WINDOW_OFFSET).toLong()
-                                splitSideForPressedWindow(
-                                    eventWindow,
-                                    ancestorWindows(x11, dpy, eventWindow),
-                                    sideByWindow,
-                                    leftWindow,
-                                    rightWindow
-                                )
-                            }
-                            else -> null
+                        val side = if (type == BUTTON_PRESS) {
+                            val eventWindow = event.getNativeLong(EVENT_WINDOW_OFFSET).toLong()
+                            splitSideForPressedWindow(
+                                eventWindow,
+                                ancestorWindows(x11, dpy, eventWindow),
+                                sideByWindow,
+                                leftWindow,
+                                rightWindow
+                            )
+                        } else {
+                            null
                         }
                         if (side != null) {
                             PlaybackDebugLog.note("split-x11: audio ${side.name}")
@@ -555,7 +533,7 @@ object LinuxX11WindowPlacer {
         for (window in windowAndDescendants(x11, dpy, video)) {
             val previous = sideByWindow.put(window, side)
             if (previous == null) {
-                x11.XSelectInput(dpy, NativeLong(window), NativeLong(KEY_AND_BUTTON_MASK))
+                x11.XSelectInput(dpy, NativeLong(window), NativeLong(BUTTON_PRESS_MASK))
             }
         }
     }
@@ -835,13 +813,6 @@ object LinuxX11WindowPlacer {
     private fun readActiveWindow(x11: X11Lib, dpy: Pointer, root: Long): Long {
         val atom = intern(x11, dpy, "_NET_ACTIVE_WINDOW", onlyIfExists = true) ?: return 0L
         return readProperty(x11, dpy, root, atom, XA_WINDOW, 4).firstOrNull() ?: 0L
-    }
-
-    private fun keysymOf(x11: X11Lib, event: Memory): Long {
-        val keysym = NativeLongByReference()
-        val buffer = Memory(8)
-        x11.XLookupString(event, buffer, 8, keysym, null)
-        return keysym.value.toLong() and 0xffffffffL
     }
 
     /** Null when `_NET_CLIENT_LIST` is not on the root; empty when the WM has published none yet. */
@@ -1175,13 +1146,6 @@ internal interface X11Lib : Library {
     fun XSelectInput(display: Pointer, window: NativeLong, mask: NativeLong): Int
     fun XPending(display: Pointer): Int
     fun XNextEvent(display: Pointer, event: Pointer): Int
-    fun XLookupString(
-        event: Pointer,
-        buffer: Pointer,
-        nbytes: Int,
-        keysym: NativeLongByReference,
-        status: Pointer?
-    ): Int
     fun XSendEvent(
         display: Pointer,
         window: NativeLong,

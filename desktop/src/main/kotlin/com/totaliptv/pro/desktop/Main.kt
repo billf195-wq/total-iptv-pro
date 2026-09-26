@@ -23,7 +23,6 @@ import androidx.compose.ui.window.rememberWindowState
 import com.totaliptv.pro.desktop.data.PreferencesStore
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
 import com.totaliptv.pro.desktop.input.WindowsTopMost
-import com.totaliptv.pro.desktop.player.SplitSide
 import com.totaliptv.pro.desktop.player.StreamPlayer
 import com.totaliptv.pro.desktop.player.WindowPositioner
 import com.totaliptv.pro.desktop.util.AppPaths
@@ -125,14 +124,6 @@ fun main() = application(exitProcessOnExit = true) {
                     }
                     keyDown && event.key == Key.Escape && state.placement == WindowPlacement.Fullscreen -> {
                         state.placement = WindowPlacement.Floating
-                        true
-                    }
-                    keyDown && !AppPaths.isWindows && !TextInputFocus.isActive() &&
-                        StreamPlayer.isSplitActive() &&
-                        (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) -> {
-                        StreamPlayer.switchSplitAudio(
-                            if (event.key == Key.DirectionLeft) SplitSide.LEFT else SplitSide.RIGHT
-                        )
                         true
                     }
                     keyDown && event.key == Key.Spacebar && !TextInputFocus.isActive() && StreamPlayer.isPlaying() -> {
