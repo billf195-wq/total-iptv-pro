@@ -1,7 +1,6 @@
 package com.totaliptv.pro.artwork
 
 import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
 /** One TMDB API call. v3 keys go on the query string; v4 read tokens use Bearer auth. */
 data class TmdbRequest(val pathAndQuery: String, val key: String)
@@ -27,7 +26,7 @@ object TmdbAuth {
         if (isV4ReadToken(key)) return "https://api.themoviedb.org/3/$path"
         val join = if (path.contains('?')) "&" else "?"
         return "https://api.themoviedb.org/3/$path$join" + "api_key=" +
-            URLEncoder.encode(key, StandardCharsets.UTF_8)
+            URLEncoder.encode(key, "UTF-8")
     }
 
     fun authorization(request: TmdbRequest): String? {
@@ -39,7 +38,7 @@ object TmdbAuth {
 }
 
 enum class ArtworkRole {
-    /** Browse tiles. Target about w500. */
+    /** Browse tiles. Target about w342, decoded at the tile. */
     POSTER,
     /** Detail poster. Target about w780. */
     DETAIL,
@@ -47,6 +46,52 @@ enum class ArtworkRole {
     BACKDROP,
     /** Channel logos stay small. Sharp-poster work does not apply. */
     LOGO
+}
+
+/**
+ * Decode caps. Grid tiles stop at w342. Detail and backdrop stop at w780.
+ * The bitmap is the on-screen size (dp × density), never the original file.
+ */
+object ArtworkDecode {
+    const val POSTER_MAX_W = 342
+    const val POSTER_MAX_H = 513
+    const val DETAIL_MAX_W = 780
+    const val DETAIL_MAX_H = 1170
+    const val BACKDROP_MAX_W = 780
+    const val BACKDROP_MAX_H = 439
+    const val MEMORY_CACHE_CAP_BYTES = 96L * 1024 * 1024
+    const val DISK_CACHE_CAP_BYTES = 200L * 1024 * 1024
+    const val DISK_CACHE_DIR = "image_cache"
+
+    /** Fit [widthDp] × [heightDp] into the cap, keeping the tile aspect. */
+    fun pixels(widthDp: Float, heightDp: Float, density: Float, maxW: Int, maxH: Int): Pair<Int, Int> {
+        val scale = density.coerceAtLeast(0.5f)
+        var w = (widthDp.coerceAtLeast(1f) * scale).toInt().coerceAtLeast(1)
+        var h = (heightDp.coerceAtLeast(1f) * scale).toInt().coerceAtLeast(1)
+        if (w > maxW) {
+            h = ((h * maxW.toFloat()) / w).toInt().coerceAtLeast(1)
+            w = maxW
+        }
+        if (h > maxH) {
+            w = ((w * maxH.toFloat()) / h).toInt().coerceAtLeast(1)
+            h = maxH
+        }
+        return w to h
+    }
+
+    /** Clamp each side. Used for wide heroes so a short banner is not squeezed. */
+    fun clamp(widthDp: Float, heightDp: Float, density: Float, maxW: Int, maxH: Int): Pair<Int, Int> {
+        val scale = density.coerceAtLeast(0.5f)
+        val w = (widthDp.coerceAtLeast(1f) * scale).toInt().coerceIn(1, maxW)
+        val h = (heightDp.coerceAtLeast(1f) * scale).toInt().coerceIn(1, maxH)
+        return w to h
+    }
+
+    /** 15% of the process heap, and never more than [MEMORY_CACHE_CAP_BYTES]. */
+    fun memoryCacheBytes(memoryClassMb: Int): Int {
+        val fifteen = (memoryClassMb.coerceAtLeast(1).toLong() * 1024L * 1024L * 15L) / 100L
+        return minOf(fifteen, MEMORY_CACHE_CAP_BYTES).toInt()
+    }
 }
 
 /**
@@ -58,7 +103,7 @@ object TmdbArtwork {
         """(?i)^(https?://image\.tmdb\.org/t/p/)(w\d+|h\d+|original)/(.+)$"""
     )
 
-    fun posterTarget(): Int = 500
+    fun posterTarget(): Int = 342
     fun detailTarget(): Int = 780
 
     fun targetRank(role: ArtworkRole): Int = when (role) {
@@ -74,7 +119,7 @@ object TmdbArtwork {
         val match = sized.matchEntire(raw) ?: return raw
         val token = match.groupValues[2]
         if (sizeRank(token) >= targetRank(role)) return raw
-        val replacement = if (role == ArtworkRole.POSTER) "w500" else "w780"
+        val replacement = if (role == ArtworkRole.POSTER) "w342" else "w780"
         return match.groupValues[1] + replacement + "/" + match.groupValues[3]
     }
 

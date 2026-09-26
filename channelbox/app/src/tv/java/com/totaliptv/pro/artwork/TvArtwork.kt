@@ -1,5 +1,6 @@
 package com.totaliptv.pro.artwork
 
+import android.app.ActivityManager
 import android.app.Application
 import android.content.Context
 import android.graphics.Bitmap
@@ -7,6 +8,7 @@ import coil.Coil
 import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.size.Precision
+import coil.size.Scale
 import coil.memory.MemoryCache
 import coil.request.ImageRequest
 import com.totaliptv.pro.TotalIptvProApp
@@ -34,6 +36,8 @@ object ArtworkFlavor {
         TvRatings.install(app)
         val prefs = (app as TotalIptvProApp).preferences
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            // 1.4.68 wrote a second Coil directory. Keep only image_cache.
+            runCatching { app.cacheDir.resolve("artwork-cache").deleteRecursively() }
             combine(prefs.sharpPosters, prefs.tmdbRatings, prefs.tmdbApiKey) { sharp, ratings, key ->
                 Triple(sharp, ratings, key)
             }.collect { (sharp, ratings, key) ->
@@ -43,18 +47,21 @@ object ArtworkFlavor {
     }
 
     private fun installImageLoader(context: Context) {
+        val memoryClass = (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).memoryClass
         val loader = ImageLoader.Builder(context)
             .memoryCache {
                 MemoryCache.Builder(context)
-                    .maxSizePercent(0.30)
+                    .maxSizeBytes(ArtworkDecode.memoryCacheBytes(memoryClass))
+                    .weakReferencesEnabled(false)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(context.cacheDir.resolve("artwork-cache"))
-                    .maxSizeBytes(256L * 1024 * 1024)
+                    .directory(context.cacheDir.resolve(ArtworkDecode.DISK_CACHE_DIR))
+                    .maxSizeBytes(ArtworkDecode.DISK_CACHE_CAP_BYTES)
                     .build()
             }
+            .allowRgb565(true)
             .crossfade(false)
             .build()
         Coil.setImageLoader(loader)
@@ -135,37 +142,72 @@ object TvRatings {
     private const val BACKFILL_CAP = 2500
 }
 
-fun tvImageRequest(context: Context, url: String?, role: ArtworkRole, sharp: Boolean): ImageRequest {
+fun tvImageRequest(
+    context: Context,
+    url: String?,
+    role: ArtworkRole,
+    sharp: Boolean,
+    widthDp: Float? = null,
+    heightDp: Float? = null
+): ImageRequest {
     val source = if (sharp && role != ArtworkRole.LOGO) TmdbArtwork.rewrite(url, role) else url
+    val density = context.resources.displayMetrics.density
     val builder = ImageRequest.Builder(context)
         .data(source)
         .crossfade(false)
     when (role) {
         ArtworkRole.LOGO -> builder.size(128, 128)
-        ArtworkRole.POSTER -> if (sharp) {
-            builder.size(500, 750)
+        ArtworkRole.POSTER -> {
+            val (w, h) = ArtworkDecode.pixels(
+                widthDp ?: CLASSIC_POSTER_W_DP,
+                heightDp ?: CLASSIC_POSTER_H_DP,
+                density,
+                ArtworkDecode.POSTER_MAX_W,
+                ArtworkDecode.POSTER_MAX_H
+            )
+            // RGB_565 is half of ARGB and posters have no alpha. Hardware would keep a second copy.
+            builder.size(w, h)
                 .precision(Precision.EXACT)
-                .bitmapConfig(Bitmap.Config.ARGB_8888)
-        } else {
-            builder.size(220, 330)
+                .scale(Scale.FIT)
+                .bitmapConfig(Bitmap.Config.RGB_565)
+                .allowHardware(false)
         }
-        ArtworkRole.BACKDROP -> if (sharp) {
-            builder.size(780, 439)
-                .precision(Precision.EXACT)
-                .bitmapConfig(Bitmap.Config.ARGB_8888)
-        } else {
-            builder.size(220, 330)
+        ArtworkRole.BACKDROP -> {
+            val (w, h) = ArtworkDecode.clamp(
+                widthDp ?: 480f,
+                heightDp ?: CLASSIC_HERO_H_DP,
+                density,
+                ArtworkDecode.BACKDROP_MAX_W,
+                ArtworkDecode.BACKDROP_MAX_H
+            )
+            builder.size(w, h)
+                .precision(Precision.INEXACT)
+                .scale(Scale.FILL)
+                .allowHardware(true)
         }
-        ArtworkRole.DETAIL -> if (sharp) {
-            builder.size(780, 1170)
-                .precision(Precision.EXACT)
-                .bitmapConfig(Bitmap.Config.ARGB_8888)
-        } else {
-            builder.size(220, 330)
+        ArtworkRole.DETAIL -> {
+            val (w, h) = ArtworkDecode.pixels(
+                widthDp ?: DETAIL_W_DP,
+                heightDp ?: DETAIL_H_DP,
+                density,
+                ArtworkDecode.DETAIL_MAX_W,
+                ArtworkDecode.DETAIL_MAX_H
+            )
+            builder.size(w, h)
+                .precision(Precision.INEXACT)
+                .scale(Scale.FIT)
+                .allowHardware(true)
         }
     }
     return builder.build()
 }
+
+/** Classic poster is 103dp × 0.88, at a 2:3 frame. */
+private const val CLASSIC_POSTER_W_DP = 103f * 0.88f
+private const val CLASSIC_POSTER_H_DP = CLASSIC_POSTER_W_DP * 1.5f
+private const val CLASSIC_HERO_H_DP = 175f * 0.88f
+private const val DETAIL_W_DP = 168f
+private const val DETAIL_H_DP = 252f
 
 /** Badge text for a visible tile. Enqueues a TMDB lookup without blocking the caller. */
 @Composable

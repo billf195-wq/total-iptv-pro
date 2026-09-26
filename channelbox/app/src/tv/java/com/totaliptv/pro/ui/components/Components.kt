@@ -49,7 +49,9 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import com.totaliptv.pro.artwork.ArtworkRole
@@ -642,7 +644,9 @@ fun PosterCard(
                     contentDescription = title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit,
-                    placeholderLabel = title.take(1).uppercase()
+                    placeholderLabel = title.take(1).uppercase(),
+                    tileWidth = ClassicDimens.PosterWidth,
+                    tileHeight = ClassicDimens.PosterWidth * 1.5f
                 )
                 Box(
                     modifier = Modifier
@@ -907,7 +911,9 @@ fun NetworkImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
     placeholderLabel: String = "?",
-    role: ArtworkRole = ArtworkRole.POSTER
+    role: ArtworkRole = ArtworkRole.POSTER,
+    tileWidth: Dp? = null,
+    tileHeight: Dp? = null
 ) {
     if (url.isNullOrBlank()) {
         Box(modifier = modifier.background(Color(0xFF151C28)), contentAlignment = Alignment.Center) {
@@ -931,9 +937,11 @@ fun NetworkImage(
     } else {
         val context = LocalContext.current
         val sharp by ArtworkRuntime.sharp.collectAsState()
-        // Sharp mode decodes nearer the tile (w500) or detail (w780). Logos stay small.
-        val model = remember(url, role, sharp) {
-            tvImageRequest(context, url, role, sharp)
+        val widthDp = tileWidth?.value
+        val heightDp = tileHeight?.value
+        // Decode at this tile (dp × density). Sharp mode only upgrades the URL.
+        val model = remember(url, role, sharp, widthDp, heightDp) {
+            tvImageRequest(context, url, role, sharp, widthDp, heightDp)
         }
         AsyncImage(
             model = model,
@@ -1094,7 +1102,9 @@ fun HeroFeatureBanner(
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
                 placeholderLabel = title.take(1).uppercase(),
-                role = ArtworkRole.BACKDROP
+                role = ArtworkRole.BACKDROP,
+                tileWidth = LocalConfiguration.current.screenWidthDp.dp,
+                tileHeight = ClassicDimens.HeroHeight
             )
             Box(
                 modifier = Modifier

@@ -118,8 +118,17 @@ fun DesktopPosterCard(
                 if (!url.isNullOrBlank()) {
                     val context = LocalContext.current
                     val sharp by ArtworkRuntime.sharp.collectAsState()
-                    val model = remember(url, sharp) {
-                        tvImageRequest(context, url, ArtworkRole.POSTER, sharp)
+                    val imageWidth = TipDimens.PosterWidth - (TipDimens.PosterPad * 2)
+                    val imageHeight = imageWidth * 1.5f
+                    val model = remember(url, sharp, imageWidth, imageHeight) {
+                        tvImageRequest(
+                            context,
+                            url,
+                            ArtworkRole.POSTER,
+                            sharp,
+                            imageWidth.value,
+                            imageHeight.value
+                        )
                     }
                     AsyncImage(
                         model = model,

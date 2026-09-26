@@ -8,7 +8,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import java.util.Locale
 
 data class TmdbSearchHit(
@@ -80,7 +79,7 @@ object TmdbTitle {
     }
 
     fun searchPath(series: Boolean, title: String, year: Int?): String {
-        val encoded = URLEncoder.encode(title, StandardCharsets.UTF_8)
+        val encoded = URLEncoder.encode(title, "UTF-8")
         val path = if (series) "search/tv" else "search/movie"
         val yearParam = if (series) "first_air_date_year" else "year"
         val yearQuery = year?.takeIf { it in 1900..2100 }?.let { "&$yearParam=$it" }.orEmpty()

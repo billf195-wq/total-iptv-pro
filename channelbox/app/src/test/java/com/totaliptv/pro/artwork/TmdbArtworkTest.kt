@@ -17,12 +17,14 @@ class TmdbArtworkTest {
 
     @Test
     fun rewritesTvPosterAndDetailSizesWithoutShrinking() {
+        assertEquals(342, TmdbArtwork.posterTarget())
+        assertEquals(780, TmdbArtwork.detailTarget())
         assertEquals(
-            "https://image.tmdb.org/t/p/w500/abc.jpg",
+            "https://image.tmdb.org/t/p/w342/abc.jpg",
             TmdbArtwork.rewrite("https://image.tmdb.org/t/p/w185/abc.jpg", ArtworkRole.POSTER)
         )
         assertEquals(
-            "https://image.tmdb.org/t/p/w500/abc.jpg",
+            "https://image.tmdb.org/t/p/w342/abc.jpg",
             TmdbArtwork.rewrite("https://image.tmdb.org/t/p/w342/abc.jpg", ArtworkRole.POSTER)
         )
         assertEquals(
@@ -58,6 +60,13 @@ class TmdbArtworkTest {
             TmdbArtwork.rewrite("https://image.tmdb.org/t/p/w92/logo.png", ArtworkRole.LOGO)
         )
         assertNull(TmdbArtwork.rewrite("  ", ArtworkRole.POSTER))
+        assertEquals(181 to 271, ArtworkDecode.pixels(90.5f, 135.75f, density = 2f, 342, 513))
+        assertEquals(342 to 513, ArtworkDecode.pixels(100f, 150f, density = 4f, 342, 513))
+        assertEquals(780 to 308, ArtworkDecode.clamp(960f, 154f, density = 2f, 780, 439))
+        assertEquals(96 * 1024 * 1024, ArtworkDecode.memoryCacheBytes(1024))
+        assertEquals((256L * 1024 * 1024 * 15 / 100).toInt(), ArtworkDecode.memoryCacheBytes(256))
+        assertEquals(200L * 1024 * 1024, ArtworkDecode.DISK_CACHE_CAP_BYTES)
+        assertEquals("image_cache", ArtworkDecode.DISK_CACHE_DIR)
     }
 
     @Test
@@ -94,6 +103,7 @@ class TmdbArtworkTest {
         assertEquals("The Matrix", matrix.title)
         assertEquals(1999, matrix.year)
         assertEquals("the matrix", matrix.normalized)
+        assertEquals("search/movie?query=The+Matrix&year=1999", TmdbTitle.searchPath(false, "The Matrix", 1999))
         val wrapped = TmdbTitle.clean("|FR| Amelie [2001] WEBRip")
         assertEquals("Amelie", wrapped.title)
         assertEquals(2001, wrapped.year)
@@ -332,6 +342,40 @@ class TmdbArtworkTest {
         val phoneSettings = File("src/phone/java/com/totaliptv/pro/ui/settings/PhoneSettingsScreen.kt").readText()
         assertFalse(phoneSettings.contains("TMDB API key"))
         assertFalse(phoneSettings.contains("Sharp posters"))
+        val roots = listOf("src/main", "src/tv", "src/phone")
+        val charsetEncode = Regex("""URLEncoder\.encode\([^)\n]*StandardCharsets|URLEncoder\.encode\([^)\n]*Charset""")
+        for (root in roots) {
+            val tree = File(root)
+            if (!tree.isDirectory) continue
+            tree.walkTopDown().filter { it.extension == "kt" }.forEach { file ->
+                assertFalse(charsetEncode.containsMatchIn(file.readText()), file.path)
+            }
+        }
+        val gradle = File("build.gradle.kts").readText()
+        assertTrue(gradle.contains("error += \"NewApi\""))
+        assertTrue(gradle.contains("checkOnly += \"NewApi\""))
+        assertTrue(gradle.contains("isCoreLibraryDesugaringEnabled = true"))
+        val tvArtwork = File("src/tv/java/com/totaliptv/pro/artwork/TvArtwork.kt").readText()
+        assertTrue(tvArtwork.contains("Bitmap.Config.RGB_565"))
+        assertTrue(tvArtwork.contains("resolve(ArtworkDecode.DISK_CACHE_DIR)"))
+        assertTrue(tvArtwork.contains("resolve(\"artwork-cache\").deleteRecursively()"))
+        assertFalse(tvArtwork.contains("ARGB_8888"))
+        assertFalse(tvArtwork.contains("size(500"))
+    }
+
+    @Test
+    fun lookupThrowableIsLoggedAndSkipped() {
+        val engine = engine()
+        engine.apiKey = { v3 }
+        val logs = mutableListOf<String>()
+        engine.log = { logs += it }
+        engine.fetch = { throw NoSuchMethodError("encode") }
+        val item = vod("x", "8.0", "The Matrix", tmdbId = "603")
+        engine.enqueue(listOf(item), front = true)
+        engine.drainForTests()
+        assertTrue(logs.any { it.contains("NoSuchMethodError") && !it.contains(v3) })
+        assertTrue(engine.isIdle())
+        assertEquals(8.0, engine.displayScore(item))
     }
 
     private fun engine(): TmdbRatingEngine {

@@ -13,8 +13,8 @@ android {
         applicationId = "com.totaliptv.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 80
-        versionName = "1.4.68"
+        versionCode = 81
+        versionName = "1.4.69"
         buildConfigField(
             "String",
             "DEFAULT_UPDATE_BASE_URL",
@@ -27,8 +27,8 @@ android {
         create("tv") {
             dimension = "device"
             // Keep Shield / Leanback applicationId unchanged.
-            versionCode = 80
-            versionName = "1.4.68"
+            versionCode = 81
+            versionName = "1.4.69"
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",
@@ -39,8 +39,8 @@ android {
             dimension = "device"
             applicationIdSuffix = ".phone"
             // Phone-only bump so Shield is not forced to update.
-            versionCode = 57
-            versionName = "1.4.45-phone"
+            versionCode = 58
+            versionName = "1.4.46-phone"
             resValue("string", "app_name", "Total IPTV Pro Phone")
             buildConfigField(
                 "String",
@@ -61,6 +61,8 @@ android {
     }
 
     compileOptions {
+        // java.time is API 26. Desugar it so minSdk 24 does not trip NewApi.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -72,6 +74,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
+        checkOnly += "NewApi"
+        error += "NewApi"
     }
 
     packaging {
@@ -111,7 +120,14 @@ dependencies {
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.serialization.json)
+}
+
+// NewApi is an error on debug and release builds, not only lintVitalRelease.
+tasks.matching { it.name.matches(Regex("assemble(Tv|Phone)(Debug|Release)")) }.configureEach {
+    dependsOn("lint${name.removePrefix("assemble")}")
 }

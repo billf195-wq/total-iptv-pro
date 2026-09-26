@@ -247,7 +247,9 @@ fun MovieDetailSheet(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit,
                     placeholderLabel = enriched.name.take(1).uppercase(),
-                    role = com.totaliptv.pro.artwork.ArtworkRole.DETAIL
+                    role = com.totaliptv.pro.artwork.ArtworkRole.DETAIL,
+                    tileWidth = 168.dp,
+                    tileHeight = 252.dp
                 )
             }
             Column(

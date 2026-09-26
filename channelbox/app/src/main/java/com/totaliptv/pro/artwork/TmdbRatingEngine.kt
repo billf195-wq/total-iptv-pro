@@ -137,6 +137,8 @@ class TmdbRatingEngine(
                 while (processBatchAsync()) {
                     // Next batch, after the pause inside processBatchAsync.
                 }
+            } catch (t: Throwable) {
+                log("tmdb worker failed: ${failureText(t)}")
             } finally {
                 draining.set(false)
                 val more = synchronized(lock) { queue.isNotEmpty() && ratingsActive() }
@@ -150,7 +152,7 @@ class TmdbRatingEngine(
         val batch = takeBatch()
         if (batch.isEmpty()) return false
         val start = System.currentTimeMillis()
-        val results = batch.map { job -> job to fetchOne(key, job) }
+        val results = batch.map { job -> job to fetchSafely(key, job) }
         applyResults(results, System.currentTimeMillis() - start)
         return synchronized(lock) { queue.isNotEmpty() }
     }
@@ -160,10 +162,15 @@ class TmdbRatingEngine(
         val batch = takeBatch()
         if (batch.isEmpty()) return false
         val start = System.currentTimeMillis()
-        val results = coroutineScope {
-            batch.map { job ->
-                async(Dispatchers.IO) { job to fetchOne(key, job) }
-            }.awaitAll()
+        val results = try {
+            coroutineScope {
+                batch.map { job ->
+                    async(Dispatchers.IO) { job to fetchSafely(key, job) }
+                }.awaitAll()
+            }
+        } catch (t: Throwable) {
+            log("tmdb worker failed: ${failureText(t)}")
+            batch.map { it to null }
         }
         applyResults(results, System.currentTimeMillis() - start)
         if (pauseMs > 0) delay(pauseMs)
@@ -227,6 +234,30 @@ class TmdbRatingEngine(
         if (resolved + missed > 0) log(TmdbRatings.batchLine(resolved, missed, elapsedMs))
     }
 
+    private fun fetchBody(request: TmdbRequest): String? {
+        return try {
+            fetch(request)
+        } catch (t: Throwable) {
+            log("tmdb lookup failed: ${failureText(t)}")
+            null
+        }
+    }
+
+    /** A failed lookup is logged and skipped. [Error] included, so a bad API call cannot crash the process. */
+    private fun fetchSafely(apiKey: String, job: Pending): TmdbRating? {
+        return try {
+            fetchOne(apiKey, job)
+        } catch (t: Throwable) {
+            log("tmdb lookup failed: ${failureText(t)}")
+            null
+        }
+    }
+
+    private fun failureText(t: Throwable): String {
+        val message = t.message.orEmpty().replace(API_KEY_IN_TEXT, "api_key=***")
+        return if (message.isBlank()) t.javaClass.simpleName else "${t.javaClass.simpleName}: $message"
+    }
+
     private fun fetchOne(apiKey: String, job: Pending): TmdbRating? {
         val now = nowMs()
         val id = job.tmdbId
@@ -237,7 +268,7 @@ class TmdbRatingEngine(
         var confirmedMiss = false
         var sawBody = false
         for (path in TmdbRatings.endpoints(kind, id)) {
-            val body = runCatching { fetch(TmdbRequest(path, apiKey)) }.getOrNull() ?: continue
+            val body = fetchBody(TmdbRequest(path, apiKey)) ?: continue
             sawBody = true
             val parsed = TmdbRatings.parse(body, now) ?: continue
             if (parsed.found) return parsed.copy(tmdbId = id)
@@ -265,7 +296,7 @@ class TmdbRatingEngine(
         var retry = false
         for (series in order) {
             val path = TmdbTitle.searchPath(series, job.title, job.year)
-            val body = runCatching { fetch(TmdbRequest(path, apiKey)) }.getOrNull() ?: continue
+            val body = fetchBody(TmdbRequest(path, apiKey)) ?: continue
             when (val outcome = TmdbTitle.interpretSearch(body)) {
                 TmdbTitle.SearchBody.Retry -> retry = true
                 TmdbTitle.SearchBody.Empty -> sawOk = true
@@ -368,5 +399,6 @@ class TmdbRatingEngine(
         const val BATCH_MIN = 4
         const val BATCH_MAX = 6
         const val DEFAULT_BATCH = 5
+        private val API_KEY_IN_TEXT = Regex("api_key=[^&\\s]+")
     }
 }
