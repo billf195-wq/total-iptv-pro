@@ -13,6 +13,8 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import com.totaliptv.pro.desktop.player.PlaybackDebugLog
 import java.util.ArrayDeque
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
@@ -27,7 +29,14 @@ object TmdbRatingStore {
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
     private val lock = Any()
-    private val memory = HashMap<String, TmdbRating>()
+    /** Writer map. Fetch threads mutate this; sorts and badges read [published] instead. */
+    private val memory = ConcurrentHashMap<String, TmdbRating>()
+    /**
+     * Immutable generation swapped after each load or store. Rank and display never
+     * walk [memory] while tmdb-ratings-fetch is writing it.
+     */
+    @Volatile
+    private var published: Map<String, TmdbRating> = emptyMap()
     private val queued = HashSet<String>()
     private val queue = ArrayDeque<Pending>()
     private var loaded = false
@@ -63,17 +72,44 @@ object TmdbRatingStore {
     }
 
     fun displayScore(item: MediaItem): Double {
-        ensureLoaded()
         return TmdbRatings.displayScore(TmdbRatings.providerScore(item), peek(item), ArtworkSettings.ratingsActive())
     }
 
-    fun rankScore(item: MediaItem): Double {
+    fun rankScore(item: MediaItem): Double = rankScore(item, snapshot())
+
+    /** Rank against one frozen generation so a sort cannot observe a torn cache. */
+    fun rankScore(item: MediaItem, cache: Map<String, TmdbRating>): Double {
+        return TmdbRatings.rankScore(
+            TmdbRatings.providerScore(item),
+            peekCached(item, cache),
+            ArtworkSettings.ratingsActive()
+        )
+    }
+
+    /** The map sorts must read. Later fetches swap a new map; this instance stays put. */
+    fun snapshot(): Map<String, TmdbRating> {
         ensureLoaded()
-        return TmdbRatings.rankScore(TmdbRatings.providerScore(item), peek(item), ArtworkSettings.ratingsActive())
+        return published
+    }
+
+    /**
+     * True when none of these titles are still waiting on a fetch.
+     * Unfetchable rows (no id and no confident title/year) count as settled.
+     * Call this after [enqueue]; before that, nothing is in the queue.
+     */
+    fun isSettled(items: List<MediaItem>): Boolean {
+        if (!ArtworkSettings.ratingsActive() || ArtworkSettings.tmdbApiKey.isBlank()) return true
+        ensureLoaded()
+        synchronized(lock) {
+            for (item in items) {
+                val key = queueKey(item) ?: continue
+                if (key in queued) return false
+            }
+            return true
+        }
     }
 
     fun displayScore(kind: ContentKind, tmdbId: String?, providerRating: String?, rating5Based: Double? = null): Double {
-        ensureLoaded()
         val provider = TmdbRatings.providerScore(providerRating, rating5Based)
         val tmdb = tmdbId?.let { peekId(kind, it) }
         return TmdbRatings.displayScore(provider, tmdb, ArtworkSettings.ratingsActive())
@@ -91,7 +127,7 @@ object TmdbRatingStore {
                 val id = item.tmdbId?.trim()?.takeIf { it.isNotEmpty() && it != "0" }
                 if (id != null) {
                     val cacheKey = TmdbRatings.cacheKey(item.kind, id)
-                    val cached = memory[cacheKey] ?: alternate(item.kind, id)
+                    val cached = memory[cacheKey] ?: alternate(memory, item.kind, id)
                     if (cached != null && TmdbRatings.isFresh(cached, now)) return@mapNotNull null
                     if (!queued.add(cacheKey)) {
                         if (front) moveToFront(cacheKey)
@@ -124,6 +160,7 @@ object TmdbRatingStore {
         log = {}
         synchronized(lock) {
             memory.clear()
+            published = emptyMap()
             queued.clear()
             queue.clear()
             loaded = false
@@ -138,25 +175,31 @@ object TmdbRatingStore {
 
     internal fun queuedIdsForTests(): List<String> = synchronized(lock) { queue.mapNotNull { it.tmdbId } }
 
-    fun peek(item: MediaItem): TmdbRating? {
-        ensureLoaded()
+    fun peek(item: MediaItem): TmdbRating? = peekCached(item, snapshot())
+
+    private fun peekCached(item: MediaItem, cache: Map<String, TmdbRating>): TmdbRating? {
         val id = item.tmdbId?.trim()?.takeIf { it.isNotEmpty() && it != "0" }
-        if (id != null) return peekId(item.kind, id)
+        if (id != null) return cache[TmdbRatings.cacheKey(item.kind, id)] ?: alternate(cache, item.kind, id)
         val query = TmdbTitle.query(item) ?: return null
-        synchronized(lock) {
-            return memory[TmdbTitle.lookupKey(query)]
-        }
+        return cache[TmdbTitle.lookupKey(query)]
     }
 
     private fun peekId(kind: ContentKind, id: String): TmdbRating? {
-        synchronized(lock) {
-            return memory[TmdbRatings.cacheKey(kind, id)] ?: alternate(kind, id)
-        }
+        val cache = snapshot()
+        return cache[TmdbRatings.cacheKey(kind, id)] ?: alternate(cache, kind, id)
     }
 
-    private fun alternate(kind: ContentKind, id: String): TmdbRating? {
+    private fun alternate(cache: Map<String, TmdbRating>, kind: ContentKind, id: String): TmdbRating? {
         val other = if (kind == ContentKind.SERIES) ContentKind.VOD else ContentKind.SERIES
-        return memory[TmdbRatings.cacheKey(other, id)]
+        return cache[TmdbRatings.cacheKey(other, id)]
+    }
+
+    private fun queueKey(item: MediaItem): String? {
+        if (item.kind != ContentKind.VOD && item.kind != ContentKind.SERIES) return null
+        val id = item.tmdbId?.trim()?.takeIf { it.isNotEmpty() && it != "0" }
+        if (id != null) return TmdbRatings.cacheKey(item.kind, id)
+        val query = TmdbTitle.query(item) ?: return null
+        return TmdbTitle.lookupKey(query)
     }
 
     private fun kick() {
@@ -259,6 +302,11 @@ object TmdbRatingStore {
             val idKey = TmdbRatings.cacheKey(job.kind, id)
             if (idKey != job.cacheKey) memory[idKey] = rating
         }
+        publishLocked()
+    }
+
+    private fun publishLocked() {
+        published = Collections.unmodifiableMap(HashMap(memory))
     }
 
     private fun moveToFront(cacheKey: String) {
@@ -322,6 +370,7 @@ object TmdbRatingStore {
                     memory.putAll(parsed.entries)
                 }
             }
+            publishLocked()
             loaded = true
         }
     }

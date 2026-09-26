@@ -24,6 +24,7 @@ import com.totaliptv.pro.desktop.data.PreferencesStore
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
 import com.totaliptv.pro.desktop.input.WindowsTopMost
 import com.totaliptv.pro.desktop.player.StreamPlayer
+import com.totaliptv.pro.desktop.player.UncaughtLog
 import com.totaliptv.pro.desktop.player.WindowPositioner
 import com.totaliptv.pro.desktop.util.AppPaths
 import com.totaliptv.pro.desktop.ui.AppRoot
@@ -32,7 +33,9 @@ import com.totaliptv.pro.desktop.ui.SplashBranding
 import com.totaliptv.pro.desktop.ui.TextInputFocus
 import java.awt.Dimension
 
-fun main() = application(exitProcessOnExit = true) {
+fun main() {
+    UncaughtLog.install()
+    application(exitProcessOnExit = true) {
     val seriesNextHost = remember { SeriesNextHost() }
     var windowsOpen by remember { mutableStateOf(true) }
     val initialPrefs = remember { PreferencesStore.load() }
@@ -135,5 +138,6 @@ fun main() = application(exitProcessOnExit = true) {
             WindowPositioner.attachAppWindow(window)
             AppRoot(seriesNextHost, onQuit = { quit() })
         }
+    }
     }
 }

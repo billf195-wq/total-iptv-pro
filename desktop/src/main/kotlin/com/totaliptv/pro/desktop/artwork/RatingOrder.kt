@@ -17,8 +17,11 @@ data class RatingSortKey(
 )
 
 object RatingOrder {
-    /** Quiet period after the last rating batch before Home re-sorts. */
-    const val SORT_QUIET_MS = 500L
+    /**
+     * Longest Home will wait for the visible rating batch before the one re-rank.
+     * After that sort, the Top rated row stays put until Home is left and opened again.
+     */
+    const val SORT_MIN_INTERVAL_MS = 10_000L
 
     fun key(item: MediaItem, rawRank: Double): RatingSortKey {
         val rating = if (rawRank.isFinite()) rawRank else 0.0

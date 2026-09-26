@@ -18,7 +18,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -225,30 +224,28 @@ fun HomeScreen(
     val continuePairs = remember(resumeEntries, catalog, columns) {
         resolveContinueItems(resumeEntries, catalog).take(columns)
     }
-    val ratingRevision by TmdbRatingStore.revision.collectAsState()
     val ratingsOn = ArtworkSettings.ratingsActive()
-    var sortTick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(ratingRevision) {
-        if (ratingRevision == 0) return@LaunchedEffect
-        delay(RatingOrder.SORT_QUIET_MS)
-        sortTick = ratingRevision
-    }
+    // Bumped once per visit, after the visible batch settles or the 10s cap.
+    // Later rating batches update badges only; they do not reshuffle this row.
+    var sortGeneration by remember { mutableIntStateOf(0) }
     val homeListState = rememberLazyListState()
-    val movieRow = remember(catalog, sortTick, ratingsOn) {
-        runCatching { pickTopRatedMovies(catalog) { TmdbRatingStore.rankScore(it) } }
+    val movieRow = remember(catalog, sortGeneration, ratingsOn) {
+        val cache = TmdbRatingStore.snapshot()
+        runCatching { pickTopRatedMovies(catalog) { TmdbRatingStore.rankScore(it, cache) } }
             .getOrElse {
                 RatingOrder.logFailure(it)
                 TopRatedRow("Top rated movies", emptyList())
             }
     }
-    val seriesRow = remember(catalog, sortTick, ratingsOn) {
-        runCatching { pickTopRatedSeries(catalog) { TmdbRatingStore.rankScore(it) } }
+    val seriesRow = remember(catalog, sortGeneration, ratingsOn) {
+        val cache = TmdbRatingStore.snapshot()
+        runCatching { pickTopRatedSeries(catalog) { TmdbRatingStore.rankScore(it, cache) } }
             .getOrElse {
                 RatingOrder.logFailure(it)
                 TopRatedRow("Top rated series", emptyList())
             }
     }
-    LaunchedEffect(catalog, ratingsOn, movieRow.items, seriesRow.items, continuePairs) {
+    LaunchedEffect(catalog, ratingsOn) {
         if (!ratingsOn) return@LaunchedEffect
         val visible = movieRow.items + seriesRow.items + continuePairs.mapNotNull { it.second }
         TmdbRatingStore.enqueue(visible, front = true)
@@ -256,6 +253,17 @@ fun HomeScreen(
         withContext(Dispatchers.Default) {
             TmdbRatingStore.enqueue(rest, front = false)
         }
+        val deadline = System.currentTimeMillis() + RatingOrder.SORT_MIN_INTERVAL_MS
+        while (!TmdbRatingStore.isSettled(visible)) {
+            if (System.currentTimeMillis() >= deadline) break
+            delay(250)
+        }
+        sortGeneration += 1
+    }
+    LaunchedEffect(sortGeneration) {
+        if (sortGeneration == 0 || !ratingsOn) return@LaunchedEffect
+        val visible = movieRow.items + seriesRow.items + continuePairs.mapNotNull { it.second }
+        TmdbRatingStore.enqueue(visible, front = true)
     }
 
     CompositionLocalProvider(LocalArtworkPage provides "Home") {

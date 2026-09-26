@@ -102,6 +102,44 @@ object PlaybackDebugLog {
         }
     }
 
+    internal const val MAX_STACK_CHARS = 32 * 1024
+
+    /**
+     * Full stack text for the debug log. Newlines stay; [note] is a single truncated line
+     * and cannot hold a trace.
+     */
+    fun formatStack(threadName: String, throwable: Throwable): String {
+        val buffer = java.io.StringWriter()
+        val printer = java.io.PrintWriter(buffer)
+        printer.append("uncaught thread=")
+        printer.append(threadName)
+        printer.println()
+        throwable.printStackTrace(printer)
+        printer.flush()
+        val text = buffer.toString()
+        return if (text.length <= MAX_STACK_CHARS) text else text.substring(0, MAX_STACK_CHARS)
+    }
+
+    /** Append a stack trace to playback-debug.log. Failures here are swallowed. */
+    fun stack(threadName: String, throwable: Throwable) {
+        runCatching {
+            val dir = AppPaths.configDir
+            Files.createDirectories(dir)
+            val path = file()
+            trimIfLarge(path)
+            val body = formatStack(threadName, throwable)
+            Files.writeString(
+                path,
+                Instant.now().toString() + System.lineSeparator() + body,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.APPEND
+            )
+            if (!body.endsWith("\n") && !body.endsWith(System.lineSeparator())) {
+                Files.writeString(path, System.lineSeparator(), StandardOpenOption.APPEND)
+            }
+        }
+    }
+
     /** One line in the same playback debug log. Used when Game Day placement fails soft. */
     fun note(message: String) {
         runCatching {

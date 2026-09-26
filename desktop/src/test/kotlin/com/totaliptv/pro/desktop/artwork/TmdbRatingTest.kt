@@ -362,6 +362,44 @@ class TmdbRatingTest {
     }
 
     @Test
+    fun snapshotRankIgnoresWritesThatLandAfterTheCopy() {
+        enableKey()
+        TmdbRatingStore.fetch = { req ->
+            val id = req.pathAndQuery.substringAfter('/').substringBefore('?')
+            """{"vote_average":8.4,"vote_count":100,"id":$id}"""
+        }
+        val first = vod("matrix", "6.0", "603")
+        val later = vod("dune", "10.0", "438631")
+        TmdbRatingStore.enqueue(listOf(first), front = true)
+        TmdbRatingStore.drainForTests()
+        val frozen = TmdbRatingStore.snapshot()
+        assertEquals(8.4, TmdbRatingStore.rankScore(first, frozen))
+        TmdbRatingStore.enqueue(listOf(later), front = true)
+        TmdbRatingStore.drainForTests()
+        assertEquals(8.4, TmdbRatingStore.rankScore(first, frozen))
+        assertEquals(0.0, TmdbRatingStore.rankScore(later, frozen))
+        assertEquals(8.4, TmdbRatingStore.rankScore(later))
+        val row = pickTopRatedMovies(Catalog(vodItems = listOf(first, later))) { item ->
+            TmdbRatingStore.rankScore(item, frozen)
+        }
+        assertEquals(listOf("matrix"), row.items.map { it.id })
+    }
+
+    @Test
+    fun visibleBatchIsUnsettledUntilThoseFetchesFinish() {
+        enableKey()
+        TmdbRatingStore.fetch = { """{"vote_average":8.1,"vote_count":50}""" }
+        val visible = listOf(vod("a", "6.0", "1"), vod("b", "7.0", "2"))
+        val junk = vod("j", "6.0", null).copy(name = "", year = null)
+        TmdbRatingStore.enqueue(visible + junk, front = true)
+        assertEquals(listOf("1", "2"), TmdbRatingStore.queuedIdsForTests())
+        assertTrue(TmdbRatingStore.isSettled(listOf(junk)))
+        assertFalse(TmdbRatingStore.isSettled(visible))
+        TmdbRatingStore.drainForTests()
+        assertTrue(TmdbRatingStore.isSettled(visible + junk))
+    }
+
+    @Test
     fun settingsAndHomeWireTheKeyAndTheRank() {
         val settings = source("src/main/kotlin/com/totaliptv/pro/desktop/ui/SettingsScreen.kt")
         assertTrue(settings.contains("TMDB API key"))
@@ -370,7 +408,16 @@ class TmdbRatingTest {
         assertTrue(settings.contains("tmdbRatings"))
         val home = source("src/main/kotlin/com/totaliptv/pro/desktop/ui/HomeScreen.kt")
         assertTrue(home.contains("TmdbRatingStore.rankScore"))
+        assertTrue(home.contains("rankScore(it, cache)"))
+        assertTrue(home.contains("TmdbRatingStore.snapshot()"))
         assertTrue(home.contains("TmdbRatingStore.enqueue"))
+        assertTrue(home.contains("isSettled"))
+        assertTrue(home.contains("SORT_MIN_INTERVAL_MS"))
+        assertFalse(home.contains("SORT_QUIET_MS"))
+        assertFalse(home.contains("ratingRevision"))
+        assertEquals(10_000L, RatingOrder.SORT_MIN_INTERVAL_MS)
+        val main = source("src/main/kotlin/com/totaliptv/pro/desktop/Main.kt")
+        assertTrue(main.contains("UncaughtLog.install()"))
         val browse = source("src/main/kotlin/com/totaliptv/pro/desktop/ui/BrowseScreen.kt")
         assertTrue(browse.contains("rememberRatingScore"))
         assertTrue(browse.contains("rememberDetailRating"))
