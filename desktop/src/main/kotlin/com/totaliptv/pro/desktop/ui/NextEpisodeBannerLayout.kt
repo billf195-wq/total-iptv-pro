@@ -12,8 +12,9 @@ import kotlin.math.max
 
 /**
  * Pixel size of the next-episode banner. Text is measured (not given a fixed
- * window or button height) so a taller font, HiDPI scale, or GNOME
- * text-scaling-factor cannot clip the bottom of a label.
+ * window or button height) so a taller font cannot clip the bottom of a label.
+ * The same math is used for Windows and Linux at 100%, 125%, and 150% display
+ * scale, and for GNOME text-scaling-factor / Windows text scale.
  */
 internal object NextEpisodeBannerLayout {
     const val KICKER_SP = 11f
@@ -27,10 +28,19 @@ internal object NextEpisodeBannerLayout {
     const val GAP_DP = 6f
     const val BUTTON_PAD_H_DP = 12f
     const val BUTTON_PAD_V_DP = 8f
-    /** Material3 button minimum. The banner grows past this when the label is taller. */
-    const val BUTTON_MIN_DP = 40f
+    /**
+     * Material3 buttons are at least 48dp tall and 58dp wide. The banner uses
+     * whichever is taller: that minimum, or the measured label plus padding.
+     */
+    const val BUTTON_MIN_DP = 48f
+    const val BUTTON_MIN_WIDTH_DP = 58f
     const val MARGIN_DP = 64f
-    private const val SLACK_PX = 4
+    /** Compose line boxes run taller than AWT FontMetrics. Keep the extra. */
+    private const val TEXT_HEIGHT_SAFETY = 1.25
+    /** Display-scale percents the banner is checked at (100%, 125%, 150%). */
+    val DPI_PERCENTS = intArrayOf(100, 125, 150)
+
+    fun densityForDpiPercent(percent: Int): Double = percent / 100.0
 
     const val LINUX_HINT =
         "Advances at end of episode · ${SeriesNextHotkeys.CTRL_RIGHT_HINT} when this app is focused — not VLC’s Next"
@@ -97,23 +107,46 @@ internal object NextEpisodeBannerLayout {
         val buttonPadX = px(BUTTON_PAD_H_DP, d)
         val buttonPadY = px(BUTTON_PAD_V_DP, d)
         val buttonFont = sp(BUTTON_SP, d, t)
-        val labels = listOf(copy.primaryLabel, copy.recordLabel, "Hide", "Stop")
-        val labelSizes = labels.map { measurer.measure(it, buttonFont, bold = true, maxWidthPx = 4_000, maxLines = 1) }
-        val rowWidth = labelSizes.sumOf { it.widthPx + buttonPadX * 2 } + gap * (labels.size - 1)
+        val minButtonW = px(BUTTON_MIN_WIDTH_DP, d)
+        val sideLabels = listOf(copy.recordLabel, "Hide", "Stop")
+        val sideWidths = sideLabels.map { label ->
+            val measured = measurer.measure(label, buttonFont, bold = true, maxWidthPx = 4_000, maxLines = 1)
+            max(minButtonW, measured.widthPx + buttonPadX * 2)
+        }
+        val primaryNatural = measurer.measure(
+            copy.primaryLabel, buttonFont, bold = true, maxWidthPx = 4_000, maxLines = 1
+        )
+        val primaryOuter = max(minButtonW, primaryNatural.widthPx + buttonPadX * 2)
+        val rowGaps = gap * sideLabels.size
+        val rowWidth = primaryOuter + sideWidths.sum() + rowGaps
         val inner = max(px(BASE_WIDTH_DP, d) - padX * 2, rowWidth)
         val width = inner + padX * 2
-        val buttonText = labelSizes.maxOf { it.heightPx }
+        val primaryWidth = max(primaryOuter, inner - sideWidths.sum() - rowGaps)
+        val primary = measurer.measure(
+            copy.primaryLabel,
+            buttonFont,
+            bold = true,
+            maxWidthPx = (primaryWidth - buttonPadX * 2).coerceAtLeast(1),
+            maxLines = 2
+        )
+        val sideText = sideLabels.maxOf { label ->
+            measurer.measure(label, buttonFont, bold = true, maxWidthPx = 4_000, maxLines = 1).heightPx
+        }
+        val buttonText = max(primary.heightPx, max(sideText, primaryNatural.heightPx))
         val buttonPad = buttonPadY * 2
-        val buttonHeight = max(px(BUTTON_MIN_DP, d), buttonText + buttonPad)
+        val buttonHeight = max(px(BUTTON_MIN_DP, d), safeHeight(buttonText) + buttonPad)
         val kicker = measurer.measure(copy.kicker, sp(KICKER_SP, d, t), bold = true, inner, maxLines = 1)
         val title = measurer.measure(copy.title, sp(TITLE_SP, d, t), bold = true, inner, maxLines = 2)
         val now = measurer.measure(copy.nowLine, sp(BODY_SP, d, t), bold = false, inner, maxLines = 1)
-        val hint = measurer.measure(copy.hint, sp(HINT_SP, d, t), bold = false, inner, maxLines = 8)
+        val hint = measurer.measure(copy.hint, sp(HINT_SP, d, t), bold = false, inner, maxLines = 32)
         val textPx = kicker.heightPx + title.heightPx + now.heightPx + hint.heightPx
-        val chromePx = padY * 2 + gap * 2 + buttonHeight + SLACK_PX
+        val textAllocated = safeHeight(kicker.heightPx) + safeHeight(title.heightPx) +
+            safeHeight(now.heightPx) + safeHeight(hint.heightPx)
+        val slack = ceil(8.0 * d * t).toInt()
+        val chromePx = padY * 2 + gap * 2 + buttonHeight + slack
         return BannerSize(
             widthPx = width,
-            heightPx = textPx + chromePx,
+            heightPx = textAllocated + chromePx,
             buttonHeightPx = buttonHeight,
             buttonTextPx = buttonText,
             buttonPadPx = buttonPad,
@@ -121,6 +154,9 @@ internal object NextEpisodeBannerLayout {
             chromePx = chromePx
         )
     }
+
+    private fun safeHeight(rawPx: Int): Int =
+        ceil(rawPx * TEXT_HEIGHT_SAFETY).toInt().coerceAtLeast(rawPx)
 
     private fun sp(size: Float, density: Double, textScale: Double): Float =
         (size * density * textScale).toFloat()

@@ -68,6 +68,68 @@ class NextEpisodeBannerLayoutTest {
     }
 
     @Test
+    fun windowsAndLinuxFitAtOneHundredOneTwentyFiveAndOneFiftyPercent() {
+        val scales = NextEpisodeBannerLayout.DPI_PERCENTS
+        val monitors = listOf(
+            "1920x1080" to (1920 to 1080),
+            "3440x1440" to (3440 to 1440)
+        )
+        val copies = listOf(
+            "linux-next" to linux,
+            "windows-next" to linux.copy(hint = NextEpisodeBannerLayout.WINDOWS_HINT),
+            "linux-last" to linux.copy(
+                kicker = "LAST EPISODE",
+                title = "A Very Long Series Title That Wraps On The Banner",
+                primaryLabel = "Last episode of this series",
+                recordLabel = "Recording…",
+                hint = NextEpisodeBannerLayout.LINUX_HINT
+            ),
+            "windows-last" to linux.copy(
+                kicker = "LAST EPISODE",
+                title = "A Very Long Series Title That Wraps On The Banner",
+                primaryLabel = "Last episode of this series",
+                recordLabel = "Recording…",
+                hint = NextEpisodeBannerLayout.WINDOWS_HINT
+            )
+        )
+        for ((name, copy) in copies) {
+            var previousDpiHeight = 0
+            for (percent in scales) {
+                val density = NextEpisodeBannerLayout.densityForDpiPercent(percent)
+                assertEquals(percent / 100.0, density)
+                val size = NextEpisodeBannerLayout.measure(density, 1.0, copy, AwtBannerTextMeasurer)
+                assertTrue(size.fitsText(), "$name at $percent% must cover measured text plus padding")
+                val buttonNeeded = maxOf(
+                    kotlin.math.ceil(NextEpisodeBannerLayout.BUTTON_MIN_DP * density).toInt(),
+                    kotlin.math.ceil(size.buttonTextPx * 1.2).toInt() + size.buttonPadPx
+                )
+                assertTrue(
+                    size.buttonHeightPx >= buttonNeeded,
+                    "$name at $percent% button is shorter than its label"
+                )
+                assertTrue(size.heightPx > previousDpiHeight, "$name should grow from ${percent - 25}% to $percent%")
+                previousDpiHeight = size.heightPx
+                for ((monitorName, monitor) in monitors) {
+                    val (mw, mh) = monitor
+                    val margin = NextEpisodeBannerLayout.marginPx(density)
+                    val (x, y) = overlayOrigin(0, 0, mw, mh, size.widthPx, size.heightPx, margin)
+                    assertTrue(size.widthPx < mw, "$name at $percent% is wider than $monitorName")
+                    assertTrue(x >= 0 && x + size.widthPx <= mw, "$name at $percent% hangs off $monitorName")
+                    assertTrue(y >= 0 && y + size.heightPx <= mh, "$name at $percent% hangs off the bottom of $monitorName")
+                }
+            }
+            var previousTextHeight = 0
+            for (percent in scales) {
+                val textScale = NextEpisodeBannerLayout.densityForDpiPercent(percent)
+                val size = NextEpisodeBannerLayout.measure(1.0, textScale, copy, AwtBannerTextMeasurer)
+                assertTrue(size.fitsText(), "$name at text scale $percent% must cover its text")
+                assertTrue(size.heightPx > previousTextHeight, "$name text scale should grow at $percent%")
+                previousTextHeight = size.heightPx
+            }
+        }
+    }
+
+    @Test
     fun parsesGnomeAndWindowsTextScale() {
         assertEquals(1.0, NextEpisodeBannerLayout.parseDesktopTextScale(null))
         assertEquals(1.0, NextEpisodeBannerLayout.parseDesktopTextScale("1.0"))
