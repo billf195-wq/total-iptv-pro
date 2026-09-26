@@ -25,6 +25,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.totaliptv.pro.desktop.artwork.ArtworkRole
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.EpgProgram
@@ -196,6 +197,7 @@ fun GuideScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RemoteArtwork(
+                            role = ArtworkRole.LOGO,
                             url = ch.logoUrl,
                             contentDescription = ch.name,
                             modifier = Modifier.size(36.dp).clip(RoundedCornerShape(6.dp)),
@@ -237,6 +239,7 @@ fun GuideScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RemoteArtwork(
+                            role = ArtworkRole.LOGO,
                             url = selected.logoUrl,
                             contentDescription = selected.name,
                             modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
@@ -512,6 +515,7 @@ private fun ClassicGuideGrid(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RemoteArtwork(
+                            role = ArtworkRole.LOGO,
                             url = ch.logoUrl,
                             contentDescription = ch.name,
                             modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp)),

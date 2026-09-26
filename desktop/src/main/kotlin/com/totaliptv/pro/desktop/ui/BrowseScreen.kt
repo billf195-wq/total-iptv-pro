@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.totaliptv.pro.desktop.artwork.ArtworkRole
 import com.totaliptv.pro.desktop.data.Catalog
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
@@ -562,6 +563,11 @@ private fun BrowseContentPane(
         }
     }
 
+    CompositionLocalProvider(LocalArtworkPage provides when (kind) {
+        ContentKind.VOD -> "Movies"
+        ContentKind.SERIES -> "Series"
+        else -> "Live"
+    }) {
     Column(Modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -711,6 +717,7 @@ private fun BrowseContentPane(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -750,6 +757,7 @@ private fun FavoritesPane(
         }
     }
 
+    CompositionLocalProvider(LocalArtworkPage provides "Favorites") {
     Column(modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Text("Favorites", style = MaterialTheme.typography.headlineMedium, color = TipOnBg)
         Text(
@@ -818,6 +826,7 @@ private fun FavoritesPane(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -840,6 +849,10 @@ private fun PosterCard(
             RemoteArtwork(
                 url = item.artworkUrl(),
                 contentDescription = item.name,
+                tmdbId = item.tmdbId,
+                title = item.name,
+                year = item.year,
+                contentKind = item.kind,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)
@@ -937,6 +950,11 @@ private fun VodDetailPane(
                     RemoteArtwork(
                         url = detail.posterUrl ?: detail.backdropUrl,
                         contentDescription = detail.name,
+                        role = if (detail.posterUrl.isNullOrBlank()) ArtworkRole.BACKDROP else ArtworkRole.POSTER,
+                        tmdbId = detail.tmdbId,
+                        title = detail.name,
+                        year = detail.year,
+                        contentKind = ContentKind.VOD,
                         modifier = Modifier
                             .width(220.dp)
                             .aspectRatio(2f / 3f)
@@ -1140,6 +1158,11 @@ private fun SeriesDetailPane(
                     RemoteArtwork(
                         url = detail.posterUrl ?: detail.backdropUrl,
                         contentDescription = detail.name,
+                        role = if (detail.posterUrl.isNullOrBlank()) ArtworkRole.BACKDROP else ArtworkRole.POSTER,
+                        tmdbId = detail.tmdbId,
+                        title = detail.name,
+                        year = detail.year,
+                        contentKind = ContentKind.SERIES,
                         modifier = Modifier.width(100.dp).height(150.dp).clip(RoundedCornerShape(10.dp)),
                         fallbackIcon = Icons.Default.Tv
                     )
@@ -1413,6 +1436,11 @@ private fun MediaRow(
         RemoteArtwork(
             url = item.artworkUrl(),
             contentDescription = item.name,
+            role = if (item.kind == ContentKind.LIVE) ArtworkRole.LOGO else ArtworkRole.POSTER,
+            tmdbId = item.tmdbId,
+            title = item.name,
+            year = item.year,
+            contentKind = item.kind,
             modifier = Modifier
                 .width(thumbSize)
                 .height(if (item.kind == ContentKind.LIVE) thumbSize else 84.dp)

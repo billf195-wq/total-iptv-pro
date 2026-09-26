@@ -49,6 +49,7 @@ fun SettingsScreen(
     val available = remember { StreamPlayer.availablePlayers() }
     var player by remember(prefs.preferredPlayer) { mutableStateOf(prefs.preferredPlayer) }
     var openFullscreen by remember(prefs.openPlayerFullscreen) { mutableStateOf(prefs.openPlayerFullscreen) }
+    var sharpPosters by remember(prefs.sharpPosters) { mutableStateOf(prefs.sharpPosters) }
     var theme by remember(prefs.themeMode) { mutableStateOf(prefs.themeMode) }
     var columns by remember(prefs.posterColumns) {
         mutableStateOf(prefs.posterColumns.let { if (it in setOf(5, 6, 8, 11)) it else 6 })
@@ -80,7 +81,8 @@ fun SettingsScreen(
         nextGuide: String = guideStyle,
         nextRecordingsDir: String = prefs.recordingsDir,
         nextEpg: Int = epgOffset,
-        nextFullscreen: Boolean = openFullscreen
+        nextFullscreen: Boolean = openFullscreen,
+        nextSharp: Boolean = sharpPosters
     ) {
         player = nextPlayer
         theme = nextTheme
@@ -89,6 +91,7 @@ fun SettingsScreen(
         guideStyle = if (nextGuide == "classic") "classic" else "current"
         epgOffset = nextEpg
         openFullscreen = nextFullscreen
+        sharpPosters = nextSharp
         onSavePrefs(
             prefs.copy(
                 preferredPlayer = nextPlayer,
@@ -98,7 +101,8 @@ fun SettingsScreen(
                 guideStyle = guideStyle,
                 recordingsDir = nextRecordingsDir,
                 epgTimeOffsetHours = nextEpg,
-                openPlayerFullscreen = nextFullscreen
+                openPlayerFullscreen = nextFullscreen,
+                sharpPosters = nextSharp
             )
         )
     }
@@ -291,6 +295,17 @@ fun SettingsScreen(
                 TipChoiceChip(selected = theme == "light", label = "Light") {
                     persist(nextTheme = "light")
                 }
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("Sharp posters (HD artwork)", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
+            Text(
+                "Movies and series use larger artwork. Turn off to compare load time. Without a TMDB API key, only image.tmdb.org URLs are enlarged — no extra lookups.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TipChoiceChip(selected = sharpPosters, label = "On") { persist(nextSharp = true) }
+                TipChoiceChip(selected = !sharpPosters, label = "Off") { persist(nextSharp = false) }
             }
             Spacer(Modifier.height(14.dp))
             Text("Poster grid columns (Movies / Series)", style = MaterialTheme.typography.titleMedium, color = TipOnBg)

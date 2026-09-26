@@ -15,6 +15,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -204,6 +205,7 @@ fun HomeScreen(
     val movieRow = remember(catalog) { pickTopRatedMovies(catalog) }
     val seriesRow = remember(catalog) { pickTopRatedSeries(catalog) }
 
+    CompositionLocalProvider(LocalArtworkPage provides "Home") {
     LazyColumn(
         modifier = modifier.fillMaxSize().tvContentBackground().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -251,6 +253,8 @@ fun HomeScreen(
                             posterUrl = item.artworkUrl(),
                             subtitle = item.year?.toString(),
                             kind = ContentKind.VOD,
+                            tmdbId = item.tmdbId,
+                            year = item.year,
                             cardWidth = cardWidth,
                             onClick = { onOpenVod(item) },
                             ratingScore = item.ratingScore()
@@ -272,6 +276,8 @@ fun HomeScreen(
                             posterUrl = item.artworkUrl(),
                             subtitle = item.year?.toString(),
                             kind = ContentKind.SERIES,
+                            tmdbId = item.tmdbId,
+                            year = item.year,
                             cardWidth = cardWidth,
                             onClick = { onOpenSeries(item) },
                             ratingScore = item.ratingScore()
@@ -282,6 +288,7 @@ fun HomeScreen(
         }
 
         item { Spacer(Modifier.height(24.dp)) }
+    }
     }
 }
 
@@ -324,6 +331,8 @@ private fun ContinueCard(
         posterUrl = poster,
         subtitle = subtitle,
         kind = if (entry.kind == ContentKind.SERIES.name) ContentKind.SERIES else ContentKind.VOD,
+        tmdbId = media?.tmdbId,
+        year = media?.year,
         cardWidth = cardWidth,
         onClick = onClick,
         showPlayBadge = true,
@@ -357,6 +366,8 @@ private fun HomePosterCard(
     posterUrl: String?,
     subtitle: String?,
     kind: ContentKind,
+    tmdbId: String? = null,
+    year: Int? = null,
     cardWidth: androidx.compose.ui.unit.Dp = 140.dp,
     onClick: () -> Unit,
     showPlayBadge: Boolean = false,
@@ -375,6 +386,10 @@ private fun HomePosterCard(
             RemoteArtwork(
                 url = posterUrl,
                 contentDescription = title,
+                tmdbId = tmdbId,
+                title = title,
+                year = year,
+                contentKind = kind,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)

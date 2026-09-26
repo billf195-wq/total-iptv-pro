@@ -12,15 +12,21 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import com.totaliptv.pro.desktop.artwork.ArtworkDecode
+import com.totaliptv.pro.desktop.artwork.ArtworkDiskCache
+import com.totaliptv.pro.desktop.artwork.ArtworkRole
+import com.totaliptv.pro.desktop.artwork.ArtworkSettings
+import com.totaliptv.pro.desktop.artwork.PosterLoadLog
+import com.totaliptv.pro.desktop.artwork.TmdbArtwork
+import com.totaliptv.pro.desktop.data.ContentKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.jetbrains.skia.Paint
-import org.jetbrains.skia.Rect
-import org.jetbrains.skia.Surface
 import org.jetbrains.skia.Image as SkiaImage
 import java.util.concurrent.TimeUnit
+
+val LocalArtworkPage = compositionLocalOf { "posters" }
 
 private val imageClient = OkHttpClient.Builder()
     .connectTimeout(15, TimeUnit.SECONDS)
@@ -28,24 +34,31 @@ private val imageClient = OkHttpClient.Builder()
     .followRedirects(true)
     .build()
 
-/** Bounded thread-safe LRU cache preventing OutOfMemory on huge IPTV catalogs. */
-private class LruBitmapCache(private val maxSize: Int = 300) {
+/** Pixel-budget LRU so HD posters do not grow without a bound. */
+private class LruBitmapCache(private val maxPixels: Long = 180L * 780 * 1170) {
     private val lock = Any()
-    private val map = object : LinkedHashMap<String, ImageBitmap>(maxSize, 0.75f, true) {
+    private var pixels = 0L
+    private val map = object : LinkedHashMap<String, ImageBitmap>(128, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean {
-            return size > maxSize
+            if (pixels <= maxPixels || size <= 1) return false
+            val dropped = eldest?.value ?: return false
+            pixels -= dropped.width.toLong() * dropped.height
+            return true
         }
     }
 
     operator fun get(key: String): ImageBitmap? = synchronized(lock) { map[key] }
 
     operator fun set(key: String, value: ImageBitmap) = synchronized(lock) {
+        val previous = map.put(key, value)
+        if (previous != null) pixels -= previous.width.toLong() * previous.height
+        pixels += value.width.toLong() * value.height
         map[key] = value
     }
 }
 
 /** Negative cache preventing repeated network retries for 404 or broken image URLs. */
-private class NegativeCache(private val maxEntries: Int = 500) {
+private class NegativeCache(private val maxEntries: Int = 800) {
     private val lock = Any()
     private val set = object : LinkedHashMap<String, Long>(maxEntries, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean {
@@ -68,8 +81,12 @@ private class NegativeCache(private val maxEntries: Int = 500) {
     }
 }
 
-private val bitmapCache = LruBitmapCache(maxSize = 350)
+private val bitmapCache = LruBitmapCache()
 private val negativeCache = NegativeCache()
+private val diskCache by lazy { ArtworkDiskCache.shared() }
+
+private fun cacheKey(url: String, role: ArtworkRole, sharp: Boolean): String =
+    "$url|${role.name}|sharp=$sharp"
 
 @Composable
 fun RemoteArtwork(
@@ -77,68 +94,46 @@ fun RemoteArtwork(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     fallbackIcon: ImageVector,
-    contentScale: ContentScale = ContentScale.Crop
+    contentScale: ContentScale = ContentScale.Crop,
+    role: ArtworkRole = ArtworkRole.POSTER,
+    tmdbId: String? = null,
+    title: String? = null,
+    year: Int? = null,
+    contentKind: ContentKind? = null
 ) {
-    var bitmap by remember(url) { mutableStateOf(url?.let { bitmapCache[it] }) }
+    val page = LocalArtworkPage.current
+    val sharp = ArtworkSettings.sharpPosters && role != ArtworkRole.LOGO
+    val prepared = if (sharp) TmdbArtwork.rewrite(url, role) else url?.trim()?.takeIf { it.isNotBlank() }
+    val memoryKey = prepared?.let { cacheKey(it, role, sharp) }
+    var bitmap by remember(memoryKey) { mutableStateOf(memoryKey?.let { bitmapCache[it] }) }
 
-    LaunchedEffect(url) {
-        val u = url?.trim()?.takeIf { it.isNotBlank() } ?: run {
+    LaunchedEffect(memoryKey, tmdbId, title, year, sharp) {
+        val u = prepared
+        if (u == null && !(sharp && (tmdbId != null || !title.isNullOrBlank()))) {
             bitmap = null
             return@LaunchedEffect
         }
-        bitmapCache[u]?.let {
-            bitmap = it
-            return@LaunchedEffect
-        }
-        if (negativeCache.isFailed(u)) {
-            bitmap = null
-            return@LaunchedEffect
+        if (u != null) {
+            val key = cacheKey(u, role, sharp)
+            bitmapCache[key]?.let {
+                bitmap = it
+                if (role != ArtworkRole.LOGO) {
+                    PosterLoadLog.record(page, "memory", 0, it.width, it.height)
+                }
+                return@LaunchedEffect
+            }
         }
         bitmap = withContext(Dispatchers.IO) {
-            runCatching {
-                val req = Request.Builder()
-                    .url(u)
-                    .header("User-Agent", "TotalIPTVPro-Desktop/1.0")
-                    .get()
-                    .build()
-                imageClient.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        negativeCache.markFailed(u)
-                        return@runCatching null
-                    }
-                    val bytes = resp.body?.bytes() ?: run {
-                        negativeCache.markFailed(u)
-                        return@runCatching null
-                    }
-                    if (bytes.isEmpty()) {
-                        negativeCache.markFailed(u)
-                        return@runCatching null
-                    }
-                    val rawSkia = SkiaImage.makeFromEncoded(bytes)
-                    val maxDim = 600
-                    val (w, h) = rawSkia.width to rawSkia.height
-                    val sampledSkia = if (w > maxDim || h > maxDim) {
-                        val scale = maxDim.toFloat() / maxOf(w, h)
-                        val dstW = (w * scale).toInt().coerceAtLeast(1)
-                        val dstH = (h * scale).toInt().coerceAtLeast(1)
-                        val surface = Surface.makeRasterN32Premul(dstW, dstH)
-                        val canvas = surface.canvas
-                        val paint = Paint().apply { isAntiAlias = true }
-                        val srcRect = Rect.makeWH(w.toFloat(), h.toFloat())
-                        val dstRect = Rect.makeWH(dstW.toFloat(), dstH.toFloat())
-                        canvas.drawImageRect(rawSkia, srcRect, dstRect, paint)
-                        surface.makeImageSnapshot()
-                    } else {
-                        rawSkia
-                    }
-                    sampledSkia.toComposeImageBitmap().also {
-                        bitmapCache[u] = it
-                    }
-                }
-            }.getOrElse {
-                negativeCache.markFailed(u)
-                null
-            }
+            loadArtwork(
+                url = u,
+                role = role,
+                sharp = sharp,
+                tmdbId = tmdbId,
+                title = title,
+                year = year,
+                contentKind = contentKind,
+                page = page
+            )
         }
     }
 
@@ -155,4 +150,109 @@ fun RemoteArtwork(
             Icon(fallbackIcon, contentDescription = contentDescription, tint = TipBlue)
         }
     }
+}
+
+private fun loadArtwork(
+    url: String?,
+    role: ArtworkRole,
+    sharp: Boolean,
+    tmdbId: String?,
+    title: String?,
+    year: Int?,
+    contentKind: ContentKind?,
+    page: String
+): ImageBitmap? {
+    val started = System.nanoTime()
+    val target = TmdbArtwork.targetLongEdge(role)
+    var source = "network"
+    var current = url
+    var bytes = current?.let { readBytes(it) }?.also { (data, from) ->
+        source = from
+        return@also
+    }?.first
+    var decoded = bytes?.let { decodeScaled(it, target, sharp) }
+    val tooSmall = decoded == null || TmdbArtwork.isTooSmall(decoded.width, decoded.height, target)
+    if (sharp && tooSmall) {
+        val better = TmdbArtwork.lookup(
+            apiKey = ArtworkSettings.tmdbApiKey,
+            tmdbId = tmdbId,
+            title = title,
+            year = year,
+            kind = contentKind,
+            role = role,
+            fetch = ::httpText
+        )
+        if (!better.isNullOrBlank() && better != current) {
+            val fetched = readBytes(better)
+            if (fetched != null) {
+                current = better
+                bytes = fetched.first
+                source = fetched.second
+                decoded = decodeScaled(bytes, target, highQuality = true)
+            }
+        }
+    }
+    val image = decoded ?: return null
+    val keyUrl = current ?: return null
+    bitmapCache[cacheKey(keyUrl, role, sharp)] = image
+    if (role != ArtworkRole.LOGO) {
+        val ms = (System.nanoTime() - started) / 1_000_000
+        PosterLoadLog.record(page, source, ms, image.width, image.height)
+    }
+    return image
+}
+
+private fun readBytes(url: String): Pair<ByteArray, String>? {
+    if (negativeCache.isFailed(url)) return null
+    diskCache.read(url)?.let { return it to "disk" }
+    val downloaded = httpBytes(url) ?: return null
+    diskCache.write(url, downloaded)
+    return downloaded to "network"
+}
+
+private fun httpBytes(url: String): ByteArray? {
+    return runCatching {
+        val req = Request.Builder()
+            .url(url)
+            .header("User-Agent", "TotalIPTVPro-Desktop/1.0")
+            .get()
+            .build()
+        imageClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                negativeCache.markFailed(url)
+                return null
+            }
+            val bytes = resp.body?.bytes()
+            if (bytes == null || bytes.isEmpty()) {
+                negativeCache.markFailed(url)
+                return null
+            }
+            bytes
+        }
+    }.getOrElse {
+        negativeCache.markFailed(url)
+        null
+    }
+}
+
+private fun httpText(url: String): String? {
+    return runCatching {
+        val req = Request.Builder()
+            .url(url)
+            .header("User-Agent", "TotalIPTVPro-Desktop/1.0")
+            .get()
+            .build()
+        imageClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return null
+            resp.body?.string()?.takeIf { it.isNotBlank() }
+        }
+    }.getOrNull()
+}
+
+private fun decodeScaled(bytes: ByteArray, targetLongEdge: Int, highQuality: Boolean): ImageBitmap? {
+    return runCatching {
+        val raw = SkiaImage.makeFromEncoded(bytes)
+        val edge = if (highQuality) targetLongEdge else 600
+        ArtworkDecode.scale(raw, edge, highQuality = highQuality).toComposeImageBitmap()
+    }.getOrNull()
 }

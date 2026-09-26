@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.totaliptv.pro.desktop.artwork.ArtworkRole
 import com.totaliptv.pro.desktop.data.MediaItem
 
 @Composable
@@ -83,6 +84,7 @@ fun SplitScreenDialog(
                             if (leftChannel != null) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     RemoteArtwork(
+                                        role = ArtworkRole.LOGO,
                                         url = leftChannel?.logoUrl,
                                         contentDescription = null,
                                         modifier = Modifier.size(36.dp).clip(RoundedCornerShape(6.dp)),
@@ -112,6 +114,7 @@ fun SplitScreenDialog(
                             if (rightChannel != null) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     RemoteArtwork(
+                                        role = ArtworkRole.LOGO,
                                         url = rightChannel?.logoUrl,
                                         contentDescription = null,
                                         modifier = Modifier.size(36.dp).clip(RoundedCornerShape(6.dp)),
@@ -174,6 +177,7 @@ fun SplitScreenDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             RemoteArtwork(
+                                role = ArtworkRole.LOGO,
                                 url = ch.logoUrl,
                                 contentDescription = null,
                                 modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)),
