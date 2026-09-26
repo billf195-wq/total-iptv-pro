@@ -45,7 +45,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.totaliptv.pro.desktop.AppVersion
 import com.totaliptv.pro.desktop.data.Catalog
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
@@ -160,7 +159,7 @@ fun BrowseScreen(
                     )
             }
         }
-        Column(Modifier.fillMaxSize().background(TipBg)) {
+        Column(Modifier.fillMaxSize().tvContentBackground()) {
             TopBanner(banner)
             val resume = ResumeStore.forSeries(seriesDetail?.seriesId, resumeEntries)
             SeriesDetailPane(
@@ -195,7 +194,7 @@ fun BrowseScreen(
 
     if (vodDetail != null || vodLoading) {
         val vodMedia = remember(vodDetail) { vodDetail?.toMediaItem() }
-        Column(Modifier.fillMaxSize().background(TipBg)) {
+        Column(Modifier.fillMaxSize().tvContentBackground()) {
             TopBanner(banner)
             VodDetailPane(
                 detail = vodDetail,
@@ -231,7 +230,7 @@ fun BrowseScreen(
         else -> null
     }
 
-    Column(Modifier.fillMaxSize().background(TipBg)) {
+    Column(Modifier.fillMaxSize().tvContentBackground()) {
         TopBanner(banner)
 
         Row(Modifier.weight(1f).fillMaxWidth()) {
@@ -239,7 +238,7 @@ fun BrowseScreen(
                 Modifier
                     .width(220.dp)
                     .fillMaxHeight()
-                    .background(TipSurface)
+                    .tvChromeBackground()
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -296,13 +295,44 @@ fun BrowseScreen(
                 }
                 if (splitActive) {
                     Text("Game Day", style = MaterialTheme.typography.bodyMedium, color = TipBlue)
-                    TextButton(onClick = { onSplitAudioLeft(true) }) {
-                        Text(if (splitAudioLeft) "Audio: Left" else "Audio left", color = TipOnBg)
+                    Button(
+                        onClick = onStopSplit,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = TipRecordActive,
+                            contentColor = TipOnRecordActive
+                        )
+                    ) {
+                        Text("Stop Game Day", fontWeight = FontWeight.Bold, color = TipOnRecordActive)
                     }
-                    TextButton(onClick = { onSplitAudioLeft(false) }) {
-                        Text(if (!splitAudioLeft) "Audio: Right" else "Audio right", color = TipOnBg)
+                    Button(
+                        onClick = { onSplitAudioLeft(true) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (splitAudioLeft) TipBlue else TipSurfaceAlt,
+                            contentColor = if (splitAudioLeft) TipOnAmber else TipOnBg
+                        )
+                    ) {
+                        Text(
+                            "Sound: Left",
+                            fontWeight = if (splitAudioLeft) FontWeight.Bold else FontWeight.Medium,
+                            color = if (splitAudioLeft) TipOnAmber else TipOnBg
+                        )
                     }
-                    TextButton(onClick = onStopSplit) { Text("Stop split") }
+                    Button(
+                        onClick = { onSplitAudioLeft(false) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (!splitAudioLeft) TipBlue else TipSurfaceAlt,
+                            contentColor = if (!splitAudioLeft) TipOnAmber else TipOnBg
+                        )
+                    ) {
+                        Text(
+                            "Sound: Right",
+                            fontWeight = if (!splitAudioLeft) FontWeight.Bold else FontWeight.Medium,
+                            color = if (!splitAudioLeft) TipOnAmber else TipOnBg
+                        )
+                    }
                 }
                 if (playingTitle != null) {
                     Text("Playing", style = MaterialTheme.typography.bodyMedium)
@@ -458,14 +488,13 @@ private fun rememberBannerBitmap(): ImageBitmap? = remember {
 @Composable
 private fun TopBanner(banner: ImageBitmap?) {
     if (banner == null) return
-    // Logo sits top-left; version is a high-contrast chip after the title.
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(128.dp)
-            .background(TipSurface)
+            .tvChromeBackground()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Bottom
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Image(
             bitmap = banner,
@@ -475,13 +504,6 @@ private fun TopBanner(banner: ImageBitmap?) {
                 .wrapContentWidth(),
             contentScale = ContentScale.Fit,
             alignment = Alignment.CenterStart
-        )
-        Spacer(Modifier.width(12.dp))
-        SplashBrandTitle(
-            versionName = AppVersion.VERSION_NAME,
-            titleSize = 22.sp,
-            versionSize = 16.sp,
-            modifier = Modifier.padding(bottom = 10.dp)
         )
     }
 }
@@ -540,7 +562,7 @@ private fun BrowseContentPane(
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(20.dp)) {
+    Column(Modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 when (kind) {
@@ -728,7 +750,7 @@ private fun FavoritesPane(
         }
     }
 
-    Column(modifier.fillMaxSize().padding(20.dp)) {
+    Column(modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Text("Favorites", style = MaterialTheme.typography.headlineMedium, color = TipOnBg)
         Text(
             "Movies and series you’ve marked with a heart",
@@ -878,7 +900,7 @@ private fun VodDetailPane(
     onStop: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier.fillMaxSize().padding(20.dp)) {
+    Column(modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TipOnBg)
@@ -1074,7 +1096,7 @@ private fun SeriesDetailPane(
     onStop: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier.fillMaxSize().padding(20.dp)) {
+    Column(modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TipOnBg)

@@ -1,6 +1,5 @@
 package com.totaliptv.pro.desktop.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,6 +45,7 @@ import com.totaliptv.pro.desktop.update.AppUpdateManager
 import com.totaliptv.pro.desktop.util.AppPaths
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicInteger
@@ -636,6 +636,27 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         setSeriesSession(null)
     }
 
+    LaunchedEffect(splitSession != null) {
+        if (splitSession == null) return@LaunchedEffect
+        // The player mutates one session object. Remember the side we last
+        // showed, or a click in VLC never changes the highlighted button.
+        var displayed = splitSession?.activeAudio
+        while (isActive) {
+            val playerSession = StreamPlayer.splitSession
+            if (playerSession == null) {
+                stopPlayback()
+                break
+            }
+            val live = playerSession.activeAudio
+            if (live != displayed) {
+                displayed = live
+                val current = splitSession ?: break
+                splitSession = current.copy(activeAudio = live)
+            }
+            delay(250)
+        }
+    }
+
     fun playSplit(left: MediaItem, right: MediaItem) {
         scope.launch {
             try {
@@ -656,7 +677,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
 
     fun switchSplitAudio(side: SplitSide) {
         StreamPlayer.switchSplitAudio(side)
-        splitSession = StreamPlayer.splitSession
+        val current = splitSession
+        splitSession = if (current != null) current.copy(activeAudio = side) else StreamPlayer.splitSession
     }
 
     fun playRecording(entry: RecordingEntry) {
@@ -845,7 +867,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 )
             }
             loading && catalog == null -> {
-                Box(Modifier.fillMaxSize().background(TipBg), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().tvContentBackground(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = TipBlue)
                         Spacer(Modifier.height(16.dp))
@@ -855,7 +877,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 }
             }
             catalog == null && error != null -> {
-                Box(Modifier.fillMaxSize().background(TipBg), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().tvContentBackground(), contentAlignment = Alignment.Center) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.padding(24.dp)
@@ -920,12 +942,14 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     onStopSplit = { stopPlayback() },
                     onOpenSeries = { openSeries(it) },
                     onCloseSeries = {
+                        if (splitSession != null) stopPlayback()
                         seriesDetail = null
                         seriesError = null
                         seriesLoading = false
                     },
                     onOpenVod = { openVod(it) },
                     onCloseVod = {
+                        if (splitSession != null) stopPlayback()
                         vodDetail = null
                         vodError = null
                         vodLoading = false
@@ -975,7 +999,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 }
             }
             else -> {
-                Box(Modifier.fillMaxSize().background(TipBg), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().tvContentBackground(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = TipBlue)
                 }
             }

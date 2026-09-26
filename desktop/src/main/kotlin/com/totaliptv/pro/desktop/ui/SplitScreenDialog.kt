@@ -48,7 +48,7 @@ fun SplitScreenDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(16.dp),
-            color = TipSurface,
+            color = if (tipContentDark) TipContentBlack else TipSurface,
             border = androidx.compose.foundation.BorderStroke(1.dp, TipBlue.copy(alpha = 0.5f)),
             modifier = Modifier.width(680.dp).height(620.dp)
         ) {

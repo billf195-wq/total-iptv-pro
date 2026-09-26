@@ -20,6 +20,10 @@ class StreamPlayerTest {
         assertTrue(cmd.contains("http://example.test/ep1.mp4"))
         assertFalse(cmd.contains("--ignore-config"))
         assertFalse(cmd.contains("--no-one-instance-when-started-from-file"))
+        assertFalse(cmd.contains("--no-started-from-file"))
+        assertFalse(cmd.contains("--rc-quiet"))
+        assertTrue(cmd.contains("--extraintf=rc"))
+        assertTrue(cmd.contains("--rc-host=127.0.0.1:4214"))
         assertEquals("http://example.test/ep1.mp4", cmd.last())
     }
 
@@ -44,6 +48,9 @@ class StreamPlayerTest {
         assertTrue(cmd.contains("--no-playlist-enqueue"))
         assertTrue(cmd.contains("--no-one-instance-when-started-from-file"))
         assertTrue(cmd.contains("--no-started-from-file"))
+        assertTrue(cmd.contains("--rc-quiet"))
+        assertTrue(cmd.contains("--extraintf=rc"))
+        assertTrue(cmd.contains("--rc-host=127.0.0.1:4214"))
         assertTrue(cmd.contains("--no-repeat"))
         assertTrue(cmd.contains("--no-loop"))
         assertEquals(urls[0], cmd.last())
@@ -156,6 +163,45 @@ class StreamPlayerTest {
     }
 
     @Test
+    fun linuxFullscreenFollowsTheAppMonitorAndWindowsKeepsTheFlag() {
+        assertTrue(StreamPlayer.useX11MonitorFullscreen(windows = false, fullscreen = true, displayAvailable = true))
+        assertFalse(StreamPlayer.useX11MonitorFullscreen(windows = true, fullscreen = true, displayAvailable = true))
+        assertFalse(StreamPlayer.useX11MonitorFullscreen(windows = false, fullscreen = false, displayAvailable = true))
+        assertFalse(StreamPlayer.useX11MonitorFullscreen(windows = false, fullscreen = true, displayAvailable = false))
+
+        val url = "http://example.test/movie.mp4"
+        val linux = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf(url), windows = false, fullscreen = true)
+        val placed = StreamPlayer.vlcCommandForMonitorFullscreen(linux, enabled = true)
+        assertTrue(linux.contains("--fullscreen"))
+        assertFalse(placed.contains("--fullscreen"), placed.toString())
+        assertEquals(linux.filterNot { it == "--fullscreen" }, placed)
+
+        val mpv = StreamPlayer.mpvCommand("mpv", listOf(url), windows = false, fullscreen = true)
+        assertEquals(mpv, StreamPlayer.vlcCommandForMonitorFullscreen(mpv, enabled = true))
+        assertTrue(mpv.contains("--fullscreen"))
+
+        val windows = StreamPlayer.vlcCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            listOf(url),
+            windows = true,
+            fullscreen = true
+        )
+        assertEquals(windows, StreamPlayer.vlcCommandForMonitorFullscreen(windows, enabled = false))
+        assertTrue(windows.contains("--fullscreen"))
+        assertTrue(windows.contains("--ignore-config"))
+        assertTrue(windows.contains("--rc-quiet"))
+        assertFalse(StreamPlayer.useX11MonitorFullscreen(windows = true, fullscreen = true, displayAvailable = true))
+        assertTrue(StreamPlayer.useWin32MonitorFullscreen(windows = true, fullscreen = true))
+        assertFalse(StreamPlayer.useWin32MonitorFullscreen(windows = false, fullscreen = true))
+        assertFalse(StreamPlayer.useWin32MonitorFullscreen(windows = true, fullscreen = false))
+        val placedWindows = StreamPlayer.vlcCommandForMonitorFullscreen(windows, enabled = true)
+        assertFalse(placedWindows.contains("--fullscreen"), placedWindows.toString())
+        assertTrue(placedWindows.contains("--ignore-config"))
+        assertTrue(placedWindows.contains("--rc-quiet"))
+        assertEquals(windows.filterNot { it == "--fullscreen" }, placedWindows)
+    }
+
+    @Test
     fun linuxLiveVlcAlsoOmitsPlayAndExit() {
         val live = StreamPlayer.vlcCommand(
             "/usr/bin/vlc",
@@ -174,6 +220,175 @@ class StreamPlayerTest {
         )
         assertTrue(vod.contains("--play-and-exit"))
         assertTrue(vod.contains("--audio-language=eng,en,english"))
+    }
+
+    @Test
+    fun rcQuietIsWindowsOnlyAndLinuxKeepsResumeRc() {
+        val url = "http://example.test/movie.mp4"
+        val linux = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf(url), windows = false, live = false)
+        assertFalse(linux.contains("--rc-quiet"), linux.toString())
+        assertTrue(linux.contains("--extraintf=rc"))
+        assertTrue(linux.contains("--rc-host=127.0.0.1:4214"))
+        assertFalse(linux.contains("--no-one-instance-when-started-from-file"))
+        assertFalse(linux.contains("--no-started-from-file"))
+
+        val windows = StreamPlayer.vlcCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            listOf(url),
+            windows = true,
+            live = false
+        )
+        assertTrue(windows.contains("--rc-quiet"), windows.toString())
+        assertTrue(windows.contains("--extraintf=rc"))
+        assertTrue(windows.contains("--rc-host=127.0.0.1:4214"))
+        assertTrue(windows.contains("--no-one-instance-when-started-from-file"))
+        assertTrue(windows.contains("--no-started-from-file"))
+
+        val linuxLive = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf(url), windows = false, live = true)
+        val windowsLive = StreamPlayer.vlcCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            listOf(url),
+            windows = true,
+            live = true
+        )
+        assertFalse(linuxLive.contains("--rc-quiet"))
+        assertFalse(windowsLive.contains("--rc-quiet"))
+
+        val linuxSplit = StreamPlayer.splitSideCommand(
+            "/usr/bin/vlc",
+            url,
+            windows = false,
+            x = 0,
+            y = 0,
+            width = 960,
+            height = 1080,
+            port = 4212,
+            title = "Total IPTV Pro — Left"
+        )
+        assertFalse(linuxSplit.contains("--rc-quiet"), linuxSplit.toString())
+        assertTrue(linuxSplit.contains("--extraintf=rc"))
+        assertTrue(linuxSplit.contains("--rc-host=127.0.0.1:4212"))
+        assertFalse(linuxSplit.contains("--no-one-instance-when-started-from-file"))
+        assertFalse(linuxSplit.contains("--no-started-from-file"))
+
+        val windowsSplit = StreamPlayer.splitSideCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            url,
+            windows = true,
+            x = 960,
+            y = 0,
+            width = 960,
+            height = 1080,
+            port = 4213,
+            title = "Total IPTV Pro — Right"
+        )
+        assertTrue(windowsSplit.contains("--rc-quiet"), windowsSplit.toString())
+        assertTrue(windowsSplit.contains("--extraintf=rc"))
+        assertTrue(windowsSplit.contains("--rc-host=127.0.0.1:4213"))
+    }
+
+    @Test
+    fun linuxGameDayUsesDummyInterfaceAndHalfZoom() {
+        val url = "http://example.test/live/left.m3u8"
+        val linux = StreamPlayer.splitSideCommand(
+            "/usr/bin/vlc",
+            url,
+            windows = false,
+            x = 1920,
+            y = 37,
+            width = 960,
+            height = 1043,
+            port = 4212,
+            title = "Total IPTV Pro — Left"
+        )
+        assertEquals(
+            listOf(
+                "/usr/bin/vlc",
+                "--intf=dummy",
+                "--no-one-instance",
+                "--no-playlist-enqueue",
+                "--no-video-title-show",
+                "--no-video-deco",
+                "--zoom=0.5",
+                "--audio-language=eng,en,english",
+                "--width=960",
+                "--height=1043",
+                "--video-x=1920",
+                "--video-y=37",
+                "--extraintf=rc",
+                "--control=hotkeys",
+                "--key-leave-fullscreen=Unset",
+                "--key-quit=${StreamPlayer.LINUX_SPLIT_QUIT_KEYS}",
+                "--rc-host=127.0.0.1:4212",
+                "--meta-title=Total IPTV Pro — Left",
+                url
+            ),
+            linux
+        )
+        assertEquals("q\tEsc\tCtrl+q", StreamPlayer.LINUX_SPLIT_QUIT_KEYS)
+        assertTrue(linux.any { it.startsWith("--key-quit=") && it.contains("\t") })
+        assertFalse(linux.contains("--qt-minimal-view"))
+        assertFalse(linux.contains("--no-embedded-video"))
+        assertFalse(linux.contains("--no-qt-video-autoresize"))
+        assertFalse(linux.contains("--qt-continue=0"))
+        assertFalse(linux.contains("--no-qt-privacy-ask"))
+        assertFalse(linux.contains("--rc-quiet"))
+        assertFalse(linux.contains("--ignore-config"))
+        assertFalse(linux.any { it.startsWith("--key-nav-") })
+
+        val windows = StreamPlayer.splitSideCommand(
+            """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+            url,
+            windows = true,
+            x = 0,
+            y = 0,
+            width = 960,
+            height = 1080,
+            port = 4213,
+            title = "Total IPTV Pro — Right"
+        )
+        assertEquals(
+            listOf(
+                """C:\Program Files\VideoLAN\VLC\vlc.exe""",
+                "--ignore-config",
+                "--no-one-instance",
+                "--no-playlist-enqueue",
+                "--no-video-title-show",
+                "--no-qt-video-autoresize",
+                "--no-video-deco",
+                "--no-embedded-video",
+                "--qt-minimal-view",
+                "--qt-continue=0",
+                "--no-qt-privacy-ask",
+                "--audio-language=eng,en,english",
+                "--width=960",
+                "--height=1080",
+                "--video-x=0",
+                "--video-y=0",
+                "--extraintf=rc",
+                "--rc-host=127.0.0.1:4213",
+                "--rc-quiet",
+                "--key-leave-fullscreen=Unset",
+                "--key-quit=${StreamPlayer.LINUX_SPLIT_QUIT_KEYS}",
+                "--meta-title=Total IPTV Pro — Right",
+                url
+            ),
+            windows
+        )
+        assertFalse(windows.contains("--intf=dummy"))
+        assertFalse(windows.contains("--zoom=0.5"))
+        assertFalse(windows.contains("--control=hotkeys"))
+        assertFalse(windows.any { it.startsWith("--key-nav-") })
+        assertTrue(windows.contains("--rc-quiet"))
+        assertTrue(windows.contains("--ignore-config"))
+    }
+
+    @Test
+    fun splitPartnerStopsWhenEitherSideExits() {
+        assertFalse(StreamPlayer.splitPartnerShouldStop(leftAlive = true, rightAlive = true))
+        assertTrue(StreamPlayer.splitPartnerShouldStop(leftAlive = false, rightAlive = true))
+        assertTrue(StreamPlayer.splitPartnerShouldStop(leftAlive = true, rightAlive = false))
+        assertTrue(StreamPlayer.splitPartnerShouldStop(leftAlive = false, rightAlive = false))
     }
 
     @Test

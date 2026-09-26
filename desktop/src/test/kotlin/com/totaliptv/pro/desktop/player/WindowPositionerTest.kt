@@ -1,8 +1,10 @@
 package com.totaliptv.pro.desktop.player
 
+import com.totaliptv.pro.desktop.player.SplitSide
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 
 class WindowPositionerTest {
 
@@ -103,5 +105,239 @@ class WindowPositionerTest {
         val alreadyBorderless = WindowPositioner.FrameInsets(0, 0, 0, 0)
         val exact = WindowPositioner.outerForVisibleTarget(0, 0, 1720, 1392, alreadyBorderless)
         assertEquals(WindowPositioner.ScreenBounds(0, 0, 1720, 1392), exact)
+    }
+
+    @Test
+    fun linuxPlaybackFollowsTheAppMonitor() {
+        val hdmi = WindowPositioner.ScreenBounds(0, 0, 1920, 1080)
+        val dp1 = WindowPositioner.ScreenBounds(1920, 0, 1920, 1080)
+        assertEquals(hdmi, WindowPositioner.monitorOrFallback(hdmi, dp1))
+        assertEquals(dp1, WindowPositioner.monitorOrFallback(null, dp1))
+
+        val gtk = listOf(
+            hdmi,
+            WindowPositioner.ScreenBounds(1920, 40, 1920, 993)
+        )
+        val (left, right) = WindowPositioner.splitHalves(hdmi)
+        assertEquals(
+            WindowPositioner.ScreenBounds(0, 0, 960, 1080),
+            LinuxX11WindowPlacer.halfInsideWorkArea(left, hdmi, gtk, null)
+        )
+        assertEquals(
+            WindowPositioner.ScreenBounds(960, 0, 960, 1080),
+            LinuxX11WindowPlacer.halfInsideWorkArea(right, hdmi, gtk, null)
+        )
+
+        val (dpLeft, dpRight) = WindowPositioner.splitHalves(dp1)
+        assertEquals(
+            WindowPositioner.ScreenBounds(1920, 40, 960, 993),
+            LinuxX11WindowPlacer.halfInsideWorkArea(dpLeft, dp1, gtk, null)
+        )
+        assertEquals(
+            WindowPositioner.ScreenBounds(2880, 40, 960, 993),
+            LinuxX11WindowPlacer.halfInsideWorkArea(dpRight, dp1, gtk, null)
+        )
+
+        assertTrue(LinuxX11WindowPlacer.fullscreenCoversMonitor(WindowPositioner.ScreenBounds(0, 0, 1920, 1080), hdmi))
+        assertFalse(LinuxX11WindowPlacer.fullscreenCoversMonitor(dp1, hdmi))
+        assertFalse(LinuxX11WindowPlacer.fullscreenCoversMonitor(WindowPositioner.ScreenBounds(0, 0, 800, 600), hdmi))
+        assertEquals(
+            WindowPositioner.ScreenBounds(1920, 40, 1920, 993),
+            LinuxX11WindowPlacer.usableWorkArea(dp1, gtk, null)
+        )
+    }
+
+    @Test
+    fun windowsMonitorFollowsTheAppWindowCenter() {
+        val left = WindowPositioner.MonitorRects(
+            full = WindowPositioner.ScreenBounds(0, 0, 1920, 1080),
+            work = WindowPositioner.ScreenBounds(0, 40, 1920, 1040)
+        )
+        val right = WindowPositioner.MonitorRects(
+            full = WindowPositioner.ScreenBounds(1920, 0, 1920, 100),
+            work = WindowPositioner.ScreenBounds(1920, 0, 1920, 100)
+        )
+        val onLeft = WindowPositioner.ScreenBounds(100, 100, 1280, 800)
+        assertEquals(left, WindowPositioner.monitorContainingCenter(onLeft, listOf(left, right)))
+        // More pixels sit on the tall left monitor, but the center is on the right.
+        val centerOnRight = WindowPositioner.ScreenBounds(1000, -200, 1840, 400)
+        assertEquals(right, WindowPositioner.monitorContainingCenter(centerOnRight, listOf(left, right)))
+        assertEquals(right.work, WindowPositioner.splitBoundsFor(right))
+        assertEquals(right.full, WindowPositioner.fullscreenBoundsFor(right))
+        assertEquals(left.work, WindowPositioner.splitBoundsFor(left))
+        assertEquals(left.full, WindowPositioner.fullscreenBoundsFor(left))
+    }
+
+    @Test
+    fun linuxSplitAudioStaysLeftUntilFocusIsStable() {
+        val left = 10L
+        val right = 20L
+        val grace = LinuxX11WindowPlacer.FOCUS_STABLE_MS
+        val focus = LinuxX11WindowPlacer.SplitFocusAudio()
+
+        assertEquals(null, focus.onActive(right, left, right, nowMs = 490))
+        focus.noteBothPlaced(true)
+        assertEquals(null, focus.onActive(right, left, right, nowMs = 500))
+        assertEquals(null, focus.onActive(right, left, right, nowMs = 500 + grace - 1))
+        assertEquals(null, focus.onActive(right, left, right, nowMs = 500 + grace))
+        assertEquals(right, focus.consumeBaseline())
+        assertEquals(null, focus.onActive(right, left, right, nowMs = 500 + grace + 200))
+        assertEquals(SplitSide.LEFT, focus.onActive(left, left, right, nowMs = 500 + grace + 400))
+
+        val reset = LinuxX11WindowPlacer.SplitFocusAudio()
+        reset.noteBothPlaced(true)
+        assertEquals(null, reset.onActive(left, left, right, nowMs = 0))
+        assertEquals(null, reset.onActive(right, left, right, nowMs = 400))
+        assertEquals(null, reset.onActive(right, left, right, nowMs = 400 + grace - 1))
+        assertEquals(null, reset.onActive(right, left, right, nowMs = 400 + grace))
+        assertEquals(right, reset.consumeBaseline())
+        assertEquals(null, reset.onActive(right, left, right, nowMs = 400 + grace + 10))
+    }
+
+    @Test
+    fun linuxSplitAudioClickEndsTheStartupGrace() {
+        val left = 10L
+        val right = 20L
+        val focus = LinuxX11WindowPlacer.SplitFocusAudio()
+        focus.noteBothPlaced(true)
+        assertEquals(null, focus.onActive(left, left, right, nowMs = 0))
+        assertEquals(null, focus.onPointerButton(down = true, window = right, leftWindow = left, rightWindow = right))
+        assertEquals(null, focus.onPointerButton(down = false, window = 0L, leftWindow = left, rightWindow = right))
+        assertEquals(
+            SplitSide.RIGHT,
+            focus.onPointerButton(down = true, window = right, leftWindow = left, rightWindow = right)
+        )
+        assertEquals(null, focus.onActive(right, left, right, nowMs = 80))
+        assertEquals(SplitSide.LEFT, focus.onActive(left, left, right, nowMs = 90))
+        assertEquals(null, LinuxX11WindowPlacer.splitSideForWindow(99L, left, right))
+        val placer = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/LinuxX11WindowPlacer.kt")
+        val text = placer.readText()
+        assertFalse(text.contains("XSelectInput"))
+        assertFalse(text.contains("ButtonPress"))
+    }
+
+    @Test
+    fun fullscreenIgnoresTheHiddenQtWindowAndRequiresTheFullMonitor() {
+        val hidden = 0x1L
+        val video = 0x2L
+        val owned = listOf(hidden, video)
+        assertEquals(listOf(video), LinuxX11WindowPlacer.wmManagedWindows(owned, setOf(video)))
+        assertEquals(emptyList(), LinuxX11WindowPlacer.wmManagedWindows(owned, emptySet()))
+        assertEquals(owned, LinuxX11WindowPlacer.wmManagedWindows(owned, null))
+
+        val hdmi = WindowPositioner.ScreenBounds(0, 0, 1920, 1080)
+        val dp1 = WindowPositioner.ScreenBounds(1920, 0, 1920, 1080)
+        val hdmiFull = WindowPositioner.ScreenBounds(0, 0, 1920, 1080)
+        val dpFull = WindowPositioner.ScreenBounds(1920, 0, 1920, 1080)
+        assertTrue(
+            LinuxX11WindowPlacer.fullscreenSettled(true, hdmiFull, true, hdmiFull, hdmi)
+        )
+        assertTrue(
+            LinuxX11WindowPlacer.fullscreenSettled(true, dpFull, true, WindowPositioner.ScreenBounds(1922, 2, 1918, 1078), dp1)
+        )
+        assertFalse(
+            LinuxX11WindowPlacer.fullscreenSettled(
+                true,
+                WindowPositioner.ScreenBounds(0, 37, 1920, 1043),
+                true,
+                WindowPositioner.ScreenBounds(0, 37, 1920, 1043),
+                hdmi
+            )
+        )
+        assertFalse(
+            LinuxX11WindowPlacer.fullscreenSettled(
+                true,
+                WindowPositioner.ScreenBounds(1920, 77, 1920, 956),
+                true,
+                WindowPositioner.ScreenBounds(1920, 77, 1920, 956),
+                dp1
+            )
+        )
+        assertFalse(
+            LinuxX11WindowPlacer.fullscreenSettled(true, hdmiFull, false, hdmiFull, hdmi)
+        )
+        assertFalse(
+            LinuxX11WindowPlacer.fullscreenSettled(true, hdmiFull, true, dpFull, hdmi)
+        )
+    }
+
+    @Test
+    fun linuxHalvesStayInsideTheMonitorWorkArea() {
+        val hdmi = WindowPositioner.ScreenBounds(0, 0, 1920, 1080)
+        val dp1 = WindowPositioner.ScreenBounds(1920, 0, 1920, 1080)
+        val gtk = listOf(
+            WindowPositioner.ScreenBounds(0, 0, 1920, 1080),
+            WindowPositioner.ScreenBounds(1920, 40, 1920, 993)
+        )
+        val dpWork = LinuxX11WindowPlacer.usableWorkArea(dp1, gtk, null)
+        assertEquals(WindowPositioner.ScreenBounds(1920, 40, 1920, 993), dpWork)
+        val (left, right) = LinuxX11WindowPlacer.halvesInWorkArea(dp1, dpWork)
+        assertEquals(WindowPositioner.ScreenBounds(1920, 40, 960, 993), left)
+        assertEquals(WindowPositioner.ScreenBounds(2880, 40, 960, 993), right)
+        assertEquals(right.x, left.x + left.width)
+
+        val requestedLeft = WindowPositioner.ScreenBounds(1920, 0, 960, 1080)
+        val requestedRight = WindowPositioner.ScreenBounds(2880, 0, 960, 1080)
+        assertEquals(left, LinuxX11WindowPlacer.halfInsideWorkArea(requestedLeft, dp1, gtk, null))
+        assertEquals(right, LinuxX11WindowPlacer.halfInsideWorkArea(requestedRight, dp1, gtk, null))
+
+        val hdmiWork = LinuxX11WindowPlacer.usableWorkArea(hdmi, gtk, null)
+        assertEquals(hdmi, hdmiWork)
+
+        val netOnly = LinuxX11WindowPlacer.usableWorkArea(
+            dp1,
+            emptyList(),
+            WindowPositioner.ScreenBounds(0, 40, 3840, 993)
+        )
+        assertEquals(WindowPositioner.ScreenBounds(1920, 40, 1920, 993), netOnly)
+        val (netLeft, netRight) = WindowPositioner.splitHalves(netOnly)
+        assertEquals(WindowPositioner.ScreenBounds(1920, 40, 960, 993), netLeft)
+        assertEquals(WindowPositioner.ScreenBounds(2880, 40, 960, 993), netRight)
+
+        assertEquals(dp1, LinuxX11WindowPlacer.usableWorkArea(dp1, emptyList(), null))
+
+        val gtkValues = listOf(0L, 0L, 1920L, 1080L, 1920L, 40L, 1920L, 993L)
+        assertEquals(gtk, LinuxX11WindowPlacer.cardinalRects(gtkValues))
+        val netValues = listOf(0L, 40L, 3840L, 993L)
+        assertEquals(
+            WindowPositioner.ScreenBounds(0, 40, 3840, 993),
+            LinuxX11WindowPlacer.cardinalRect(netValues, 0)
+        )
+
+        assertTrue(
+            LinuxX11WindowPlacer.geometryMatches(
+                WindowPositioner.ScreenBounds(1922, 42, 958, 991),
+                WindowPositioner.ScreenBounds(1920, 40, 960, 993)
+            )
+        )
+        assertFalse(
+            LinuxX11WindowPlacer.geometryMatches(
+                WindowPositioner.ScreenBounds(960, 0, 960, 1080),
+                WindowPositioner.ScreenBounds(1920, 40, 960, 993)
+            )
+        )
+    }
+
+    @Test
+    fun xresClientIdSpecMatchesLp64Layout() {
+        assertEquals(16, LinuxX11WindowPlacer.xresSpecSize())
+        assertEquals(0, LinuxX11WindowPlacer.xresSpecFieldOffset("client"))
+        assertEquals(8, LinuxX11WindowPlacer.xresSpecFieldOffset("mask"))
+    }
+
+    @Test
+    fun linuxX11MovesItsOwnWindowWhenDisplayIsOpen() {
+        if (System.getenv("DISPLAY").isNullOrBlank()) return
+        val lib = LinuxX11WindowPlacer.findLibrary("libX11.so.6")
+        if (lib == null) return
+        assertTrue(lib.endsWith("libX11.so.6") || lib.contains("libX11.so.6"))
+        val placed = LinuxX11WindowPlacer.placeSyntheticWindow(40, 60, 320, 180)
+        assertTrue(placed.available, placed.detail)
+        assertEquals("xres", placed.pidSource, placed.detail)
+        assertEquals(40, placed.x, placed.detail)
+        assertEquals(60, placed.y, placed.detail)
+        assertEquals(320, placed.width, placed.detail)
+        assertEquals(180, placed.height, placed.detail)
+        assertFalse(placed.detail.isBlank())
     }
 }

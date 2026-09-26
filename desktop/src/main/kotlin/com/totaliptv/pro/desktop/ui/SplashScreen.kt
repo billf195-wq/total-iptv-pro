@@ -1,7 +1,6 @@
 package com.totaliptv.pro.desktop.ui
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -35,7 +34,7 @@ fun SplashScreen(banner: ImageBitmap? = rememberSplashBanner()) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(TipBg),
+            .tvContentBackground(),
         contentAlignment = Alignment.Center
     ) {
         Column(
