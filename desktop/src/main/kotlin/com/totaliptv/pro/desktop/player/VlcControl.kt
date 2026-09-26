@@ -81,6 +81,12 @@ object VlcControl {
         return Regex("""\(\s*state\s+ended\s*\)""", RegexOption.IGNORE_CASE).containsMatchIn(text)
     }
 
+    /** True when RC status reports `( state paused )`. False when unknown or playing. */
+    fun queryPaused(port: Int = 4214): Boolean = pausedFromStatus(readCommand(port, "status"))
+
+    internal fun pausedFromStatus(text: String?): Boolean =
+        text != null && Regex("""\(\s*state\s+paused\s*\)""", RegexOption.IGNORE_CASE).containsMatchIn(text)
+
     private fun readCommand(port: Int, command: String): String? {
         return try {
             Socket().use { socket ->

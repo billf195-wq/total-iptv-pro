@@ -191,14 +191,72 @@ class StreamPlayerTest {
         assertTrue(windows.contains("--ignore-config"))
         assertTrue(windows.contains("--rc-quiet"))
         assertFalse(StreamPlayer.useX11MonitorFullscreen(windows = true, fullscreen = true, displayAvailable = true))
-        assertTrue(StreamPlayer.useWin32MonitorFullscreen(windows = true, fullscreen = true))
+        // Windows single play keeps VLC --fullscreen. The Win32 snap is not used.
+        assertFalse(StreamPlayer.useWin32MonitorFullscreen(windows = true, fullscreen = true))
         assertFalse(StreamPlayer.useWin32MonitorFullscreen(windows = false, fullscreen = true))
         assertFalse(StreamPlayer.useWin32MonitorFullscreen(windows = true, fullscreen = false))
-        val placedWindows = StreamPlayer.vlcCommandForMonitorFullscreen(windows, enabled = true)
-        assertFalse(placedWindows.contains("--fullscreen"), placedWindows.toString())
-        assertTrue(placedWindows.contains("--ignore-config"))
-        assertTrue(placedWindows.contains("--rc-quiet"))
-        assertEquals(windows.filterNot { it == "--fullscreen" }, placedWindows)
+        assertEquals(windows, StreamPlayer.vlcCommandForMonitorFullscreen(windows, enabled = false))
+        assertTrue(windows.contains("--fullscreen"))
+        val fs = windows.indexOf("--fullscreen")
+        assertEquals(
+            StreamPlayer.VLC_WINDOWS_TRUE_FULLSCREEN,
+            windows.subList(fs + 1, fs + 1 + StreamPlayer.VLC_WINDOWS_TRUE_FULLSCREEN.size)
+        )
+        assertFalse(windows.contains("--no-embedded-video"))
+        assertFalse(windows.any { it.startsWith("--crop") || it.startsWith("--aspect-ratio") || it == "--no-autoscale" })
+        assertFalse(linux.contains("--no-qt-fs-controller"), linux.toString())
+        assertFalse(linux.contains("--qt-minimal-view"))
+        assertFalse(linux.contains("--no-qt-system-tray"))
+        assertFalse(linux.contains("--no-qt-video-autoresize"))
+        assertTrue(StreamPlayer.VLC_WINDOWS_TRUE_FULLSCREEN.none { linux.contains(it) })
+    }
+
+    @Test
+    fun windowsFullscreenStaysOnTheAppMonitorWithoutCropping() {
+        val url = "http://example.test/movie.mp4"
+        val vlc = """C:\Program Files\VideoLAN\VLC\vlc.exe"""
+        val windows = StreamPlayer.vlcCommand(
+            vlc,
+            listOf(url),
+            windows = true,
+            fullscreen = true,
+            fullscreenScreen = 0
+        )
+        assertTrue(windows.contains("--fullscreen"))
+        assertTrue(windows.contains("--no-video-title-show"))
+        assertTrue(windows.contains("--no-qt-fs-controller"))
+        assertTrue(windows.contains("--no-video-deco"))
+        assertTrue(windows.contains("--qt-minimal-view"))
+        assertTrue(windows.contains("--no-qt-system-tray"))
+        assertTrue(windows.contains("--no-qt-video-autoresize"))
+        assertTrue(windows.contains("--qt-fullscreen-screennumber=0"))
+        assertEquals("--qt-fullscreen-screennumber=0", StreamPlayer.qtFullscreenScreenArg(0))
+        assertEquals(null, StreamPlayer.qtFullscreenScreenArg(-1))
+        assertFalse(windows.contains("--no-embedded-video"))
+        assertTrue(windows.contains("--ignore-config"))
+        assertTrue(windows.contains("--rc-quiet"))
+        assertTrue(windows.contains("--qt-continue=0"))
+        assertTrue(windows.contains("--no-qt-privacy-ask"))
+
+        val omitted = StreamPlayer.vlcCommand(vlc, listOf(url), windows = true, fullscreen = true, fullscreenScreen = -1)
+        assertFalse(omitted.any { it.startsWith("--qt-fullscreen-screennumber") })
+
+        val windowed = StreamPlayer.vlcCommand(vlc, listOf(url), windows = true, fullscreen = false, fullscreenScreen = 0)
+        assertFalse(windowed.contains("--fullscreen"))
+        assertTrue(StreamPlayer.VLC_WINDOWS_TRUE_FULLSCREEN.none { windowed.contains(it) })
+        assertFalse(windowed.any { it.startsWith("--qt-fullscreen-screennumber") })
+
+        val linux = StreamPlayer.vlcCommand(
+            "/usr/bin/vlc",
+            listOf(url),
+            windows = false,
+            fullscreen = true,
+            fullscreenScreen = 0
+        )
+        assertTrue(linux.contains("--fullscreen"))
+        assertFalse(linux.any { it.startsWith("--qt-fullscreen-screennumber") })
+        assertTrue(StreamPlayer.VLC_WINDOWS_TRUE_FULLSCREEN.none { linux.contains(it) })
+        assertFalse(linux.contains("--rc-quiet"))
     }
 
     @Test
@@ -428,9 +486,12 @@ class StreamPlayerTest {
         assertFalse(split.contains("--fullscreen"))
         assertTrue(split.contains("--audio-language=eng,en,english"))
         assertEquals(url, split.last())
-        assertFalse(single.contains("--no-video-deco"))
+        assertTrue(single.contains("--no-video-deco"))
         assertFalse(single.contains("--no-embedded-video"))
-        assertFalse(single.contains("--qt-minimal-view"))
+        assertTrue(single.contains("--qt-minimal-view"))
+        assertTrue(single.contains("--no-qt-fs-controller"))
+        assertTrue(single.contains("--no-video-title-show"))
+        assertTrue(single.contains("--no-qt-system-tray"))
     }
 
     @Test

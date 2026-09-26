@@ -41,6 +41,7 @@ import com.totaliptv.pro.desktop.player.PlaybackDebugLog
 import com.totaliptv.pro.desktop.player.SplitSession
 import com.totaliptv.pro.desktop.player.SplitSide
 import com.totaliptv.pro.desktop.player.StreamPlayer
+import com.totaliptv.pro.desktop.player.WindowsPlaybackMenu
 import com.totaliptv.pro.desktop.update.AppUpdateManager
 import com.totaliptv.pro.desktop.util.AppPaths
 import kotlinx.coroutines.Dispatchers
@@ -813,6 +814,20 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
             handle.close()
             seriesNextHost?.disposeOverlay()
         }
+    }
+
+    SideEffect {
+        WindowsPlaybackMenu.bind(
+            hasNextEpisode = { seriesSessionRef.get()?.next != null },
+            onStop = {
+                seriesNextHost?.dismiss("stop")
+                stopPlayback()
+            },
+            onNext = {
+                seriesNextHost?.dismiss("next")
+                skipToNextEpisode()
+            }
+        )
     }
 
     SideEffect {
