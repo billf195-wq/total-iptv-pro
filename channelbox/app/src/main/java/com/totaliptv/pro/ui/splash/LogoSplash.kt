@@ -60,17 +60,17 @@ object SplashBranding {
 }
 
 /**
- * Desktop b8990a6 top bar: a 128.dp row with 8.dp vertical padding, so the
- * artwork itself is 112.dp tall and 112 × 16:9 wide (about 199.dp).
+ * Home top bar is half the old 128.dp slot: a 64.dp row with 4.dp vertical
+ * padding, so the artwork is 56.dp tall (half of 112.dp) and still 16:9.
  */
-val DesktopBannerRowHeight = 128.dp
-val DesktopBannerImageHeight = 112.dp
+val DesktopBannerRowHeight = 64.dp
+val DesktopBannerImageHeight = 56.dp
 
 /**
  * The banner image only. The app name is painted in the asset. The version
- * stays in Settings, not on this image.
+ * stays in Settings, not on this image. No gold title is drawn over it.
  *
- * Pass a height (or [Modifier.fillMaxHeight] inside the 128.dp row) and leave
+ * Pass a height (or [Modifier.fillMaxHeight] inside the 64.dp row) and leave
  * [matchHeightConstraintsFirst] true so width follows 16:9. Splash passes a
  * max width and sets [matchHeightConstraintsFirst] false.
  */

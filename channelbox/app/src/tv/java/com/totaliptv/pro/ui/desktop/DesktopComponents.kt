@@ -343,13 +343,13 @@ fun AmberButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifie
 
 @Composable
 fun TopBanner(modifier: Modifier = Modifier) {
-    // Same slot as desktop b8990a6: 128.dp bar, 8.dp vertical padding, full 16:9 art.
+    // Half the old 128.dp bar: 64.dp, 4.dp vertical padding, full 16:9 art on black.
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(DesktopBannerRowHeight)
             .background(TipBg)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         AppBannerArt(Modifier.fillMaxHeight())

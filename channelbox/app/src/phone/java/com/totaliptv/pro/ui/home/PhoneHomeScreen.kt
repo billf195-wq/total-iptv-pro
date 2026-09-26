@@ -31,9 +31,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -42,10 +42,12 @@ import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
+import com.totaliptv.pro.ui.splash.AppBannerArt
+import com.totaliptv.pro.ui.splash.DesktopBannerImageHeight
+import com.totaliptv.pro.ui.splash.DesktopBannerRowHeight
 import com.totaliptv.pro.ui.components.PhoneDetailSheet
 import com.totaliptv.pro.ui.components.PhonePosterCard
 import com.totaliptv.pro.ui.components.PhoneSectionTitle
-import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.tipScreenBrush
 import kotlinx.coroutines.Dispatchers
@@ -136,13 +138,16 @@ fun PhoneHomeScreen(
             else -> {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     item {
-                        Text(
-                            text = "Home",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = OnCinema,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(DesktopBannerRowHeight)
+                                .background(Color(0xFF000000))
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            AppBannerArt(Modifier.height(DesktopBannerImageHeight))
+                        }
                     }
                     if (vodLoading) {
                         item {

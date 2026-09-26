@@ -1,5 +1,6 @@
 package com.totaliptv.pro.ui.splash
 
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -19,6 +20,8 @@ class SplashTimingTest {
         assertEquals("1.4.57", SplashBranding.versionLabel("1.4.57"))
         assertEquals("1.4.34-phone", SplashBranding.versionLabel(" 1.4.34-phone "))
         assertEquals(1280f / 720f, SplashBranding.BANNER_ASPECT_RATIO, 0.0001f)
+        assertEquals(56.dp, DesktopBannerImageHeight)
+        assertEquals(64.dp, DesktopBannerRowHeight)
         val splash = java.io.File("src/main/java/com/totaliptv/pro/ui/splash/LogoSplash.kt").readText()
         assertFalse(splash.contains("BannerVersionBadge"))
         assertFalse(splash.contains("bannerVersionLabel"))
@@ -46,13 +49,21 @@ class SplashTimingTest {
         val banner = desktop.substringAfter("fun TopBanner")
         assertTrue(banner.contains("AppBannerArt("))
         assertTrue(banner.contains("DesktopBannerRowHeight"))
-        assertTrue(banner.contains("vertical = 8.dp"))
+        assertTrue(banner.contains("vertical = 4.dp"))
+        assertTrue(banner.contains(".background(TipBg)"))
         assertFalse(banner.contains("BannerVersionBadge"))
         assertFalse(banner.contains("text = SplashBranding.APP_TITLE"))
         assertFalse(banner.contains("versionLabel("))
         assertFalse(banner.contains("ContentScale.Crop"))
         val settings = java.io.File("src/tv/java/com/totaliptv/pro/ui/settings/SettingsScreen.kt").readText()
         val desktopSettings = java.io.File("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopPanes.kt").readText()
+        val phoneHome = java.io.File("src/phone/java/com/totaliptv/pro/ui/home/PhoneHomeScreen.kt").readText()
+        assertTrue(phoneHome.contains("AppBannerArt("))
+        assertTrue(phoneHome.contains("DesktopBannerImageHeight"))
+        assertTrue(phoneHome.contains("DesktopBannerRowHeight"))
+        assertTrue(phoneHome.contains("Color(0xFF000000)"))
+        assertFalse(phoneHome.contains("versionLabel("))
+        assertFalse(phoneHome.contains("BannerVersionBadge"))
         val phoneSettings = java.io.File("src/phone/java/com/totaliptv/pro/ui/settings/PhoneSettingsScreen.kt").readText()
         assertTrue(settings.contains("Installed: \${BuildConfig.VERSION_NAME}"))
         assertTrue(desktopSettings.contains("Installed: \${BuildConfig.VERSION_NAME}"))

@@ -89,7 +89,7 @@ object TipDimens {
     val PosterGridGap = posterDp(12)
 
     val SidebarWidth = dp(220)
-    // TopBanner uses DesktopBannerRowHeight (128.dp), not this scaled slot.
+    // TopBanner uses DesktopBannerRowHeight (64.dp), not this scaled slot.
     val BannerHeight = dp(120)
     val ContentPad = dp(20)
     val SidebarPad = dp(16)

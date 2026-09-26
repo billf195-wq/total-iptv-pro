@@ -970,7 +970,7 @@ fun AppTopNav(
             modifier = Modifier.padding(end = 14.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // Full 16:9 frame (112.dp × ~199.dp). Image only; version stays in Settings.
+            // Half-height 16:9 frame (56.dp × ~100.dp). Image only; version stays in Settings.
             AppBannerArt(
                 modifier = Modifier.height(DesktopBannerImageHeight),
                 contentDescription = brandTitle.ifBlank { SplashBranding.APP_TITLE }
