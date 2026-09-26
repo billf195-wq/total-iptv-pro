@@ -11,6 +11,7 @@ import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.EpgChannelRow
 import com.totaliptv.pro.data.model.EpgNowNext
 import com.totaliptv.pro.data.model.EpgProgram
+import com.totaliptv.pro.ui.epg.GuideWindow
 import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.PlaylistSource
@@ -772,13 +773,16 @@ class CatalogRepository(
     }
 
     private fun loadPrograms(item: MediaItem): List<EpgProgram> {
+        val horizonStart = GuideWindow.snapStart(System.currentTimeMillis())
+        val horizonEnd = GuideWindow.windowEndMs(horizonStart, GuideWindow.MAX_HOURS)
         val creds = activeXtreamCreds
         if (creds == null) {
             ensureXmltvLoaded()
             val id = item.epgChannelId?.trim()?.takeIf { it.isNotEmpty() }
             val named = item.name.trim().takeIf { it.isNotEmpty() }
             val raw = (id?.let { xmltvByChannel[it] } ?: named?.let { xmltvByChannel[it] }).orEmpty()
-            return LiveEpgBinding.bindForDisplay(item, raw, liveSiblings())
+            val bound = LiveEpgBinding.bindForDisplay(item, raw, liveSiblings())
+            return GuideWindow.retain(bound, horizonStart, horizonEnd)
         }
         // Always key EPG by Xtream stream_id — never channel num / list index / epg_channel_id string.
         val sid = item.xtreamStreamId ?: return emptyList()
@@ -788,18 +792,20 @@ class CatalogRepository(
                 "TotalIPTV.Guide",
                 "epgCacheHit name=${item.name} id=${item.id} sid=$sid num=${item.channelNum} programs=${bound.size} first=${bound.firstOrNull()?.title}"
             )
-            return bound
+            return GuideWindow.retain(bound, horizonStart, horizonEnd)
         }
-        val short = xtreamApi.fetchShortEpg(creds, sid, limit = 10)
+        val short = xtreamApi.fetchShortEpg(creds, sid, limit = GuideWindow.LISTING_LIMIT)
         val programs = if (short.isNotEmpty()) short else xtreamApi.fetchSimpleEpgTable(creds, sid)
-        val bound = LiveEpgBinding.bindForDisplay(item, programs, liveSiblings())
+        // Cache only the guide horizon. A simple-data-table fallback can be a full day.
+        val kept = GuideWindow.retain(programs, horizonStart, horizonEnd)
+        val bound = LiveEpgBinding.bindForDisplay(item, kept, liveSiblings())
         Log.i(
             "TotalIPTV.Guide",
             "epgBind name=${item.name} id=${item.id} sid=$sid num=${item.channelNum} epgCh=${item.epgChannelId} programs=${bound.size} first=${bound.firstOrNull()?.title}"
         )
-        if (programs.isNotEmpty()) {
+        if (kept.isNotEmpty()) {
             // Cache raw listings so bind can re-run with current nowMs / siblings.
-            epgCache[sid] = programs
+            epgCache[sid] = kept
         }
         return bound
     }

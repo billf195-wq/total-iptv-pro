@@ -43,6 +43,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -89,8 +90,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.max
 
-private const val WINDOW_HOURS = 4
-private val PX_PER_HOUR = 220.dp
+private val PX_PER_HOUR = GuideWindow.DP_PER_HOUR.dp
 private val CHANNEL_COL = 168.dp
 private val ROW_H = 56.dp
 private const val GUIDE_ALL_ID = "__all_live__"
@@ -131,11 +131,12 @@ fun EpgGuideScreen(
     var focusedChannelId by remember { mutableStateOf<String?>(null) }
     val timeFmt = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
     val nowMs = remember { System.currentTimeMillis() }
-    val windowStart = remember(nowMs) {
-        // Snap to previous half-hour for denser grid
-        nowMs - (nowMs % (30 * 60 * 1000L)) - (30 * 60 * 1000L)
-    }
-    val windowEnd = windowStart + WINDOW_HOURS * 60 * 60 * 1000L
+    val windowStart = remember(nowMs) { GuideWindow.snapStart(nowMs) }
+    val timelineWidthDp = (
+        LocalConfiguration.current.screenWidthDp - CHANNEL_COL.value - 32f
+    ).coerceAtLeast(GuideWindow.DP_PER_HOUR)
+    val hourCount = GuideWindow.totalHours(timelineWidthDp)
+    val windowEnd = GuideWindow.windowEndMs(windowStart, hourCount)
     val scroll = rememberScrollState()
     val listState = rememberLazyListState()
 
@@ -317,12 +318,6 @@ fun EpgGuideScreen(
                     }
                 }
             )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = "${WINDOW_HOURS}h window",
-                style = MaterialTheme.typography.labelLarge,
-                color = BrandBlue
-            )
         }
 
         // Live category picker (same categories as Live TV hub)
@@ -372,8 +367,7 @@ fun EpgGuideScreen(
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Spacer(Modifier.width(CHANNEL_COL))
                     Row(modifier = Modifier.horizontalScroll(scroll)) {
-                        val hours = WINDOW_HOURS
-                        for (h in 0 until hours) {
+                        for (h in 0 until hourCount) {
                             val t = windowStart + h * 60 * 60 * 1000L
                             Text(
                                 text = timeFmt.format(Date(t)),
@@ -396,6 +390,7 @@ fun EpgGuideScreen(
                     items(rows, key = { "${selectedCategoryId}:${it.channel.id}" }) { row ->
                         TimelineRow(
                             row = row,
+                            hourCount = hourCount,
                             windowStart = windowStart,
                             windowEnd = windowEnd,
                             nowMs = nowMs,
@@ -460,6 +455,7 @@ fun EpgGuideScreen(
 @Composable
 private fun TimelineRow(
     row: EpgChannelRow,
+    hourCount: Int,
     windowStart: Long,
     windowEnd: Long,
     nowMs: Long,
@@ -502,7 +498,7 @@ private fun TimelineRow(
         else -> listOfNotNull(row.nowNext.now, row.nowNext.next)
     }
     val windowMs = (windowEnd - windowStart).coerceAtLeast(1L)
-    val totalWidthDp = PX_PER_HOUR * WINDOW_HOURS
+    val totalWidthDp = PX_PER_HOUR * hourCount.coerceAtLeast(1)
     val nowFraction = ((nowMs - windowStart).toFloat() / windowMs.toFloat()).coerceIn(0f, 1f)
 
     // NO TV Surface(onClick) — that API plays the *focused* neighbor on emulator mouse.
