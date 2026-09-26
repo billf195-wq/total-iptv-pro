@@ -156,7 +156,8 @@ object LinuxX11WindowPlacer {
         scope: CoroutineScope,
         process: Process?,
         pid: Long,
-        monitor: ScreenBounds
+        monitor: ScreenBounds,
+        onCoveringMonitor: (() -> Unit)? = null
     ) {
         if (System.getenv("DISPLAY").isNullOrBlank()) {
             PlaybackDebugLog.note("playback-x11: DISPLAY is unset; VLC was not moved to the app monitor")
@@ -169,6 +170,7 @@ object LinuxX11WindowPlacer {
         scope.launch(Dispatchers.IO) {
             var loggedPlace = false
             var loggedMiss = false
+            var toldVlc = false
             var misses = 0
             var stable = 0
             var lastMismatch: String? = null
@@ -221,6 +223,10 @@ object LinuxX11WindowPlacer {
                 val result = runCatching { placeFullscreen(pid, monitor) }.getOrElse { PlaceResult.Failed(it.message) }
                 if (noteResult(result)) return@launch
                 if (result is PlaceResult.Placed) {
+                    if (!toldVlc) {
+                        toldVlc = true
+                        runCatching { onCoveringMonitor?.invoke() }
+                    }
                     stable++
                     if (stable >= 8) return@launch
                 } else {

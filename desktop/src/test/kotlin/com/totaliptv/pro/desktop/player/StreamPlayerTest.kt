@@ -175,6 +175,7 @@ class StreamPlayerTest {
         assertTrue(linux.contains("--fullscreen"))
         assertFalse(placed.contains("--fullscreen"), placed.toString())
         assertEquals(linux.filterNot { it == "--fullscreen" }, placed)
+        assertEquals(StreamPlayer.VLC_LINUX_TRUE_FULLSCREEN, StreamPlayer.VLC_LINUX_TRUE_FULLSCREEN.filter { placed.contains(it) })
 
         val mpv = StreamPlayer.mpvCommand("mpv", listOf(url), windows = false, fullscreen = true)
         assertEquals(mpv, StreamPlayer.vlcCommandForMonitorFullscreen(mpv, enabled = true))
@@ -204,11 +205,55 @@ class StreamPlayerTest {
         )
         assertFalse(windows.contains("--no-embedded-video"))
         assertFalse(windows.any { it.startsWith("--crop") || it.startsWith("--aspect-ratio") || it == "--no-autoscale" })
-        assertFalse(linux.contains("--no-qt-fs-controller"), linux.toString())
-        assertFalse(linux.contains("--qt-minimal-view"))
+        assertTrue(linux.contains("--no-video-title-show"), linux.toString())
+        assertTrue(linux.contains("--no-qt-fs-controller"), linux.toString())
+        assertTrue(linux.contains("--qt-minimal-view"))
         assertFalse(linux.contains("--no-qt-system-tray"))
         assertFalse(linux.contains("--no-qt-video-autoresize"))
-        assertTrue(StreamPlayer.VLC_WINDOWS_TRUE_FULLSCREEN.none { linux.contains(it) })
+        assertFalse(linux.contains("--no-video-deco"))
+        assertFalse(linux.contains("--rc-quiet"))
+        assertFalse(linux.contains("--ignore-config"))
+    }
+
+    @Test
+    fun linuxRcFullscreenStartsOnlyAfterTheWindowCoversTheAppMonitor() {
+        assertEquals("fullscreen on", StreamPlayer.LINUX_VLC_FULLSCREEN_RC)
+        val url = "http://example.test/movie.mp4"
+        val built = StreamPlayer.vlcCommand(
+            "/usr/bin/vlc",
+            listOf(url),
+            windows = false,
+            fullscreen = true,
+            fullscreenScreen = 1
+        )
+        val placed = StreamPlayer.vlcCommandForMonitorFullscreen(built, enabled = true)
+        assertFalse(placed.contains("--fullscreen"))
+        assertTrue(placed.contains("--qt-fullscreen-screennumber=1"))
+        assertTrue(placed.contains("--no-video-title-show"))
+        assertTrue(placed.contains("--no-qt-fs-controller"))
+        assertTrue(placed.contains("--qt-minimal-view"))
+        assertEquals(4214, StreamPlayer.linuxRcPort(placed))
+        val windowed = StreamPlayer.vlcCommand(
+            "/usr/bin/vlc",
+            listOf(url),
+            windows = false,
+            fullscreen = false,
+            fullscreenScreen = 1
+        )
+        assertTrue(StreamPlayer.VLC_LINUX_TRUE_FULLSCREEN.none { windowed.contains(it) })
+        assertFalse(windowed.any { it.startsWith("--qt-fullscreen-screennumber") })
+        val player = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/StreamPlayer.kt").readText()
+        assertTrue(player.contains("onCoveringMonitor"))
+        assertTrue(player.contains("LINUX_VLC_FULLSCREEN_RC"))
+        assertTrue(player.contains("enterLinuxVlcFullscreen"))
+        val overlay = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/ui/SeriesNextOverlay.kt").readText()
+        assertTrue(overlay.contains("isAlwaysOnTop = true"))
+        val split = StreamPlayer.splitSideCommand(
+            "/usr/bin/vlc", url, windows = false, x = 1920, y = 0, width = 960, height = 1080, port = 4212, title = "Left"
+        )
+        assertFalse(split.contains("--fullscreen"))
+        assertFalse(split.contains("--qt-minimal-view"))
+        assertTrue(split.contains("--intf=dummy"))
     }
 
     @Test
@@ -254,9 +299,19 @@ class StreamPlayerTest {
             fullscreenScreen = 0
         )
         assertTrue(linux.contains("--fullscreen"))
-        assertFalse(linux.any { it.startsWith("--qt-fullscreen-screennumber") })
-        assertTrue(StreamPlayer.VLC_WINDOWS_TRUE_FULLSCREEN.none { linux.contains(it) })
+        assertTrue(linux.contains("--qt-fullscreen-screennumber=0"), linux.toString())
+        assertTrue(linux.contains("--no-qt-fs-controller"))
         assertFalse(linux.contains("--rc-quiet"))
+        assertFalse(linux.contains("--ignore-config"))
+        assertFalse(linux.contains("--no-video-deco"))
+        val linuxOmitted = StreamPlayer.vlcCommand(
+            "/usr/bin/vlc",
+            listOf(url),
+            windows = false,
+            fullscreen = true,
+            fullscreenScreen = -1
+        )
+        assertFalse(linuxOmitted.any { it.startsWith("--qt-fullscreen-screennumber") })
     }
 
     @Test
@@ -270,6 +325,11 @@ class StreamPlayerTest {
         assertFalse(live.contains("--play-and-exit"))
         assertTrue(live.contains("--fullscreen"))
         assertTrue(live.contains("--audio-language=eng,en,english"))
+        assertTrue(live.contains("--extraintf=rc"))
+        assertTrue(live.contains("--rc-host=127.0.0.1:4214"))
+        assertTrue(live.contains("--qt-minimal-view"))
+        assertFalse(live.contains("--rc-quiet"))
+        assertEquals(4214, StreamPlayer.linuxRcPort(live))
         val vod = StreamPlayer.vlcCommand(
             "/usr/bin/vlc",
             listOf("http://example.test/series/u/p/1.mkv"),
@@ -310,7 +370,11 @@ class StreamPlayerTest {
             live = true
         )
         assertFalse(linuxLive.contains("--rc-quiet"))
+        assertTrue(linuxLive.contains("--extraintf=rc"))
+        assertTrue(linuxLive.contains("--rc-host=127.0.0.1:4214"))
         assertFalse(windowsLive.contains("--rc-quiet"))
+        assertFalse(windowsLive.contains("--extraintf=rc"))
+        assertFalse(windowsLive.any { it.startsWith("--rc-host=") })
 
         val linuxSplit = StreamPlayer.splitSideCommand(
             "/usr/bin/vlc",

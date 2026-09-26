@@ -51,8 +51,10 @@ object WindowPositioner {
     /**
      * Index into [GraphicsEnvironment.getScreenDevices] for Qt
      * `--qt-fullscreen-screennumber`. Java and Qt both list the primary
-     * display first on Windows. Empty list is -1 (omit the flag). A point
-     * in a gap uses the nearest screen.
+     * display first on Windows; on Linux this is the same AWT order, so the
+     * app window's monitor is the screen VLC fullscreens onto (a saved
+     * `[FullScreen] screen` in vlc-qt-interface.conf would otherwise win).
+     * Empty list is -1 (omit the flag). A point in a gap uses the nearest screen.
      */
     internal fun qtScreenIndex(centerX: Int, centerY: Int, screens: List<ScreenBounds>): Int {
         if (screens.isEmpty()) return -1
@@ -71,7 +73,6 @@ object WindowPositioner {
      * and the window is not attached yet. -1 when unknown.
      */
     fun qtFullscreenScreenNumber(): Int {
-        if (!AppPaths.isWindows) return -1
         return try {
             if (SwingUtilities.isEventDispatchThread()) {
                 readQtScreenIndex()
