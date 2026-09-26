@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -51,6 +50,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -76,11 +76,10 @@ import com.totaliptv.pro.ui.components.AppTopNav
 import com.totaliptv.pro.ui.components.CategoryRailItem
 import com.totaliptv.pro.ui.components.ErrorText
 import com.totaliptv.pro.ui.components.FeaturedNowPanel
-import com.totaliptv.pro.ui.components.HeroFeatureBanner
 import com.totaliptv.pro.ui.components.MovieDetailSheet
 import com.totaliptv.pro.ui.components.LiveChannelCard
 import com.totaliptv.pro.ui.components.PosterCard
-import com.totaliptv.pro.ui.components.SectionRowLabel
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
 import com.totaliptv.pro.ui.player.GameDayPicker
@@ -318,7 +317,6 @@ fun HomeScreen(
     var channelEpgMap by remember(displayItems) { mutableStateOf<Map<String, EpgNowNext>>(emptyMap()) }
 
     // Home rails
-    var heroItem by remember { mutableStateOf<MediaItem?>(null) }
     var newlyAdded by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var topPicks by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var continueWatching by remember { mutableStateOf<List<WatchProgress>>(emptyList()) }
@@ -391,11 +389,6 @@ fun HomeScreen(
         val newest = repository.newlyAddedMovies(Int.MAX_VALUE)
         newlyAdded = newest
         topPicks = newest.drop(1).ifEmpty { newest }
-        heroItem = repository.featuredHeroItem()?.let { item ->
-            if (item.artworkUrl().isNullOrBlank() && item.xtreamStreamId != null) {
-                runCatching { repository.resolvePoster(item) }.getOrDefault(item)
-            } else item
-        }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -556,7 +549,6 @@ fun HomeScreen(
                 }
                 hubTab == HubTab.Home -> {
                     HomeTabContent(
-                        heroItem = heroItem,
                         newlyAdded = newlyAdded,
                         topPicks = topPicks,
                         continueWatching = continueWatching,
@@ -577,8 +569,7 @@ fun HomeScreen(
                         onOpenFavorite = onOpenFavorite,
                         onOpenLive = { hubTab = HubTab.Live },
                         onOpenMovies = { hubTab = HubTab.Movies },
-                        onOpenSeries = { hubTab = HubTab.Series },
-                        onPreviewHero = { item -> openDetailFromPoster(item, scope = "hero") }
+                        onOpenSeries = { hubTab = HubTab.Series }
                     )
                 }
                 else -> {
@@ -770,7 +761,6 @@ fun HomeScreen(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun HomeTabContent(
-    heroItem: MediaItem?,
     newlyAdded: List<MediaItem>,
     topPicks: List<MediaItem>,
     continueWatching: List<WatchProgress>,
@@ -789,8 +779,7 @@ private fun HomeTabContent(
     onOpenFavorite: (FavoriteRef) -> Unit,
     onOpenLive: () -> Unit,
     onOpenMovies: () -> Unit,
-    onOpenSeries: () -> Unit,
-    onPreviewHero: (MediaItem) -> Unit
+    onOpenSeries: () -> Unit
 ) {
     val homeListState = rememberLazyListState()
     val cwRowState = rememberTvLazyListState()
@@ -808,19 +797,19 @@ private fun HomeTabContent(
         var focused = false
         for (attempt in 0 until 12) {
             val rowOrdinal = when (scope) {
-                "cw" -> 1
-                "new" -> if (continueWatching.isNotEmpty()) 3 else 1
+                "cw" -> 0
+                "new" -> if (continueWatching.isNotEmpty()) 1 else 0
                 "top" -> {
-                    var o = 1
-                    if (continueWatching.isNotEmpty()) o += 2
-                    if (newlyAdded.isNotEmpty()) o += 2
+                    var o = 0
+                    if (continueWatching.isNotEmpty()) o += 1
+                    if (newlyAdded.isNotEmpty()) o += 1
                     o
                 }
                 "fav" -> {
-                    var o = 1
-                    if (continueWatching.isNotEmpty()) o += 2
-                    if (newlyAdded.isNotEmpty()) o += 2
-                    if (topPicks.isNotEmpty()) o += 2
+                    var o = 0
+                    if (continueWatching.isNotEmpty()) o += 1
+                    if (newlyAdded.isNotEmpty()) o += 1
+                    if (topPicks.isNotEmpty()) o += 1
                     o
                 }
                 else -> 0
@@ -845,61 +834,20 @@ private fun HomeTabContent(
     LazyColumn(
         state = homeListState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
+        contentPadding = PaddingValues(
+            start = 12.dp,
+            top = HomeShelfFit.classicContentPadTop,
+            end = 12.dp,
+            bottom = HomeShelfFit.classicContentPadBottom
+        ),
+        verticalArrangement = Arrangement.spacedBy(HomeShelfFit.classicRowGap)
     ) {
-        item {
-            if (heroItem != null) {
-                HeroFeatureBanner(
-                    title = heroItem.name,
-                    imageUrl = heroItem.artworkUrl(),
-                    metaLine = heroItem.groupTitle ?: "From your library",
-                    onPlay = { onPlay(heroItem) },
-                    modifier = Modifier
-                        .padding(bottom = 4.dp)
-                        .height(ClassicDimens.HeroHeight),
-                    rating = heroItem.displayRating(),
-                    onPreview = { onPreviewHero(heroItem) }
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = ClassicDimens.HeroEmptyHeight)
-                        .padding(bottom = 8.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Column {
-                        Text(
-                            "Welcome to Total IPTV Pro",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = OnCinema,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "Live TV loads first — Movies & Series appear when ready.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OnCinemaMuted,
-                            modifier = Modifier.padding(top = 6.dp)
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(top = 12.dp)
-                        ) {
-                            Button(onClick = onOpenLive) { Text("Browse Live") }
-                            Button(onClick = onOpenMovies) { Text("Browse Movies") }
-                            Button(onClick = onOpenSeries) { Text("Browse Series") }
-                        }
-                    }
-                }
-            }
-        }
         if (continueWatching.isNotEmpty()) {
-            item { SectionRowLabel("Continue watching") }
             item {
+                HomeShelfLabel("Continue watching")
                 TvLazyRow(
                     state = cwRowState,
-                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap),
-                    contentPadding = PaddingValues(bottom = 4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
                 ) {
                     tvItemsIndexed(continueWatching, key = { _, it -> "cw-${it.id}" }) { index, prog ->
                         val pct = (prog.fraction() * 100).toInt().coerceIn(1, 99)
@@ -919,19 +867,20 @@ private fun HomeTabContent(
                             isFavorite = prog.id in favoriteIds || (prog.catalogId != null && prog.catalogId in favoriteIds),
                             onLongClick = { onToggleFavorite(media) },
                             progressPercent = pct,
-                            focusRequester = posterFocus("cw", prog.id)
+                            focusRequester = posterFocus("cw", prog.id),
+                            imageHeight = HomeShelfFit.classicPosterImage,
+                            titleSlotHeight = HomeShelfFit.classicPosterTitle
                         )
                     }
                 }
             }
         }
         if (newlyAdded.isNotEmpty()) {
-            item { SectionRowLabel("Newly added") }
             item {
+                HomeShelfLabel("Newly added")
                 TvLazyRow(
                     state = newRowState,
-                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap),
-                    contentPadding = PaddingValues(bottom = 4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
                 ) {
                     tvItemsIndexed(newlyAdded, key = { _, it -> it.id }) { index, item ->
                         val prog = progressById[item.id]
@@ -950,19 +899,20 @@ private fun HomeTabContent(
                             onLongClick = { onToggleFavorite(item) },
                             rating = item.displayRating(),
                             progressPercent = pct,
-                            focusRequester = posterFocus("new", item.id)
+                            focusRequester = posterFocus("new", item.id),
+                            imageHeight = HomeShelfFit.classicPosterImage,
+                            titleSlotHeight = HomeShelfFit.classicPosterTitle
                         )
                     }
                 }
             }
         }
         if (topPicks.isNotEmpty()) {
-            item { SectionRowLabel("Top picks") }
             item {
+                HomeShelfLabel("Top picks")
                 TvLazyRow(
                     state = topRowState,
-                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap),
-                    contentPadding = PaddingValues(bottom = 4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
                 ) {
                     tvItemsIndexed(topPicks, key = { _, it -> "tp-${it.id}" }) { index, item ->
                         val prog = progressById[item.id]
@@ -981,19 +931,20 @@ private fun HomeTabContent(
                             onLongClick = { onToggleFavorite(item) },
                             rating = item.displayRating(),
                             progressPercent = pct,
-                            focusRequester = posterFocus("top", item.id)
+                            focusRequester = posterFocus("top", item.id),
+                            imageHeight = HomeShelfFit.classicPosterImage,
+                            titleSlotHeight = HomeShelfFit.classicPosterTitle
                         )
                     }
                 }
             }
         }
         if (favorites.isNotEmpty()) {
-            item { SectionRowLabel("Favorites") }
             item {
+                HomeShelfLabel("Favorites")
                 TvLazyRow(
                     state = favRowState,
-                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap),
-                    contentPadding = PaddingValues(bottom = 16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
                 ) {
                     tvItemsIndexed(favorites, key = { _, it -> "fav-${it.id}" }) { _, fav ->
                         PosterCard(
@@ -1013,23 +964,41 @@ private fun HomeTabContent(
                                     )
                                 )
                             },
-                            focusRequester = posterFocus("fav", fav.id)
+                            focusRequester = posterFocus("fav", fav.id),
+                            imageHeight = HomeShelfFit.classicPosterImage,
+                            titleSlotHeight = HomeShelfFit.classicPosterTitle
                         )
                     }
                 }
             }
         }
-        if (newlyAdded.isEmpty() && topPicks.isEmpty() && heroItem == null && continueWatching.isEmpty()) {
+        if (newlyAdded.isEmpty() && topPicks.isEmpty() && continueWatching.isEmpty()) {
             item {
                 Text(
                     "Add a playlist to see featured titles and rows here.",
                     color = OnCinemaMuted,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(24.dp)
+                    style = MaterialTheme.typography.bodyLarge
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onOpenLive) { Text("Live") }
+                    Button(onClick = onOpenMovies) { Text("Movies") }
+                    Button(onClick = onOpenSeries) { Text("Series") }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun HomeShelfLabel(text: String) {
+    Text(
+        text = text,
+        color = Color.White,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        modifier = Modifier.height(HomeShelfFit.classicRowHeader)
+    )
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)

@@ -1,7 +1,6 @@
 package com.totaliptv.pro.ui.home
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,10 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -42,9 +41,8 @@ import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.splash.AppBannerArt
-import com.totaliptv.pro.ui.splash.DesktopBannerImageHeight
-import com.totaliptv.pro.ui.splash.DesktopBannerRowHeight
 import com.totaliptv.pro.ui.components.PhoneDetailSheet
 import com.totaliptv.pro.ui.components.PhonePosterCard
 import com.totaliptv.pro.ui.components.PhoneSectionTitle
@@ -141,12 +139,16 @@ fun PhoneHomeScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(DesktopBannerRowHeight)
+                                .height(HomeShelfFit.classicNav)
                                 .background(Color(0xFF000000))
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                                .padding(horizontal = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            AppBannerArt(Modifier.height(DesktopBannerImageHeight))
+                            AppBannerArt(Modifier.height(HomeShelfFit.classicLogo))
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(onClick = onOpenLive) { Text("Live") }
+                            TextButton(onClick = onOpenMovies) { Text("Movies") }
+                            TextButton(onClick = onOpenSeries) { Text("Series") }
                         }
                     }
                     if (vodLoading) {
@@ -161,18 +163,6 @@ fun PhoneHomeScreen(
                     warning?.takeIf { it.isNotBlank() }?.let { message ->
                         item {
                             Text(message, color = OnCinemaMuted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                        }
-                    }
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            TextButton(onClick = onOpenLive) { Text("Live") }
-                            TextButton(onClick = onOpenMovies) { Text("Movies") }
-                            TextButton(onClick = onOpenSeries) { Text("Series") }
                         }
                     }
                     if (continueWatching.isNotEmpty()) {

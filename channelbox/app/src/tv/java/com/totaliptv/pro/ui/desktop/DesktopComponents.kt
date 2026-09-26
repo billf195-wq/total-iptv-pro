@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -49,8 +48,9 @@ import com.totaliptv.pro.ui.LiveRowKeys
 import com.totaliptv.pro.ui.components.NetworkImage
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.theme.LiveMarker
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.splash.AppBannerArt
-import com.totaliptv.pro.ui.splash.DesktopBannerRowHeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -88,7 +88,9 @@ fun DesktopPosterCard(
     modifier: Modifier = Modifier,
     showTitle: Boolean = true,
     focusRequester: FocusRequester? = null,
-    canFocus: Boolean = true
+    canFocus: Boolean = true,
+    imageHeight: Dp? = null,
+    titleSlotHeight: Dp? = null
 ) {
     val safeName = item.name.ifBlank { "Untitled" }
     val cardMod = if (modifier === Modifier) {
@@ -105,12 +107,18 @@ fun DesktopPosterCard(
             Modifier
                 .fillMaxWidth()
                 .background(TipSurface)
-                .padding(TipDimens.PosterPad)
+                .padding(
+                    horizontal = TipDimens.PosterPad,
+                    vertical = if (imageHeight == null) TipDimens.PosterPad else 0.dp
+                )
         ) {
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .aspectRatio(2f / 3f)
+                    .then(
+                        if (imageHeight != null) Modifier.height(imageHeight)
+                        else Modifier.aspectRatio(2f / 3f)
+                    )
                     .clip(RoundedCornerShape(TipDimens.PosterCorner))
                     .background(TipSurfaceAlt)
                     .border(
@@ -163,14 +171,19 @@ fun DesktopPosterCard(
                 }
             }
             if (showTitle) {
-                Spacer(Modifier.height(TipDimens.PosterPad))
+                if (titleSlotHeight == null) Spacer(Modifier.height(TipDimens.PosterPad))
                 Text(
                     safeName,
                     color = if (focused) TipAccent else TipGoldText,
                     fontSize = TipDimens.PosterTitleSp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = if (titleSlotHeight != null) {
+                        Modifier.height(titleSlotHeight).padding(top = 2.dp)
+                    } else {
+                        Modifier
+                    }
                 )
             }
         }
@@ -342,17 +355,13 @@ fun AmberButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifie
 }
 
 @Composable
-fun TopBanner(modifier: Modifier = Modifier) {
-    // Half the old 128.dp bar: 64.dp, 4.dp vertical padding, full 16:9 art on black.
-    Row(
-        modifier = modifier
+fun SidebarBrand(modifier: Modifier = Modifier) {
+    Box(
+        modifier
             .fillMaxWidth()
-            .height(DesktopBannerRowHeight)
             .background(TipBg)
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(bottom = 4.dp)
     ) {
-        AppBannerArt(Modifier.fillMaxHeight())
-        Spacer(Modifier.weight(1f))
+        AppBannerArt(Modifier.height(HomeShelfFit.sidebarLogo))
     }
 }

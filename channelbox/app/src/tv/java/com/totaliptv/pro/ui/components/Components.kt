@@ -41,6 +41,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -51,8 +52,8 @@ import androidx.tv.material3.Text
 import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
 import coil.compose.AsyncImage
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.splash.AppBannerArt
-import com.totaliptv.pro.ui.splash.DesktopBannerImageHeight
 import com.totaliptv.pro.ui.splash.SplashBranding
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.ClassicDimens
@@ -598,7 +599,9 @@ fun PosterCard(
     rating: String? = null,
     /** 1–99 watch progress percent; shows badge + thin bar (Continue watching / in-progress). */
     progressPercent: Int? = null,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    imageHeight: Dp? = null,
+    titleSlotHeight: Dp? = null
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(10.dp)
@@ -628,7 +631,10 @@ fun PosterCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(2f / 3f)
+                    .then(
+                        if (imageHeight != null) Modifier.height(imageHeight)
+                        else Modifier.aspectRatio(2f / 3f)
+                    )
                     .background(Color(0xFF0C1018)),
                 contentAlignment = Alignment.Center
             ) {
@@ -724,7 +730,11 @@ fun PosterCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)
+                modifier = if (titleSlotHeight != null) {
+                    Modifier.height(titleSlotHeight).padding(horizontal = 6.dp, vertical = 2.dp)
+                } else {
+                    Modifier.padding(horizontal = 6.dp, vertical = 5.dp)
+                }
             )
             if (!subtitle.isNullOrBlank()) {
                 Text(
@@ -963,25 +973,21 @@ fun AppTopNav(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .height(HomeShelfFit.classicNav)
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            modifier = Modifier.padding(end = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            // Half-height 16:9 frame (56.dp × ~100.dp). Image only; version stays in Settings.
-            AppBannerArt(
-                modifier = Modifier.height(DesktopBannerImageHeight),
-                contentDescription = brandTitle.ifBlank { SplashBranding.APP_TITLE }
-            )
-            Text(
-                text = clockText,
-                style = MaterialTheme.typography.labelSmall,
-                color = OnCinemaMuted,
-                maxLines = 1
-            )
-        }
+        AppBannerArt(
+            modifier = Modifier.height(HomeShelfFit.classicLogo),
+            contentDescription = brandTitle.ifBlank { SplashBranding.APP_TITLE }
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = clockText,
+            style = MaterialTheme.typography.labelSmall,
+            color = OnCinemaMuted,
+            maxLines = 1
+        )
         Spacer(Modifier.weight(0.35f))
         Row(
             horizontalArrangement = Arrangement.spacedBy(4.dp),

@@ -67,6 +67,7 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.dvr.DvrRecordUi
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.components.DpadSearchField
 import com.totaliptv.pro.ui.components.SearchTyping
 import com.totaliptv.pro.ui.player.GameDayPicker
@@ -143,9 +144,9 @@ fun HomePane(
         var focused = false
         for (attempt in 0 until 8) {
             val rowOrdinal = when (scope) {
-                "desk-cw" -> 1
-                "desk-movies" -> 2
-                "desk-series" -> 3
+                "desk-cw" -> 0
+                "desk-movies" -> 1
+                "desk-series" -> 2
                 else -> 0
             }
             runCatching { homeListState.scrollToItem(rowOrdinal) }
@@ -184,18 +185,10 @@ fun HomePane(
     LazyColumn(
         state = homeListState,
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(TipDimens.dp(20))
+        verticalArrangement = Arrangement.spacedBy(HomeShelfFit.desktopRowGap)
     ) {
         item {
-            PaneTitle("Home")
-            Text(
-                "Continue watching and top picks from your catalog",
-                color = TipGoldMuted,
-                fontSize = TipDimens.BodyMediumSp
-            )
-        }
-        item {
-            SectionHeader("Continue watching")
+            HomeShelfHeader("Continue watching")
             if (resume.isEmpty()) {
                 Box(
                     Modifier
@@ -218,14 +211,16 @@ fun HomePane(
                         DesktopPosterCard(
                             entry.toMediaItem(),
                             onClick = { onResume(entry, index) },
-                            focusRequester = posterFocus("desk-cw", entry.id)
+                            focusRequester = posterFocus("desk-cw", entry.id),
+                            imageHeight = HomeShelfFit.desktopPosterImage,
+                            titleSlotHeight = HomeShelfFit.desktopPosterTitle
                         )
                     }
                 }
             }
         }
         item {
-            SectionHeader(top.title)
+            HomeShelfHeader(top.title)
             if (top.items.isEmpty()) {
                 Text("No movies in catalog yet.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
             } else {
@@ -237,14 +232,16 @@ fun HomePane(
                         DesktopPosterCard(
                             item,
                             onClick = { onPlay(item, index) },
-                            focusRequester = posterFocus("desk-movies", item.id)
+                            focusRequester = posterFocus("desk-movies", item.id),
+                            imageHeight = HomeShelfFit.desktopPosterImage,
+                            titleSlotHeight = HomeShelfFit.desktopPosterTitle
                         )
                     }
                 }
             }
         }
         item {
-            SectionHeader(topSeries.title)
+            HomeShelfHeader(topSeries.title)
             if (topSeries.items.isEmpty()) {
                 Text("No series in catalog yet.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
             } else {
@@ -256,17 +253,28 @@ fun HomePane(
                         DesktopPosterCard(
                             item,
                             onClick = { onOpenSeries(item, index) },
-                            focusRequester = posterFocus("desk-series", item.id)
+                            focusRequester = posterFocus("desk-series", item.id),
+                            imageHeight = HomeShelfFit.desktopPosterImage,
+                            titleSlotHeight = HomeShelfFit.desktopPosterTitle
                         )
                     }
                 }
             }
         }
-        if (!warning.isNullOrBlank()) {
-            item { Text(warning, color = TipAccent, fontSize = TipDimens.sp(12)) }
-        }
-        item { Spacer(Modifier.height(TipDimens.dp(24))) }
     }
+}
+
+@Composable
+private fun HomeShelfHeader(text: String) {
+    Text(
+        text,
+        color = TipGoldText,
+        fontSize = TipDimens.sp(13),
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.height(HomeShelfFit.desktopRowHeader)
+    )
 }
 
 @Composable

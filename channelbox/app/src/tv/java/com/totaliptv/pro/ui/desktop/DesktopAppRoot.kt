@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.nav.TvBack
 import androidx.compose.ui.text.font.FontWeight
 import com.totaliptv.pro.TotalIptvProApp
@@ -292,7 +293,6 @@ fun DesktopAppRoot(
                     }
                 }
                 Column(Modifier.fillMaxSize()) {
-                    TopBanner()
                     Row(Modifier.weight(1f).fillMaxWidth()) {
                         DesktopSidebar(
                             section = section,
@@ -341,14 +341,24 @@ fun DesktopAppRoot(
                                 .weight(1f)
                                 .fillMaxHeight()
                                 .then(
-                                    if (section == DesktopNavSection.GUIDE) Modifier
-                                    else Modifier.padding(TipDimens.ContentPad)
+                                    when (section) {
+                                        DesktopNavSection.GUIDE -> Modifier
+                                        DesktopNavSection.HOME -> Modifier.padding(
+                                            start = TipDimens.ContentPad,
+                                            end = TipDimens.ContentPad,
+                                            top = HomeShelfFit.desktopContentPadTop,
+                                            bottom = HomeShelfFit.desktopContentPadBottom
+                                        )
+                                        else -> Modifier.padding(TipDimens.ContentPad)
+                                    }
                                 )
                         ) {
-                            statusMessage?.let {
-                                Text(it, color = TipAccent, fontSize = TipDimens.BodyMediumSp, modifier = Modifier.padding(bottom = TipDimens.dp(8)))
+                            if (section != DesktopNavSection.HOME) {
+                                statusMessage?.let {
+                                    Text(it, color = TipAccent, fontSize = TipDimens.BodyMediumSp, modifier = Modifier.padding(bottom = TipDimens.dp(8)))
+                                }
                             }
-                            if (vodLoading) {
+                            if (vodLoading && section != DesktopNavSection.HOME) {
                                 Text("Loading movies & series…", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
                             }
                             when (section) {
@@ -569,9 +579,7 @@ private fun DesktopSidebar(
             .padding(TipDimens.SidebarPad),
         verticalArrangement = Arrangement.spacedBy(TipDimens.NavGap)
     ) {
-        Text("TOTAL IPTV PRO", color = TipAmber, fontWeight = FontWeight.Bold, fontSize = TipDimens.TitleMediumSp)
-        Text("Android TV", color = TipGoldMuted, fontSize = TipDimens.SubBrandSp)
-        Spacer(Modifier.height(TipDimens.dp(12)))
+        SidebarBrand()
         items.forEach { (sec, label) ->
             val selected = section == sec
             TipFocusable(
