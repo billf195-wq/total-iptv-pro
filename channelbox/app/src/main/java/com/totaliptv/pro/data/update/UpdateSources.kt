@@ -14,7 +14,8 @@ object UpdateSources {
 
     private const val TV_PREFIX = "TotalIPTVPro-android-tv-"
     private const val PHONE_PREFIX = "TotalIPTVPro-android-phone-"
-    private const val DEBUG_APK_SUFFIX = "-debug.apk"
+    /** Uploaded debug builds, and release builds signed with the permanent key. */
+    private val APK_SUFFIXES = listOf("-debug.apk", "-release.apk")
 
     data class Asset(val name: String, val url: String)
 
@@ -64,11 +65,12 @@ object UpdateSources {
             "tv" -> TV_PREFIX
             else -> return null
         }
-        val lower = name.trim().lowercase()
+        val trimmed = name.trim()
+        val lower = trimmed.lowercase()
         val prefixLower = prefix.lowercase()
-        val suffixLower = DEBUG_APK_SUFFIX.lowercase()
-        if (!lower.startsWith(prefixLower) || !lower.endsWith(suffixLower)) return null
-        val version = name.trim().substring(prefixLower.length, name.trim().length - suffixLower.length)
+        if (!lower.startsWith(prefixLower)) return null
+        val suffix = APK_SUFFIXES.firstOrNull { lower.endsWith(it) } ?: return null
+        val version = trimmed.substring(prefix.length, trimmed.length - suffix.length)
         return version.takeIf { it.isNotBlank() }
     }
 

@@ -103,4 +103,55 @@ class UpdateSourcesTest {
         )
         assertNull(UpdateSources.nextPageUrl(null))
     }
+
+    @Test
+    fun acceptsDebugAndReleaseApkNames() {
+        assertEquals(
+            "1.4.70",
+            UpdateSources.versionFromAsset("TotalIPTVPro-android-tv-1.4.70-debug.apk", "tv")
+        )
+        assertEquals(
+            "1.4.71",
+            UpdateSources.versionFromAsset("TotalIPTVPro-android-tv-1.4.71-release.apk", "tv")
+        )
+        assertEquals(
+            "1.4.48",
+            UpdateSources.versionFromAsset("TotalIPTVPro-android-phone-1.4.48-release.apk", "phone")
+        )
+        assertNull(UpdateSources.versionFromAsset("TotalIPTVPro-android-tv-1.4.71.apk", "tv"))
+        assertNull(UpdateSources.versionFromAsset("TotalIPTVPro-android-tv-1.4.71-release.apk", "phone"))
+        val release = UpdateSources.ReleaseListing(
+            assets = listOf(
+                UpdateSources.Asset(
+                    "TotalIPTVPro-android-tv-1.4.71-release.apk",
+                    "https://example.com/TotalIPTVPro-android-tv-1.4.71-release.apk"
+                )
+            )
+        )
+        val picked = UpdateSources.pickNewerApk(listOf(release), "tv", "1.4.70")
+        assertEquals("1.4.71", picked?.versionName)
+        assertEquals(
+            "https://example.com/TotalIPTVPro-android-tv-1.4.71-release.apk",
+            picked?.url
+        )
+    }
+
+    @Test
+    fun releaseSigningStaysOutOfGit() {
+        val gradle = java.io.File("build.gradle.kts").readText()
+        assertTrue(gradle.contains("TIP_KEYSTORE_PATH"))
+        assertTrue(gradle.contains("TIP_KEYSTORE_PASSWORD"))
+        assertTrue(gradle.contains("TIP_KEY_ALIAS"))
+        assertTrue(gradle.contains("TIP_KEY_PASSWORD"))
+        assertTrue(gradle.contains("TotalIPTVPro-android-\$flavorName-\$assetVersion-release.apk"))
+        assertTrue(gradle.contains("signingConfigs.getByName(\"debug\")"))
+        val gitignore = java.io.File("../../.gitignore").readText()
+        assertTrue(gitignore.contains("*.jks"))
+        assertTrue(gitignore.contains("*.keystore"))
+        assertTrue(gitignore.contains("keystore.properties"))
+        val readme = java.io.File("../README.md").readText()
+        assertTrue(readme.contains("keytool"))
+        assertTrue(readme.contains("TIP_KEYSTORE_PATH"))
+        assertTrue(readme.contains("outside"))
+    }
 }

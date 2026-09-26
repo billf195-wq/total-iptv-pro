@@ -35,6 +35,54 @@ APKs:
 - `app/build/outputs/apk/tv/debug/app-tv-debug.apk`
 - `app/build/outputs/apk/phone/debug/app-phone-debug.apk`
 
+## Release signing
+
+Release APKs use one keystore so a build from any machine installs over the last release. The keystore file and its passwords stay outside git. Do not commit them.
+
+Create the key once. Back it up outside this repo (a password manager or an encrypted copy). Losing the key means you cannot update installs that were signed with it.
+
+```bash
+mkdir -p "$HOME/keys"
+keytool -genkeypair -v \
+  -storetype PKCS12 \
+  -keystore "$HOME/keys/total-iptv-pro-release.jks" \
+  -alias totaliptvpro \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+`keytool` asks for the store password and key password. Leave the file under `$HOME/keys` (or another path outside the repo).
+
+Build signed TV and phone release APKs:
+
+```bash
+export TIP_KEYSTORE_PATH="$HOME/keys/total-iptv-pro-release.jks"
+export TIP_KEYSTORE_PASSWORD="the store password"
+export TIP_KEY_ALIAS="totaliptvpro"
+export TIP_KEY_PASSWORD="the key password"
+cd channelbox
+./gradlew :app:assembleTvRelease :app:assemblePhoneRelease
+```
+
+The same four values can live in `channelbox/keystore.properties`, which is gitignored. Environment variables override the file.
+
+```
+storeFile=/absolute/path/to/total-iptv-pro-release.jks
+storePassword=the store password
+keyAlias=totaliptvpro
+keyPassword=the key password
+```
+
+`storeFile` may be absolute, or relative to `channelbox/`.
+
+If the keystore is missing, the release build still finishes and Gradle prints a warning. Those APKs are signed with the debug key, so they will not install over a release signed on another machine.
+
+Release output:
+
+- `app/build/outputs/apk/tv/release/TotalIPTVPro-android-tv-<ver>-release.apk`
+- `app/build/outputs/apk/phone/release/TotalIPTVPro-android-phone-<ver>-release.apk`
+
+The phone `versionName` ends in `-phone`. The file name uses the numeric version only. The in-app updater accepts both `TotalIPTVPro-android-*-<ver>-debug.apk` and `TotalIPTVPro-android-*-<ver>-release.apk`.
+
 ## Layout
 
 ```
