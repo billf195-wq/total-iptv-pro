@@ -205,7 +205,7 @@ fun HomeScreen(
     val seriesRow = remember(catalog) { pickTopRatedSeries(catalog) }
 
     LazyColumn(
-        modifier = modifier.fillMaxSize().padding(20.dp),
+        modifier = modifier.fillMaxSize().tvContentBackground().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         item {

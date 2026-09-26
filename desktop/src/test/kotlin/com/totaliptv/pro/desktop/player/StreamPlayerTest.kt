@@ -309,6 +309,8 @@ class StreamPlayerTest {
                 "--control=hotkeys",
                 "--key-leave-fullscreen=Unset",
                 "--key-quit=${StreamPlayer.LINUX_SPLIT_QUIT_KEYS}",
+                "--key-nav-left=Unset",
+                "--key-nav-right=Unset",
                 "--rc-host=127.0.0.1:4212",
                 "--meta-title=Total IPTV Pro — Left",
                 url

@@ -308,14 +308,41 @@ fun BrowseScreen(
                         ) {
                             Text("Stop Game Day", fontWeight = FontWeight.Bold, color = TipOnRecordActive)
                         }
-                    }
-                    TextButton(onClick = { onSplitAudioLeft(true) }) {
-                        Text(if (splitAudioLeft) "Audio: Left" else "Audio left", color = TipOnBg)
-                    }
-                    TextButton(onClick = { onSplitAudioLeft(false) }) {
-                        Text(if (!splitAudioLeft) "Audio: Right" else "Audio right", color = TipOnBg)
-                    }
-                    if (AppPaths.isWindows) {
+                        Button(
+                            onClick = { onSplitAudioLeft(true) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (splitAudioLeft) TipBlue else TipSurfaceAlt,
+                                contentColor = if (splitAudioLeft) TipOnAmber else TipOnBg
+                            )
+                        ) {
+                            Text(
+                                "Sound: Left",
+                                fontWeight = if (splitAudioLeft) FontWeight.Bold else FontWeight.Medium,
+                                color = if (splitAudioLeft) TipOnAmber else TipOnBg
+                            )
+                        }
+                        Button(
+                            onClick = { onSplitAudioLeft(false) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (!splitAudioLeft) TipBlue else TipSurfaceAlt,
+                                contentColor = if (!splitAudioLeft) TipOnAmber else TipOnBg
+                            )
+                        ) {
+                            Text(
+                                "Sound: Right",
+                                fontWeight = if (!splitAudioLeft) FontWeight.Bold else FontWeight.Medium,
+                                color = if (!splitAudioLeft) TipOnAmber else TipOnBg
+                            )
+                        }
+                    } else {
+                        TextButton(onClick = { onSplitAudioLeft(true) }) {
+                            Text(if (splitAudioLeft) "Audio: Left" else "Audio left", color = TipOnBg)
+                        }
+                        TextButton(onClick = { onSplitAudioLeft(false) }) {
+                            Text(if (!splitAudioLeft) "Audio: Right" else "Audio right", color = TipOnBg)
+                        }
                         TextButton(onClick = onStopSplit) { Text("Stop split") }
                     }
                 }

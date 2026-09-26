@@ -46,6 +46,7 @@ import com.totaliptv.pro.desktop.update.AppUpdateManager
 import com.totaliptv.pro.desktop.util.AppPaths
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicInteger
@@ -636,13 +637,23 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         setSeriesSession(null)
     }
 
-    LaunchedEffect(splitSession) {
+    LaunchedEffect(splitSession != null) {
         if (AppPaths.isWindows) return@LaunchedEffect
-        val shown = splitSession ?: return@LaunchedEffect
-        while (splitSession === shown) {
-            if (StreamPlayer.splitSession == null) {
+        if (splitSession == null) return@LaunchedEffect
+        // The player mutates one session object. Remember the side we last
+        // showed, or a click in VLC never changes the highlighted button.
+        var displayed = splitSession?.activeAudio
+        while (isActive) {
+            val playerSession = StreamPlayer.splitSession
+            if (playerSession == null) {
                 stopPlayback()
                 break
+            }
+            val live = playerSession.activeAudio
+            if (live != displayed) {
+                displayed = live
+                val current = splitSession ?: break
+                splitSession = current.copy(activeAudio = live)
             }
             delay(250)
         }
@@ -668,7 +679,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
 
     fun switchSplitAudio(side: SplitSide) {
         StreamPlayer.switchSplitAudio(side)
-        splitSession = StreamPlayer.splitSession
+        val current = splitSession
+        splitSession = if (current != null) current.copy(activeAudio = side) else StreamPlayer.splitSession
     }
 
     fun playRecording(entry: RecordingEntry) {

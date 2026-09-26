@@ -1,5 +1,6 @@
 package com.totaliptv.pro.desktop.player
 
+import com.totaliptv.pro.desktop.player.SplitSide
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -143,6 +144,38 @@ class WindowPositionerTest {
         assertEquals(
             WindowPositioner.ScreenBounds(1920, 40, 1920, 993),
             LinuxX11WindowPlacer.usableWorkArea(dp1, gtk, null)
+        )
+    }
+
+    @Test
+    fun linuxSplitAudioFollowsFocusAndArrowKeys() {
+        val focus = LinuxX11WindowPlacer.SplitFocusAudio()
+        val left = 10L
+        val right = 20L
+        assertEquals(null, focus.onActive(right, left, right))
+        assertEquals(SplitSide.LEFT, focus.onActive(left, left, right))
+        assertEquals(null, focus.onActive(left, left, right))
+        assertEquals(SplitSide.RIGHT, focus.onActive(right, left, right))
+        assertEquals(null, focus.onActive(0L, left, right))
+        assertEquals(null, LinuxX11WindowPlacer.splitSideForWindow(99L, left, right))
+        assertEquals(SplitSide.LEFT, LinuxX11WindowPlacer.splitSideForKeysym(0xff51L))
+        assertEquals(SplitSide.RIGHT, LinuxX11WindowPlacer.splitSideForKeysym(0xff53L))
+        assertEquals(null, LinuxX11WindowPlacer.splitSideForKeysym(0x71L))
+        assertEquals(null, LinuxX11WindowPlacer.splitSideForKeysym(0xff1bL))
+        assertEquals(null, LinuxX11WindowPlacer.splitSideForKey(0xff51L, state = 4))
+        val child = 30L
+        val known = mapOf(child to SplitSide.RIGHT)
+        assertEquals(
+            SplitSide.RIGHT,
+            LinuxX11WindowPlacer.splitSideForPressedWindow(child, emptyList(), known, left, right)
+        )
+        assertEquals(
+            SplitSide.LEFT,
+            LinuxX11WindowPlacer.splitSideForPressedWindow(40L, listOf(left), emptyMap(), left, right)
+        )
+        assertEquals(
+            null,
+            LinuxX11WindowPlacer.splitSideForPressedWindow(40L, listOf(99L), emptyMap(), left, right)
         )
     }
 
