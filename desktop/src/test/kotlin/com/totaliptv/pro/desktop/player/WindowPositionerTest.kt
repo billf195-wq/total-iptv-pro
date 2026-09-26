@@ -148,15 +148,46 @@ class WindowPositionerTest {
     }
 
     @Test
-    fun linuxSplitAudioFollowsFocus() {
-        val focus = LinuxX11WindowPlacer.SplitFocusAudio()
+    fun linuxSplitAudioStaysLeftUntilFocusIsStable() {
         val left = 10L
         val right = 20L
-        assertEquals(null, focus.onActive(right, left, right))
-        assertEquals(SplitSide.LEFT, focus.onActive(left, left, right))
-        assertEquals(null, focus.onActive(left, left, right))
-        assertEquals(SplitSide.RIGHT, focus.onActive(right, left, right))
-        assertEquals(null, focus.onActive(0L, left, right))
+        val grace = LinuxX11WindowPlacer.FOCUS_STABLE_MS
+        val focus = LinuxX11WindowPlacer.SplitFocusAudio()
+
+        assertEquals(null, focus.onActive(right, left, right, nowMs = 490))
+        focus.noteBothPlaced(true)
+        assertEquals(null, focus.onActive(right, left, right, nowMs = 500))
+        assertEquals(null, focus.onActive(right, left, right, nowMs = 500 + grace - 1))
+        assertEquals(null, focus.onActive(right, left, right, nowMs = 500 + grace))
+        assertEquals(right, focus.consumeBaseline())
+        assertEquals(null, focus.onActive(right, left, right, nowMs = 500 + grace + 200))
+        assertEquals(SplitSide.LEFT, focus.onActive(left, left, right, nowMs = 500 + grace + 400))
+
+        val reset = LinuxX11WindowPlacer.SplitFocusAudio()
+        reset.noteBothPlaced(true)
+        assertEquals(null, reset.onActive(left, left, right, nowMs = 0))
+        assertEquals(null, reset.onActive(right, left, right, nowMs = 400))
+        assertEquals(null, reset.onActive(right, left, right, nowMs = 400 + grace - 1))
+        assertEquals(null, reset.onActive(right, left, right, nowMs = 400 + grace))
+        assertEquals(right, reset.consumeBaseline())
+        assertEquals(null, reset.onActive(right, left, right, nowMs = 400 + grace + 10))
+    }
+
+    @Test
+    fun linuxSplitAudioClickEndsTheStartupGrace() {
+        val left = 10L
+        val right = 20L
+        val focus = LinuxX11WindowPlacer.SplitFocusAudio()
+        focus.noteBothPlaced(true)
+        assertEquals(null, focus.onActive(left, left, right, nowMs = 0))
+        assertEquals(null, focus.onPointerButton(down = true, window = right, leftWindow = left, rightWindow = right))
+        assertEquals(null, focus.onPointerButton(down = false, window = 0L, leftWindow = left, rightWindow = right))
+        assertEquals(
+            SplitSide.RIGHT,
+            focus.onPointerButton(down = true, window = right, leftWindow = left, rightWindow = right)
+        )
+        assertEquals(null, focus.onActive(right, left, right, nowMs = 80))
+        assertEquals(SplitSide.LEFT, focus.onActive(left, left, right, nowMs = 90))
         assertEquals(null, LinuxX11WindowPlacer.splitSideForWindow(99L, left, right))
         val placer = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/LinuxX11WindowPlacer.kt")
         val text = placer.readText()

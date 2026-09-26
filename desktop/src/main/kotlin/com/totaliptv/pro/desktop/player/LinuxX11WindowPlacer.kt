@@ -17,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -52,6 +53,11 @@ object LinuxX11WindowPlacer {
     private const val CW_OVERRIDE_REDIRECT = 512L
     private const val MIN_VIDEO_PX = 80
     private const val PLACEMENT_TOLERANCE_PX = 4
+    /** Button1Mask | Button2Mask | Button3Mask. Polled; VLC already owns click events. */
+    private const val POINTER_BUTTON_MASK = 0x700
+    /** After both halves are placed, focus must sit still this long before it can switch audio. */
+    internal const val FOCUS_STABLE_MS = 1_500L
+    private val placedPids = ConcurrentHashMap.newKeySet<Long>()
     private val handlerInstalled = AtomicBoolean(false)
     private val swallowXErrors = object : X11ErrorHandler {
         override fun handle(display: Pointer?, error: Pointer?): Int = 0
@@ -87,6 +93,7 @@ object LinuxX11WindowPlacer {
                         return true
                     }
                     is PlaceResult.Placed -> {
+                        placedPids.add(pid)
                         if (!loggedPlace) {
                             PlaybackDebugLog.note(
                                 "split-x11: placed pid=$pid via ${result.pidSource} " +
@@ -330,24 +337,79 @@ object LinuxX11WindowPlacer {
      * An empty list means the WM published nothing yet, so wait.
      */
     /**
-     * First reading of the focused window does not move the audio, so Game Day
-     * still starts on the left. A later focus change onto a split window does.
+     * Focus changes while GNOME is opening the two windows are not user input.
+     * Audio stays where playback started (left) until both windows are placed
+     * and the focused window has been the same for [FOCUS_STABLE_MS]. That
+     * reading becomes the baseline and does not itself switch audio. A pointer
+     * button press on one video window ends the wait and selects that side.
      */
     internal class SplitFocusAudio {
-        private var seeded = false
-        private var lastActive = 0L
+        private var bothPlaced = false
+        private var armed = false
+        private var baseline = 0L
+        private var candidate = 0L
+        private var candidateSince = 0L
+        private var pointerSeen = false
+        private var pointerDown = false
+        private var pendingBaseline = 0L
 
-        fun onActive(active: Long, leftWindow: Long, rightWindow: Long): SplitSide? {
-            if (!seeded) {
-                if (active != 0L) {
-                    lastActive = active
-                    seeded = true
-                }
+        fun noteBothPlaced(placed: Boolean) {
+            if (armed || placed == bothPlaced) return
+            bothPlaced = placed
+            candidate = 0L
+            candidateSince = 0L
+        }
+
+        /**
+         * Window id to log once, when the startup baseline is taken. Zero
+         * otherwise. Taking the baseline does not change which side is heard.
+         */
+        fun consumeBaseline(): Long {
+            val id = pendingBaseline
+            pendingBaseline = 0L
+            return id
+        }
+
+        fun onActive(active: Long, leftWindow: Long, rightWindow: Long, nowMs: Long): SplitSide? {
+            if (armed) {
+                if (active == 0L || active == baseline) return null
+                baseline = active
+                return splitSideForWindow(active, leftWindow, rightWindow)
+            }
+            if (!bothPlaced || leftWindow == 0L || rightWindow == 0L || active == 0L) return null
+            if (active != candidate) {
+                candidate = active
+                candidateSince = nowMs
                 return null
             }
-            if (active == 0L || active == lastActive) return null
-            lastActive = active
-            return splitSideForWindow(active, leftWindow, rightWindow)
+            if (nowMs - candidateSince < FOCUS_STABLE_MS) return null
+            baseline = active
+            armed = true
+            pendingBaseline = active
+            return null
+        }
+
+        /**
+         * Rising edge of a pointer button. The first sample only records the
+         * button so a press already in progress does not count.
+         */
+        fun onPointerButton(
+            down: Boolean,
+            window: Long,
+            leftWindow: Long,
+            rightWindow: Long
+        ): SplitSide? {
+            val seen = pointerSeen
+            val wasDown = pointerDown
+            pointerSeen = true
+            pointerDown = down
+            if (!seen || !down || wasDown) return null
+            val side = splitSideForWindow(window, leftWindow, rightWindow) ?: return null
+            baseline = window
+            candidate = window
+            armed = true
+            pendingBaseline = 0L
+            return side
         }
     }
 
@@ -433,10 +495,8 @@ object LinuxX11WindowPlacer {
 
     /**
      * While a Linux split is up, a focus change onto one video window selects
-     * that side's audio. Mouse clicks are left to VLC; a real click still
-     * moves focus, which is what switches the sound. Left and Right are not
-     * watched here. The first focus reading is ignored so playback still
-     * starts on the left.
+     * that side's audio after startup has settled. GNOME focusing the new
+     * right window is ignored. Left and Right keys are not watched here.
      */
     fun watchSplitInput(scope: CoroutineScope, left: Process, right: Process, onSide: (SplitSide) -> Unit) {
         if (System.getenv("DISPLAY").isNullOrBlank() || Native.LONG_SIZE != 8) return
@@ -454,11 +514,32 @@ object LinuxX11WindowPlacer {
                     }
                     val leftWindow = managedVideoWindow(x11, dpy, root, left.pid()) ?: 0L
                     val rightWindow = managedVideoWindow(x11, dpy, root, right.pid()) ?: 0L
-                    val active = readActiveWindow(x11, dpy, root)
-                    val focused = focus.onActive(active, leftWindow, rightWindow)
-                    if (focused != null) {
-                        PlaybackDebugLog.note("split-x11: audio ${focused.name} from focus")
-                        onSide(focused)
+                    focus.noteBothPlaced(
+                        placedPids.contains(left.pid()) && placedPids.contains(right.pid())
+                    )
+                    val pointer = pointerOverSplit(x11, dpy, leftWindow, rightWindow)
+                    val clicked = focus.onPointerButton(pointer.first, pointer.second, leftWindow, rightWindow)
+                    val focused = if (clicked != null) {
+                        null
+                    } else {
+                        focus.onActive(
+                            readActiveWindow(x11, dpy, root),
+                            leftWindow,
+                            rightWindow,
+                            System.nanoTime() / 1_000_000L
+                        )
+                    }
+                    val baseline = focus.consumeBaseline()
+                    if (baseline != 0L) {
+                        PlaybackDebugLog.note(
+                            "split-x11: focus baseline 0x${baseline.toString(16)}; audio stays on the current side"
+                        )
+                    }
+                    val side = clicked ?: focused
+                    if (side != null) {
+                        val how = if (clicked != null) "click" else "focus"
+                        PlaybackDebugLog.note("split-x11: audio ${side.name} from $how")
+                        onSide(side)
                     }
                     delay(150)
                 }
@@ -468,6 +549,57 @@ object LinuxX11WindowPlacer {
                 runCatching { x11.XCloseDisplay(dpy) }
             }
         }
+    }
+
+    /**
+     * Button state without selecting events on VLC's windows. [second] is the
+     * video window under the pointer, or 0.
+     */
+    private fun pointerOverSplit(
+        x11: X11Lib,
+        dpy: Pointer,
+        leftWindow: Long,
+        rightWindow: Long
+    ): Pair<Boolean, Long> {
+        var down = false
+        var hit = 0L
+        var saw = false
+        for (window in longArrayOf(leftWindow, rightWindow)) {
+            if (window == 0L) continue
+            val sample = queryPointer(x11, dpy, window) ?: continue
+            saw = true
+            down = sample.first
+            if (sample.second) hit = window
+        }
+        if (!saw) return false to 0L
+        return down to hit
+    }
+
+    /** Button down, and whether the pointer is inside [window]. */
+    private fun queryPointer(x11: X11Lib, dpy: Pointer, window: Long): Pair<Boolean, Boolean>? {
+        val rootReturn = NativeLongByReference()
+        val childReturn = NativeLongByReference()
+        val rootX = IntByReference()
+        val rootY = IntByReference()
+        val winX = IntByReference()
+        val winY = IntByReference()
+        val mask = IntByReference()
+        val ok = x11.XQueryPointer(
+            dpy,
+            NativeLong(window),
+            rootReturn,
+            childReturn,
+            rootX,
+            rootY,
+            winX,
+            winY,
+            mask
+        )
+        if (ok == 0) return null
+        val down = mask.value and POINTER_BUTTON_MASK != 0
+        val size = geometry(x11, dpy, window) ?: return down to false
+        val inside = winX.value >= 0 && winY.value >= 0 && winX.value < size.first && winY.value < size.second
+        return down to inside
     }
 
     private fun placePid(pid: Long, requested: ScreenBounds): PlaceResult {
@@ -1016,6 +1148,18 @@ internal interface X11Lib : Library {
     fun XMoveResizeWindow(display: Pointer, window: NativeLong, x: Int, y: Int, width: Int, height: Int): Int
     fun XFlush(display: Pointer): Int
     fun XSync(display: Pointer, discard: Int): Int
+    fun XQueryPointer(
+        display: Pointer,
+        window: NativeLong,
+        rootReturn: NativeLongByReference,
+        childReturn: NativeLongByReference,
+        rootX: IntByReference,
+        rootY: IntByReference,
+        winX: IntByReference,
+        winY: IntByReference,
+        mask: IntByReference
+    ): Int
+
     fun XSendEvent(
         display: Pointer,
         window: NativeLong,
