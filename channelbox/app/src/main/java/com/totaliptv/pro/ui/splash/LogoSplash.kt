@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,15 +29,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -64,12 +57,6 @@ object SplashBranding {
     const val BANNER_ASPECT_RATIO = 1280f / 720f
 
     fun versionLabel(versionName: String): String = versionName.trim()
-
-    /** Short label overlaid on the banner, e.g. "v1.4.64". */
-    fun bannerVersionLabel(versionName: String): String {
-        val version = versionLabel(versionName)
-        return if (version.isEmpty()) "" else "v$version"
-    }
 }
 
 /**
@@ -79,41 +66,9 @@ object SplashBranding {
 val DesktopBannerRowHeight = 128.dp
 val DesktopBannerImageHeight = 112.dp
 
-/** Amber version on a dark-amber pill. 12.sp, tight padding, not affected by TV font scale. */
-@Composable
-fun BannerVersionBadge(
-    versionName: String,
-    modifier: Modifier = Modifier
-) {
-    val label = SplashBranding.bannerVersionLabel(versionName)
-    if (label.isEmpty()) return
-    val density = LocalDensity.current
-    CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 1f)) {
-        Box(
-            modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(Color(0xFF1A1200).copy(alpha = 0.88f))
-                .padding(horizontal = 8.dp, vertical = 3.dp)
-        ) {
-            Text(
-                text = label,
-                color = Color(0xFFFFB300),
-                style = TextStyle(
-                    color = Color(0xFFFFB300),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    lineHeight = 14.sp,
-                    platformStyle = PlatformTextStyle(includeFontPadding = false)
-                ),
-                maxLines = 1
-            )
-        }
-    }
-}
-
 /**
- * The full banner image. The title is painted in the asset. The version pill is
- * clipped to the image's lower-right, clear of that title.
+ * The banner image only. The app name is painted in the asset. The version
+ * stays in Settings, not on this image.
  *
  * Pass a height (or [Modifier.fillMaxHeight] inside the 128.dp row) and leave
  * [matchHeightConstraintsFirst] true so width follows 16:9. Splash passes a
@@ -122,7 +77,6 @@ fun BannerVersionBadge(
 @Composable
 fun AppBannerArt(
     modifier: Modifier = Modifier,
-    versionName: String = BuildConfig.VERSION_NAME,
     contentDescription: String = SplashBranding.APP_TITLE,
     matchHeightConstraintsFirst: Boolean = true
 ) {
@@ -137,12 +91,6 @@ fun AppBannerArt(
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Fit,
             alignment = Alignment.CenterStart
-        )
-        BannerVersionBadge(
-            versionName = versionName,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 8.dp, bottom = 6.dp)
         )
     }
 }

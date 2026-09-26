@@ -1,7 +1,6 @@
 package com.totaliptv.pro.ui.components
 
 import androidx.compose.foundation.background
-import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.R
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
@@ -972,8 +971,7 @@ fun AppTopNav(
     userBadge: String? = null,
     sourceKind: String? = null,
     focusRequester: FocusRequester? = null,
-    modifier: Modifier = Modifier,
-    versionName: String = BuildConfig.VERSION_NAME
+    modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
@@ -985,11 +983,9 @@ fun AppTopNav(
             modifier = Modifier.padding(end = 14.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // Full 16:9 frame (112.dp × ~199.dp). A short crop zoomed the baked-in title
-            // and dropped the version pill onto the black page under the image.
+            // Full 16:9 frame (112.dp × ~199.dp). Image only; version stays in Settings.
             AppBannerArt(
                 modifier = Modifier.height(DesktopBannerImageHeight),
-                versionName = versionName,
                 contentDescription = brandTitle.ifBlank { SplashBranding.APP_TITLE }
             )
             Text(
