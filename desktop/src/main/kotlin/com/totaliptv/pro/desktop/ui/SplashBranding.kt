@@ -25,6 +25,12 @@ object SplashBranding {
 
     fun versionLabel(versionName: String): String = versionName.trim()
 
+    /** Short label overlaid on the top-bar banner, e.g. "v1.2.22". */
+    fun bannerVersionLabel(versionName: String): String {
+        val version = versionLabel(versionName)
+        return if (version.isEmpty()) "" else "v$version"
+    }
+
     /** Taskbar / window title so Linux (GTR) can confirm the running build without reading the splash. */
     fun windowTitle(versionName: String): String {
         val version = versionLabel(versionName)
@@ -56,6 +62,30 @@ fun SplashBrandTitle(
         SplashVersionChip(
             versionName = versionName,
             fontSize = versionSize
+        )
+    }
+}
+
+/** Small amber version on a dark pill, for a corner of the top-bar banner. */
+@Composable
+fun BannerVersionBadge(
+    versionName: String,
+    modifier: Modifier = Modifier
+) {
+    val label = SplashBranding.bannerVersionLabel(versionName)
+    if (label.isEmpty()) return
+    Box(
+        modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(TipOnAmber.copy(alpha = 0.88f))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    ) {
+        Text(
+            text = label,
+            color = TipBlue,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            maxLines = 1
         )
     }
 }
