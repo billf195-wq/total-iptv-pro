@@ -34,7 +34,7 @@ fun RecordingsScreen(
     onStop: () -> Unit,
     onCancelSchedule: (ScheduledRecording) -> Unit
 ) {
-    Column(Modifier.fillMaxSize().padding(20.dp)) {
+    Column(Modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.VideoLibrary, null, tint = TipBlue)
             Spacer(Modifier.width(8.dp))

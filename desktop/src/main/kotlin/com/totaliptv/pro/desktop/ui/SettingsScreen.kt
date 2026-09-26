@@ -154,6 +154,7 @@ fun SettingsScreen(
     Column(
         Modifier
             .fillMaxSize()
+            .tvContentBackground()
             .padding(20.dp)
             .verticalScroll(rememberScrollState())
     ) {

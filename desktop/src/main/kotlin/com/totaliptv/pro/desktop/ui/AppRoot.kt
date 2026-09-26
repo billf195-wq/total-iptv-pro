@@ -1,6 +1,5 @@
 package com.totaliptv.pro.desktop.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -868,7 +867,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 )
             }
             loading && catalog == null -> {
-                Box(Modifier.fillMaxSize().background(TipBg), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().tvContentBackground(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = TipBlue)
                         Spacer(Modifier.height(16.dp))
@@ -878,7 +877,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 }
             }
             catalog == null && error != null -> {
-                Box(Modifier.fillMaxSize().background(TipBg), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().tvContentBackground(), contentAlignment = Alignment.Center) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.padding(24.dp)
@@ -1000,7 +999,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 }
             }
             else -> {
-                Box(Modifier.fillMaxSize().background(TipBg), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().tvContentBackground(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = TipBlue)
                 }
             }

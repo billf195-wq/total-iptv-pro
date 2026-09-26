@@ -759,7 +759,7 @@ private fun FavoritesPane(
         }
     }
 
-    Column(modifier.fillMaxSize().padding(20.dp)) {
+    Column(modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Text("Favorites", style = MaterialTheme.typography.headlineMedium, color = TipOnBg)
         Text(
             "Movies and series you’ve marked with a heart",

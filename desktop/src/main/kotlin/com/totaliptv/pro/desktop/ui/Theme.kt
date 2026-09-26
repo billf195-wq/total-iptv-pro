@@ -35,8 +35,8 @@ val TipOnAmber = Color(0xFF1A1200)
 val TipRecordActive = Color(0xFFE53935)
 val TipOnRecordActive = Color(0xFFFFFFFF)
 
-// Page fill used by splash, loading, and light-theme chrome. Cards stay on DarkTipSurface.
-val DarkTipBg = Color(0xFF0B0F14)
+// Dark screen fill. Flat black, same as the content. Cards stay on DarkTipSurface.
+val DarkTipBg = Color(0xFF000000)
 val DarkTipSurface = Color(0xFF141A22)
 val DarkTipSurfaceAlt = Color(0xFF1C2430)
 /** Light-theme top bar and sidebar. Dark theme uses flat black instead. */
@@ -80,7 +80,7 @@ private val DarkColors = darkColorScheme(
     onPrimary = TipOnAmber,
     secondary = TipAccent,
     onSecondary = TipOnAmber,
-    background = DarkTipBg,
+    background = TipContentBlack,
     onBackground = TipGoldText,
     surface = DarkTipSurface,
     onSurface = TipGoldText,
@@ -117,7 +117,7 @@ private fun tipTypography(onBg: Color) = Typography(
 fun TipTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
     val onBg: Color
     if (darkTheme) {
-        TipBg = DarkTipBg
+        TipBg = TipContentBlack
         TipSurface = DarkTipSurface
         TipSurfaceAlt = DarkTipSurfaceAlt
         TipOnBg = TipGoldText

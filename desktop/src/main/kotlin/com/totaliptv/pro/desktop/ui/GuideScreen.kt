@@ -87,7 +87,7 @@ fun GuideScreen(
     }
     val liveNow = remember(tick) { GuideTime.nowMs() }
 
-    Column(Modifier.fillMaxSize().padding(20.dp)) {
+    Column(Modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Schedule, null, tint = TipBlue)
             Spacer(Modifier.width(8.dp))
