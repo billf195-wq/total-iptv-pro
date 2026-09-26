@@ -73,6 +73,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
 
     var epgByStreamId by remember { mutableStateOf<Map<Int, ChannelEpg>>(emptyMap()) }
     var epgLoadingIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var epgFetchedLimit by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+    var epgWantedLimit by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
     var resumeEntries by remember { mutableStateOf(ResumeStore.load()) }
     var splitSession by remember { mutableStateOf<SplitSession?>(null) }
     var splitDialogOpen by remember { mutableStateOf(false) }
@@ -217,6 +219,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 vodError = null
                 epgByStreamId = emptyMap()
                 epgLoadingIds = emptySet()
+                epgFetchedLimit = emptyMap()
+                epgWantedLimit = emptyMap()
             } catch (t: Throwable) {
                 error = t.message ?: t.javaClass.simpleName
                 statusMessage = null
@@ -760,19 +764,27 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         }
     }
 
-    fun needEpg(item: MediaItem) {
+    fun needEpg(item: MediaItem, limit: Int = com.totaliptv.pro.desktop.data.GuideSpan.INITIAL_LISTING_LIMIT) {
         val sid = GuideKeys.of(item) ?: return
-        if (sid in epgByStreamId || sid in epgLoadingIds) return
+        val wanted = maxOf(epgWantedLimit[sid] ?: 0, limit)
+        epgWantedLimit = epgWantedLimit + (sid to wanted)
+        if ((epgFetchedLimit[sid] ?: 0) >= wanted) return
+        if (sid in epgLoadingIds) return
         scope.launch {
             epgLoadingIds = epgLoadingIds + sid
+            val fetchLimit = epgWantedLimit[sid] ?: wanted
             try {
                 val saved = PreferencesStore.load()
-                val epg = withContext(Dispatchers.IO) { repo.loadChannelEpg(saved, item) }
+                val epg = withContext(Dispatchers.IO) { repo.loadChannelEpg(saved, item, fetchLimit) }
                 epgByStreamId = epgByStreamId + (sid to epg)
+                epgFetchedLimit = epgFetchedLimit + (sid to fetchLimit)
             } catch (_: Throwable) {
                 epgByStreamId = epgByStreamId + (sid to ChannelEpg(sid, emptyList()))
+                epgFetchedLimit = epgFetchedLimit + (sid to fetchLimit)
             } finally {
                 epgLoadingIds = epgLoadingIds - sid
+                val still = epgWantedLimit[sid] ?: 0
+                if (still > (epgFetchedLimit[sid] ?: 0)) needEpg(item, still)
             }
         }
     }
@@ -979,13 +991,15 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         seriesDetail = null
                         vodDetail = null
                         epgByStreamId = emptyMap()
+                        epgFetchedLimit = emptyMap()
+                        epgWantedLimit = emptyMap()
                         persist(prefs.copy(onboarded = false))
                         showOnboarding = true
                         error = null
                         statusMessage = null
                     },
                     onSavePrefs = { persist(it) },
-                    onNeedEpg = { needEpg(it) },
+                    onNeedEpg = { item, limit -> needEpg(item, limit) },
                     onResumeEntry = { entry, media -> resumeEntry(entry, media) },
                     onRecordNow = { item, title, endMs -> recordNow(item, title, endMs) },
                     onStopRecording = { stopRecording() },

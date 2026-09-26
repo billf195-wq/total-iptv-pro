@@ -119,7 +119,7 @@ fun BrowseScreen(
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
     onSavePrefs: (SavedPrefs) -> Unit,
-    onNeedEpg: (MediaItem) -> Unit,
+    onNeedEpg: (MediaItem, Int) -> Unit,
     onResumeEntry: (ResumeStore.ResumeEntry, MediaItem?) -> Unit,
     playingSeriesId: Int? = null,
     playingSeason: Int? = null,
