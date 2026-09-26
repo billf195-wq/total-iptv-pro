@@ -45,6 +45,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.ui.components.DpadSearchField
+import com.totaliptv.pro.ui.components.isTelevisionUi
 import com.totaliptv.pro.data.LiveChannelMapping
 import com.totaliptv.pro.data.model.Category
 import com.totaliptv.pro.data.model.MediaItem
@@ -335,22 +337,37 @@ fun GameDayChannelPicker(
             color = PickerMuted
         )
         Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Search") },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = PickerText,
-                unfocusedTextColor = PickerText,
+        if (isTelevisionUi()) {
+            DpadSearchField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = "Search",
+                textStyle = androidx.compose.ui.text.TextStyle(color = PickerText),
+                placeholderColor = PickerMuted,
+                cursorColor = PickerFocus,
+                backgroundColor = Color(0xFF141414),
                 focusedBorderColor = PickerFocus,
-                unfocusedBorderColor = Color(0xFF444444),
-                focusedLabelColor = PickerFocus,
-                unfocusedLabelColor = PickerMuted,
-                cursorColor = PickerFocus
+                idleBorderColor = Color(0xFF444444),
+                downFocus = allFocus
             )
-        )
+        } else {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Search") },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = PickerText,
+                    unfocusedTextColor = PickerText,
+                    focusedBorderColor = PickerFocus,
+                    unfocusedBorderColor = Color(0xFF444444),
+                    focusedLabelColor = PickerFocus,
+                    unfocusedLabelColor = PickerMuted,
+                    cursorColor = PickerFocus
+                )
+            )
+        }
         Spacer(Modifier.height(8.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             item {

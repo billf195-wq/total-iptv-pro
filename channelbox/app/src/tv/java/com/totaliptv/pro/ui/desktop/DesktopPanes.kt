@@ -27,8 +27,9 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,7 +42,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +62,7 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.dvr.DvrRecordUi
+import com.totaliptv.pro.ui.components.DpadSearchField
 import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.data.update.AppUpdateChecker
 import com.totaliptv.pro.data.update.installLabel
@@ -263,15 +264,16 @@ fun LivePane(
         (context.applicationContext as TotalIptvProApp).dvr.snapshot
     }.collectAsState()
     var showGameDay by remember { mutableStateOf(false) }
+    val gameDayFocus = remember { FocusRequester() }
+    val chipFocus = remember { FocusRequester() }
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Live TV", color = TipGoldText, fontSize = TipDimens.HeadlineMediumSp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            AmberButton(label = "Game Day", onClick = { showGameDay = true })
-        }
+        Text(
+            "Live TV",
+            color = TipGoldText,
+            fontSize = TipDimens.HeadlineMediumSp,
+            fontWeight = FontWeight.SemiBold
+        )
         Spacer(Modifier.height(TipDimens.dp(8)))
         FilterBar(
             search = search,
@@ -280,20 +282,35 @@ fun LivePane(
             categoryId = categoryId,
             onCategory = onCategory,
             sort = null,
-            onSort = null
+            onSort = null,
+            chipFocus = chipFocus,
+            belowFocus = gameDayFocus
         )
+        // Directly above the channel list, so Up from the top channel lands here
+        // and does not have to cross the search field.
+        AmberButton(
+            label = "Game Day",
+            onClick = { showGameDay = true },
+            modifier = Modifier.focusRequester(gameDayFocus).focusProperties { up = chipFocus }
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
         Text("${filtered.size} channels", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
         Spacer(Modifier.height(TipDimens.dp(8)))
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(TipDimens.dp(6)),
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
-            items(filtered, key = { it.id }) { item ->
+            itemsIndexed(filtered, key = { _, it -> it.id }) { index, item ->
                 LiveRowItem(
                     item,
                     onClick = { onPlay(item) },
                     onRecord = { onRecord(item) },
-                    recordActive = DvrRecordUi.matches(dvrSnap.active, item.id, item.streamUrl)
+                    recordActive = DvrRecordUi.matches(dvrSnap.active, item.id, item.streamUrl),
+                    modifier = if (index == 0) {
+                        Modifier.focusProperties { up = gameDayFocus }
+                    } else {
+                        Modifier
+                    }
                 )
             }
         }
@@ -875,30 +892,44 @@ fun FilterBar(
     onCategory: (String?) -> Unit,
     sort: String?,
     onSort: ((String) -> Unit)?,
-    showSearch: Boolean = true
+    showSearch: Boolean = true,
+    chipFocus: FocusRequester? = null,
+    belowFocus: FocusRequester? = null
 ) {
+    val searchFocus = remember { FocusRequester() }
+    val internalChipFocus = remember { FocusRequester() }
+    val chips = chipFocus ?: internalChipFocus
     Column(Modifier.fillMaxWidth().padding(bottom = TipDimens.dp(12))) {
         if (showSearch) {
-            BasicTextField(
+            DpadSearchField(
                 value = search,
                 onValueChange = onSearch,
-                singleLine = true,
+                placeholder = "Search…",
                 textStyle = TextStyle(color = TipGoldText, fontSize = TipDimens.BodyLargeSp),
-                cursorBrush = SolidColor(TipAmber),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(TipSurface, RoundedCornerShape(TipDimens.PosterCorner))
-                    .padding(TipDimens.dp(12)),
-                decorationBox = { inner ->
-                    if (search.isEmpty()) Text("Search…", color = TipGoldMuted)
-                    inner()
-                }
+                placeholderColor = TipGoldMuted,
+                cursorColor = TipAmber,
+                backgroundColor = TipSurface,
+                focusedBorderColor = TipAmber,
+                shape = RoundedCornerShape(TipDimens.PosterCorner),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(TipDimens.dp(12)),
+                focusRequester = searchFocus,
+                downFocus = chips
             )
             Spacer(Modifier.height(TipDimens.dp(8)))
         }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
             item {
-                Chip("All", selected = categoryId == null, onClick = { onCategory(null) })
+                Chip(
+                    "All",
+                    selected = categoryId == null,
+                    onClick = { onCategory(null) },
+                    modifier = Modifier
+                        .focusRequester(chips)
+                        .focusProperties {
+                            if (showSearch) up = searchFocus
+                            if (belowFocus != null) down = belowFocus
+                        }
+                )
             }
             items(categories, key = { it.id }) { cat ->
                 Chip(cat.name, selected = categoryId == cat.id, onClick = { onCategory(cat.id) })
@@ -916,8 +947,13 @@ fun FilterBar(
 }
 
 @Composable
-private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
-    TipFocusable(onClick = onClick) { focused ->
+private fun Chip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    TipFocusable(onClick = onClick, modifier = modifier) { focused ->
         Text(
             label,
             color = when {
