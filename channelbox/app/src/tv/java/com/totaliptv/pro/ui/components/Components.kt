@@ -53,7 +53,8 @@ import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
-import com.totaliptv.pro.ui.splash.BannerVersionBadge
+import com.totaliptv.pro.ui.splash.AppBannerArt
+import com.totaliptv.pro.ui.splash.DesktopBannerImageHeight
 import com.totaliptv.pro.ui.splash.SplashBranding
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.ClassicDimens
@@ -981,32 +982,16 @@ fun AppTopNav(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(
-            modifier = Modifier
-                .width(210.dp)
-                .padding(end = 14.dp),
+            modifier = Modifier.padding(end = 14.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.app_banner),
-                    contentDescription = brandTitle.ifBlank { SplashBranding.APP_TITLE },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(8.dp)),
-                    contentScale = ContentScale.Crop,
-                    alignment = Alignment.CenterStart
-                )
-                BannerVersionBadge(
-                    versionName = versionName,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 6.dp, bottom = 4.dp)
-                )
-            }
+            // Full 16:9 frame (112.dp × ~199.dp). A short crop zoomed the baked-in title
+            // and dropped the version pill onto the black page under the image.
+            AppBannerArt(
+                modifier = Modifier.height(DesktopBannerImageHeight),
+                versionName = versionName,
+                contentDescription = brandTitle.ifBlank { SplashBranding.APP_TITLE }
+            )
             Text(
                 text = clockText,
                 style = MaterialTheme.typography.labelSmall,

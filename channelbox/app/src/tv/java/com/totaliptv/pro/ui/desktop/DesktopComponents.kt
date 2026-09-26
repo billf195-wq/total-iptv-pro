@@ -1,6 +1,5 @@
 package com.totaliptv.pro.ui.desktop
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,19 +32,16 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
 import coil.compose.AsyncImage
-import com.totaliptv.pro.BuildConfig
-import com.totaliptv.pro.R
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.theme.LiveMarker
-import com.totaliptv.pro.ui.splash.BannerVersionBadge
-import com.totaliptv.pro.ui.splash.SplashBranding
+import com.totaliptv.pro.ui.splash.AppBannerArt
+import com.totaliptv.pro.ui.splash.DesktopBannerRowHeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -278,37 +274,16 @@ fun AmberButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifie
 
 @Composable
 fun TopBanner(modifier: Modifier = Modifier) {
-    // Dedicated top-left logo slot. app_banner is a wide 1280x720 asset — Crop+Start
-    // keeps the brand mark readable without spilling into the sidebar/content below.
+    // Same slot as desktop b8990a6: 128.dp bar, 8.dp vertical padding, full 16:9 art.
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(TipDimens.BannerHeight)
+            .height(DesktopBannerRowHeight)
             .background(TipBg)
-            .padding(start = TipDimens.dp(20), end = TipDimens.dp(16), top = TipDimens.dp(12), bottom = TipDimens.dp(12)),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            Modifier
-                .height(TipDimens.dp(96))
-                .width(TipDimens.dp(320))
-        ) {
-            Image(
-                painter = painterResource(R.drawable.app_banner),
-                contentDescription = SplashBranding.APP_TITLE,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(TipDimens.dp(10))),
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.CenterStart
-            )
-            BannerVersionBadge(
-                versionName = BuildConfig.VERSION_NAME,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = TipDimens.dp(8), bottom = TipDimens.dp(6))
-            )
-        }
+        AppBannerArt(Modifier.fillMaxHeight())
         Spacer(Modifier.weight(1f))
     }
 }

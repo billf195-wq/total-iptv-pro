@@ -69,10 +69,10 @@ class PlayerStreamTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         assertTrue(gradle.contains("192.168.4.33:8765"))
         assertFalse(gradle.contains("192.168.4.37"))
-        assertTrue(gradle.contains("versionName = \"1.4.63\""))
-        assertTrue(gradle.contains("versionName = \"1.4.40-phone\""))
-        assertTrue(gradle.contains("versionCode = 75"))
-        assertTrue(gradle.contains("versionCode = 52"))
+        assertTrue(gradle.contains("versionName = \"1.4.64\""))
+        assertTrue(gradle.contains("versionName = \"1.4.41-phone\""))
+        assertTrue(gradle.contains("versionCode = 76"))
+        assertTrue(gradle.contains("versionCode = 53"))
     }
 
     @Test
