@@ -6,9 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -42,15 +40,9 @@ val DarkTipBg = Color(0xFF0B0F14)
 val DarkTipSurface = Color(0xFF141A22)
 val DarkTipSurfaceAlt = Color(0xFF1C2430)
 
-/**
- * Piano-black panel behind Live TV, Movies, and Series.
- * A short lighter band at the top fades into near-pure black.
- */
-val TipContentSheen = Color(0xFF161616)
-val TipContentSheenFade = Color(0xFF101010)
-val TipContentBlack = Color(0xFF0A0A0A)
-val TipContentBlackMid = Color(0xFF060606)
-val TipContentBlackBottom = Color(0xFF050505)
+/** Flat black behind Live TV, Movies, and Series. No gradient. */
+val TipContentBlack = Color(0xFF000000)
+private val TipContentLightPage = Color(0xFFF4F7FB)
 
 // Mutable palette driven by theme mode (defaults = dark + gold type)
 var TipBg = DarkTipBg
@@ -63,32 +55,14 @@ var TipOnBg = TipGoldText
     private set
 var TipMuted = TipGoldMuted
     private set
-var tipContentGloss = true
+var tipContentDark = true
     private set
 
-/** Color stops for the browsing panel. Light theme stays a flat page color so dark text remains readable. */
-fun tvContentColorStops(darkTheme: Boolean): List<Pair<Float, Color>> {
-    if (!darkTheme) {
-        val page = Color(0xFFF4F7FB)
-        return listOf(0f to page, 1f to page)
-    }
-    return listOf(
-        0.00f to TipContentSheen,
-        0.07f to TipContentSheenFade,
-        0.18f to TipContentBlack,
-        0.42f to TipContentBlackMid,
-        1.00f to TipContentBlackBottom
-    )
-}
+/** Browsing-panel fill. Dark theme is one flat black; light theme stays the page color. */
+fun tvContentColor(darkTheme: Boolean): Color =
+    if (darkTheme) TipContentBlack else TipContentLightPage
 
-fun tvContentBrush(darkTheme: Boolean = tipContentGloss): Brush {
-    val stops = tvContentColorStops(darkTheme)
-    val colors = stops.map { it.second }.distinct()
-    if (colors.size == 1) return SolidColor(colors.first())
-    return Brush.verticalGradient(colorStops = stops.toTypedArray())
-}
-
-fun Modifier.tvContentBackground(): Modifier = background(tvContentBrush())
+fun Modifier.tvContentBackground(): Modifier = background(tvContentColor(tipContentDark))
 
 private val DarkColors = darkColorScheme(
     primary = TipBlue,
@@ -137,7 +111,7 @@ fun TipTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
         TipSurfaceAlt = DarkTipSurfaceAlt
         TipOnBg = TipGoldText
         TipMuted = TipGoldMuted
-        tipContentGloss = true
+        tipContentDark = true
         onBg = TipGoldText
     } else {
         TipBg = Color(0xFFF4F7FB)
@@ -145,7 +119,7 @@ fun TipTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
         TipSurfaceAlt = Color(0xFFE8EEF6)
         TipOnBg = Color(0xFF101820)
         TipMuted = Color(0xFF5A6A7A)
-        tipContentGloss = false
+        tipContentDark = false
         onBg = Color(0xFF101820)
     }
     MaterialTheme(
