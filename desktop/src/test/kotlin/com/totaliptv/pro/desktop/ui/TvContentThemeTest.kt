@@ -29,6 +29,9 @@ class TvContentThemeTest {
         val nav = browse.substringAfter("private fun NavBtn(").substringBefore("private fun MediaRow(")
         val banner = browse.substringAfter("private fun TopBanner(").substringBefore("@Composable\nprivate fun BrowseContentPane")
         assertTrue(banner.contains(".tvChromeBackground()"), "top bar must use the flat chrome fill")
+        assertTrue(!banner.contains("SplashBrandTitle"), "top bar must not repeat the title beside the banner")
+        assertTrue(banner.contains("BannerVersionBadge"), "version stays on the banner image")
+        assertEquals("v1.2.22", SplashBranding.bannerVersionLabel("1.2.22"))
         assertTrue(
             browse.contains(".fillMaxHeight()\n                    .tvChromeBackground()"),
             "sidebar panel must use the flat chrome fill"

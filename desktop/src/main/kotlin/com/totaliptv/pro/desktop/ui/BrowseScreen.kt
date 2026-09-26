@@ -489,31 +489,35 @@ private fun rememberBannerBitmap(): ImageBitmap? = remember {
 @Composable
 private fun TopBanner(banner: ImageBitmap?) {
     if (banner == null) return
-    // Logo sits top-left; version is a high-contrast chip after the title.
+    // The artwork already says Total IPTV Pro. Version sits in the empty corner.
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(128.dp)
             .tvChromeBackground()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Bottom
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Image(
-            bitmap = banner,
-            contentDescription = SplashBranding.APP_TITLE,
-            modifier = Modifier
+        val ratio = banner.width.toFloat() / banner.height.toFloat().coerceAtLeast(1f)
+        Box(
+            Modifier
                 .fillMaxHeight()
-                .wrapContentWidth(),
-            contentScale = ContentScale.Fit,
-            alignment = Alignment.CenterStart
-        )
-        Spacer(Modifier.width(12.dp))
-        SplashBrandTitle(
-            versionName = AppVersion.VERSION_NAME,
-            titleSize = 22.sp,
-            versionSize = 16.sp,
-            modifier = Modifier.padding(bottom = 10.dp)
-        )
+                .aspectRatio(ratio)
+        ) {
+            Image(
+                bitmap = banner,
+                contentDescription = SplashBranding.APP_TITLE,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.CenterStart
+            )
+            BannerVersionBadge(
+                versionName = AppVersion.VERSION_NAME,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 8.dp, bottom = 6.dp)
+            )
+        }
     }
 }
 
