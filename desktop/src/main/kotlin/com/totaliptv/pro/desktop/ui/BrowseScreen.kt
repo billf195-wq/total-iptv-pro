@@ -555,7 +555,7 @@ private fun BrowseContentPane(
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(20.dp)) {
+    Column(Modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 when (kind) {
@@ -893,7 +893,7 @@ private fun VodDetailPane(
     onStop: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier.fillMaxSize().padding(20.dp)) {
+    Column(modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TipOnBg)
@@ -1089,7 +1089,7 @@ private fun SeriesDetailPane(
     onStop: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier.fillMaxSize().padding(20.dp)) {
+    Column(modifier.fillMaxSize().tvContentBackground().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TipOnBg)
