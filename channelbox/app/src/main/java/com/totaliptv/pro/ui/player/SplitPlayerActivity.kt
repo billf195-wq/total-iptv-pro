@@ -4,11 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -17,7 +19,15 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -35,6 +45,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem as CatalogItem
 import com.totaliptv.pro.diagnostics.DebugLog
 import kotlinx.coroutines.CoroutineScope
@@ -55,13 +67,16 @@ class SplitPlayerActivity : ComponentActivity() {
 
     private class Side(
         val id: SideId,
-        val title: String,
-        val originalUrl: String,
+        var title: String,
+        var originalUrl: String,
         var playbackUrl: String,
         var player: ExoPlayer? = null,
         var playerView: PlayerView? = null,
         var statusView: TextView? = null,
         var audioBadge: TextView? = null,
+        var titleView: TextView? = null,
+        var frame: FrameLayout? = null,
+        var mediaId: String = "",
         var triedAlternate: Boolean = false,
         var preferSoftware: Boolean = false,
         var englishApplied: Boolean = false,
@@ -75,7 +90,14 @@ class SplitPlayerActivity : ComponentActivity() {
     private lateinit var right: Side
     private var activeAudio = SideId.LEFT
     private var controls: LinearLayout? = null
-    private var switchButton: Button? = null
+    private var soundLeftButton: Button? = null
+    private var soundRightButton: Button? = null
+    private var changeChannelButton: Button? = null
+    private var aspectButton: Button? = null
+    private var subsButton: Button? = null
+    private var stopButton: Button? = null
+    private var pickerHost: ComposeView? = null
+    private var pickingSide by mutableStateOf<SideId?>(null)
     private var hideControlsJob: Job? = null
     private var released = false
 
@@ -97,21 +119,25 @@ class SplitPlayerActivity : ComponentActivity() {
             originalUrl = leftUrl,
             playbackUrl = PlayerStream.preferredExoUrl(leftUrl, live = true)
         )
+        left.mediaId = intent.getStringExtra(EXTRA_LEFT_ID).orEmpty()
         right = Side(
             id = SideId.RIGHT,
             title = intent.getStringExtra(EXTRA_RIGHT_TITLE) ?: "Right",
             originalUrl = rightUrl,
             playbackUrl = PlayerStream.preferredExoUrl(rightUrl, live = true)
         )
+        right.mediaId = intent.getStringExtra(EXTRA_RIGHT_ID).orEmpty()
         if (savedInstanceState?.getString(STATE_AUDIO) == SideId.RIGHT.name) {
             activeAudio = SideId.RIGHT
         }
 
         setContentView(buildUi())
         enterImmersiveFullscreen()
+        wireFocus()
         startSide(left)
         startSide(right)
         showControls()
+        left.frame?.requestFocus()
     }
 
     override fun onStart() {
@@ -139,38 +165,44 @@ class SplitPlayerActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) enterImmersiveFullscreen()
+        if (!hasFocus) return
+        enterImmersiveFullscreen()
+        if (pickingSide == null && currentFocus == null && ::left.isInitialized) {
+            sideFor(activeAudio).frame?.requestFocus()
+        }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN) {
-            when (event.keyCode) {
-                KeyEvent.KEYCODE_DPAD_LEFT -> {
-                    setActiveAudio(SideId.LEFT)
-                    showControls()
+        if (event.action != KeyEvent.ACTION_DOWN) {
+            return super.dispatchKeyEvent(event)
+        }
+        if (pickingSide != null) {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                closePicker()
+                return true
+            }
+            return super.dispatchKeyEvent(event)
+        }
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                stopSplit()
+                return true
+            }
+            KeyEvent.KEYCODE_MENU -> {
+                openPicker(activeAudio)
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> showControls()
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                val wasHidden = controls?.visibility != View.VISIBLE
+                showControls()
+                val onSide = leftOrNull()?.frame?.hasFocus() == true || rightOrNull()?.frame?.hasFocus() == true
+                if (wasHidden && onSide) {
+                    soundLeftButton?.requestFocus()
                     return true
-                }
-                KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    setActiveAudio(SideId.RIGHT)
-                    showControls()
-                    return true
-                }
-                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
-                    stopSplit()
-                    return true
-                }
-                KeyEvent.KEYCODE_DPAD_UP,
-                KeyEvent.KEYCODE_DPAD_DOWN,
-                KeyEvent.KEYCODE_DPAD_CENTER,
-                KeyEvent.KEYCODE_ENTER,
-                KeyEvent.KEYCODE_NUMPAD_ENTER,
-                KeyEvent.KEYCODE_MENU -> {
-                    if (controls?.visibility != View.VISIBLE) {
-                        showControls()
-                        return true
-                    }
                 }
             }
+            KeyEvent.KEYCODE_DPAD_UP -> showControls()
         }
         return super.dispatchKeyEvent(event)
     }
@@ -204,24 +236,29 @@ class SplitPlayerActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
         }
-        val switchAudio = controlButton("Switch audio") {
-            setActiveAudio(if (activeAudio == SideId.LEFT) SideId.RIGHT else SideId.LEFT)
-            showControls()
-        }
-        switchButton = switchAudio
-        buttons.addView(switchAudio)
-        buttons.addView(controlButton("Aspect") {
+        soundLeftButton = controlButton("Sound: Left") {
+            selectSide(SideId.LEFT)
+            left.frame?.requestFocus()
+        }.also { buttons.addView(it) }
+        soundRightButton = controlButton("Sound: Right") {
+            selectSide(SideId.RIGHT)
+            right.frame?.requestFocus()
+        }.also { buttons.addView(it) }
+        changeChannelButton = controlButton("Change channel") {
+            openPicker(activeAudio)
+        }.also { buttons.addView(it) }
+        aspectButton = controlButton("Aspect") {
             cycleAspect(sideFor(activeAudio))
             showControls()
-        })
-        buttons.addView(controlButton("Subtitles") {
+        }.also { buttons.addView(it) }
+        subsButton = controlButton("Subtitles") {
             toggleSubtitles(sideFor(activeAudio))
             showControls()
-        })
-        buttons.addView(controlButton("Stop split") { stopSplit() })
+        }.also { buttons.addView(it) }
+        stopButton = controlButton("Stop split") { stopSplit() }.also { buttons.addView(it) }
         bar.addView(buttons)
         bar.addView(TextView(this).apply {
-            text = "Left / Right moves audio. Tap a side on a phone. Back stops both."
+            text = "Left / Right selects a screen and its sound. OK or Menu changes that channel. Back stops both."
             setTextColor(0xFFB0BEC5.toInt())
             textSize = 13f
             gravity = Gravity.CENTER
@@ -234,19 +271,37 @@ class SplitPlayerActivity : ComponentActivity() {
         )
         root.addView(bar, barLp)
         controls = bar
+        val host = ComposeView(this).apply {
+            visibility = View.GONE
+            isFocusable = true
+            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent { ChannelPickerOverlay() }
+        }
+        root.addView(host, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+        pickerHost = host
         return root
     }
 
     private fun buildHalf(side: Side): FrameLayout {
         val frame = FrameLayout(this).apply {
+            id = View.generateViewId()
             setBackgroundColor(Color.BLACK)
             setPadding(0, 0, 0, 0)
-            isFocusable = false
+            isFocusable = true
+            isFocusableInTouchMode = true
             setOnClickListener {
-                setActiveAudio(side.id)
-                showControls()
+                selectSide(side.id)
+                openPicker(side.id)
+            }
+            setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) selectSide(side.id) else paintControls()
             }
         }
+        side.frame = frame
         val playerView = PlayerView(this).apply {
             useController = false
             resizeMode = side.resizeMode
@@ -266,14 +321,16 @@ class SplitPlayerActivity : ComponentActivity() {
             textSize = 16f
             setShadowLayer(6f, 0f, 1f, Color.BLACK)
             setPadding(dp(12), dp(10), dp(12), dp(4))
+            isFocusable = false
         }
+        side.titleView = title
         frame.addView(title, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,
             Gravity.TOP
         ))
         val badge = TextView(this).apply {
-            text = "AUDIO"
+            text = "SOUND"
             setTextColor(Color.BLACK)
             setBackgroundColor(0xFFFFB300.toInt())
             setTypeface(typeface, Typeface.BOLD)
@@ -526,10 +583,143 @@ class SplitPlayerActivity : ComponentActivity() {
         return builder.build()
     }
 
+    private fun selectSide(side: SideId) {
+        setActiveAudio(side)
+    }
+
     private fun setActiveAudio(side: SideId) {
         activeAudio = side
         applyVolumes()
         showControls()
+    }
+
+    private fun openPicker(side: SideId) {
+        if (released || !::left.isInitialized) return
+        selectSide(side)
+        pickingSide = side
+        pickerHost?.visibility = View.VISIBLE
+        pickerHost?.requestFocus()
+        hideControlsJob?.cancel()
+    }
+
+    private fun closePicker() {
+        val side = pickingSide
+        pickingSide = null
+        pickerHost?.visibility = View.GONE
+        if (side != null && ::left.isInitialized) {
+            sideFor(side).frame?.requestFocus()
+        }
+        showControls()
+    }
+
+    private fun onChannelPicked(side: SideId, item: CatalogItem) {
+        closePicker()
+        val app = application as? TotalIptvProApp
+        val playable = app?.repository?.playableFrom(item) ?: item
+        if (playable.streamUrl.isBlank()) {
+            Toast.makeText(this, "That channel has no stream URL", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val target = sideFor(side)
+        target.title = playable.name
+        target.mediaId = playable.id
+        target.originalUrl = playable.streamUrl
+        target.playbackUrl = PlayerStream.preferredExoUrl(playable.streamUrl, live = true)
+        target.triedAlternate = false
+        target.preferSoftware = false
+        target.englishApplied = false
+        target.titleView?.text = playable.name
+        startSide(target)
+        target.frame?.requestFocus()
+    }
+
+    @Composable
+    private fun ChannelPickerOverlay() {
+        val side = pickingSide ?: return
+        val app = application as? TotalIptvProApp
+        val channels = androidx.compose.runtime.remember(app) {
+            runCatching { app?.repository?.liveItems() }.getOrNull().orEmpty()
+        }
+        val categories = androidx.compose.runtime.remember(app) {
+            runCatching { app?.repository?.categories(ContentKind.LIVE) }.getOrNull().orEmpty()
+        }
+        val favorites by (app?.repository?.favorites ?: kotlinx.coroutines.flow.flowOf(emptyList()))
+            .collectAsState(initial = emptyList())
+        val target = sideFor(side)
+        GameDayChannelPicker(
+            sideLabel = if (side == SideId.LEFT) "LEFT" else "RIGHT",
+            channels = channels,
+            categories = categories,
+            favoriteIds = favorites.map { it.id }.toSet(),
+            current = CatalogItem(
+                id = target.mediaId.ifBlank { target.originalUrl },
+                name = target.title,
+                streamUrl = target.originalUrl,
+                categoryId = null,
+                kind = ContentKind.LIVE
+            ),
+            onPick = { onChannelPicked(side, it) },
+            onBack = { closePicker() }
+        )
+    }
+
+    private fun wireFocus() {
+        val leftF = left.frame ?: return
+        val rightF = right.frame ?: return
+        val soundL = soundLeftButton ?: return
+        val soundR = soundRightButton ?: return
+        val change = changeChannelButton ?: return
+        val aspect = aspectButton ?: return
+        val subs = subsButton ?: return
+        val stop = stopButton ?: return
+        leftF.nextFocusRightId = rightF.id
+        leftF.nextFocusDownId = soundL.id
+        rightF.nextFocusLeftId = leftF.id
+        rightF.nextFocusDownId = soundR.id
+        soundL.nextFocusUpId = leftF.id
+        soundL.nextFocusRightId = soundR.id
+        soundL.nextFocusDownId = soundR.id
+        soundR.nextFocusUpId = rightF.id
+        soundR.nextFocusLeftId = soundL.id
+        soundR.nextFocusDownId = change.id
+        change.nextFocusUpId = soundR.id
+        change.nextFocusDownId = aspect.id
+        aspect.nextFocusUpId = change.id
+        aspect.nextFocusDownId = subs.id
+        subs.nextFocusUpId = aspect.id
+        subs.nextFocusDownId = stop.id
+        stop.nextFocusUpId = subs.id
+    }
+
+    private fun sideStroke(focused: Boolean): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(Color.TRANSPARENT)
+            setStroke(if (focused) dp(5) else 0, 0xFFFFB300.toInt())
+        }
+    }
+
+    private fun paintControls() {
+        if (!::left.isInitialized) return
+        fun paint(button: Button?, active: Boolean) {
+            if (button == null) return
+            val focused = button.isFocused
+            button.setBackgroundColor(
+                when {
+                    focused -> 0xFFFFB300.toInt()
+                    active -> 0xFF5C4A00.toInt()
+                    else -> 0xFF1A1A1A.toInt()
+                }
+            )
+            button.setTextColor(if (focused) Color.BLACK else Color.WHITE)
+        }
+        paint(soundLeftButton, activeAudio == SideId.LEFT)
+        paint(soundRightButton, activeAudio == SideId.RIGHT)
+        paint(changeChannelButton, false)
+        paint(aspectButton, false)
+        paint(subsButton, false)
+        paint(stopButton, false)
+        left.frame?.foreground = sideStroke(left.frame?.hasFocus() == true)
+        right.frame?.foreground = sideStroke(right.frame?.hasFocus() == true)
     }
 
     private fun applyVolumes() {
@@ -538,6 +728,7 @@ class SplitPlayerActivity : ComponentActivity() {
         right.player?.volume = if (activeAudio == SideId.RIGHT) 1f else 0f
         left.audioBadge?.visibility = if (activeAudio == SideId.LEFT) View.VISIBLE else View.GONE
         right.audioBadge?.visibility = if (activeAudio == SideId.RIGHT) View.VISIBLE else View.GONE
+        paintControls()
     }
 
     private fun cycleAspect(side: Side) {
@@ -565,9 +756,7 @@ class SplitPlayerActivity : ComponentActivity() {
     }
 
     private fun showControls() {
-        val wasHidden = controls?.visibility != View.VISIBLE
         controls?.visibility = View.VISIBLE
-        if (wasHidden) switchButton?.requestFocus()
         hideControlsJob?.cancel()
         hideControlsJob = scope.launch {
             delay(6_000)
@@ -602,10 +791,14 @@ class SplitPlayerActivity : ComponentActivity() {
 
     private fun controlButton(label: String, onClick: () -> Unit): Button {
         return Button(this).apply {
+            id = View.generateViewId()
             text = label
             isFocusable = true
             isFocusableInTouchMode = true
+            setBackgroundColor(0xFF1A1A1A.toInt())
+            setTextColor(Color.WHITE)
             setOnClickListener { onClick() }
+            setOnFocusChangeListener { _, _ -> paintControls() }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT

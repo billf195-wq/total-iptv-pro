@@ -47,6 +47,12 @@ class PlayerStreamTest {
         assertTrue(split.contains("SPLIT_TARGET_BUFFER_BYTES"))
         assertTrue(split.contains("KEYCODE_DPAD_LEFT"))
         assertTrue(split.contains("KEYCODE_DPAD_RIGHT"))
+        assertTrue(split.contains("KEYCODE_MENU"))
+        assertTrue(split.contains("Sound: Left"))
+        assertTrue(split.contains("Sound: Right"))
+        assertTrue(split.contains("Change channel"))
+        assertTrue(split.contains("GameDayChannelPicker"))
+        assertTrue(split.contains("closePicker"))
         assertTrue(split.contains("Stop split"))
         assertTrue(split.contains("releaseBoth"))
         assertTrue(split.contains("handleAudioFocus= */ false"))
@@ -63,10 +69,10 @@ class PlayerStreamTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         assertTrue(gradle.contains("192.168.4.33:8765"))
         assertFalse(gradle.contains("192.168.4.37"))
-        assertTrue(gradle.contains("versionName = \"1.4.61\""))
-        assertTrue(gradle.contains("versionName = \"1.4.38-phone\""))
-        assertTrue(gradle.contains("versionCode = 73"))
-        assertTrue(gradle.contains("versionCode = 50"))
+        assertTrue(gradle.contains("versionName = \"1.4.62\""))
+        assertTrue(gradle.contains("versionName = \"1.4.39-phone\""))
+        assertTrue(gradle.contains("versionCode = 74"))
+        assertTrue(gradle.contains("versionCode = 51"))
     }
 
     @Test
