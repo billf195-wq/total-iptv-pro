@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
+import com.totaliptv.pro.ui.splash.BannerVersionBadge
 import com.totaliptv.pro.ui.splash.SplashBranding
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.ClassicDimens
@@ -985,34 +986,25 @@ fun AppTopNav(
                 .padding(end = 14.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Image(
-                painter = painterResource(R.drawable.app_banner),
-                contentDescription = brandTitle,
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
-                    .clip(RoundedCornerShape(8.dp)),
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.CenterStart
-            )
-            Row(
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text(
-                    text = brandTitle.ifBlank { SplashBranding.APP_TITLE },
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = OnCinema,
-                    maxLines = 1
+                Image(
+                    painter = painterResource(R.drawable.app_banner),
+                    contentDescription = brandTitle.ifBlank { SplashBranding.APP_TITLE },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.CenterStart
                 )
-                Text(
-                    text = SplashBranding.versionLabel(versionName),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Medium,
-                    color = OnCinemaMuted,
-                    fontSize = 11.sp,
-                    maxLines = 1
+                BannerVersionBadge(
+                    versionName = versionName,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 6.dp, bottom = 4.dp)
                 )
             }
             Text(

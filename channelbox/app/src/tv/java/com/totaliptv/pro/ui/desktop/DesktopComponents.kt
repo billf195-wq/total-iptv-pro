@@ -44,6 +44,7 @@ import com.totaliptv.pro.R
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.theme.LiveMarker
+import com.totaliptv.pro.ui.splash.BannerVersionBadge
 import com.totaliptv.pro.ui.splash.SplashBranding
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -287,32 +288,25 @@ fun TopBanner(modifier: Modifier = Modifier) {
             .padding(start = TipDimens.dp(20), end = TipDimens.dp(16), top = TipDimens.dp(12), bottom = TipDimens.dp(12)),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Image(
-            painter = painterResource(R.drawable.app_banner),
-            contentDescription = SplashBranding.APP_TITLE,
-            modifier = Modifier
+        Box(
+            Modifier
                 .height(TipDimens.dp(96))
                 .width(TipDimens.dp(320))
-                .clip(RoundedCornerShape(TipDimens.dp(10))),
-            contentScale = ContentScale.Crop,
-            alignment = Alignment.CenterStart
-        )
-        Spacer(Modifier.width(TipDimens.dp(14)))
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                text = SplashBranding.APP_TITLE,
-                color = TipGoldText,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = TipDimens.sp(22),
-                maxLines = 1
+        ) {
+            Image(
+                painter = painterResource(R.drawable.app_banner),
+                contentDescription = SplashBranding.APP_TITLE,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(TipDimens.dp(10))),
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.CenterStart
             )
-            Spacer(Modifier.width(TipDimens.dp(10)))
-            Text(
-                text = SplashBranding.versionLabel(BuildConfig.VERSION_NAME),
-                color = TipGoldMuted,
-                fontWeight = FontWeight.Medium,
-                fontSize = TipDimens.sp(14),
-                maxLines = 1
+            BannerVersionBadge(
+                versionName = BuildConfig.VERSION_NAME,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = TipDimens.dp(8), bottom = TipDimens.dp(6))
             )
         }
         Spacer(Modifier.weight(1f))
