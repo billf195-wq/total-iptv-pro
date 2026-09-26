@@ -393,7 +393,7 @@ fun PhoneDetailSheet(
                                 } catch (t: Throwable) {
                                     Toast.makeText(
                                         context,
-                                        "Preview failed: ${t.message ?: "error"}",
+                                        "Preview failed: ${com.totaliptv.pro.util.SensitiveText.forUser(t)}",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 } finally {

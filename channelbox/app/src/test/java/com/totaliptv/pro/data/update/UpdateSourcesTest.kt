@@ -2,28 +2,31 @@ package com.totaliptv.pro.data.update
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class UpdateSourcesTest {
     @Test
-    fun migratesOldShelfHostAndKeepsPhonePath() {
-        assertEquals(
-            "http://192.168.4.33:8765/",
-            UpdateSources.migrateShelfHost("http://192.168.4.37:8765/")
-        )
-        assertEquals(
-            "http://192.168.4.33:8765/phone/",
-            UpdateSources.migrateShelfHost("http://192.168.4.37:8765/phone/")
-        )
-        assertEquals(
-            "http://192.168.4.33:8765/",
-            UpdateSources.migrateShelfHost("http://192.168.4.33:8765/")
-        )
-        assertEquals(
-            "http://10.0.0.8:8765/",
-            UpdateSources.migrateShelfHost("http://10.0.0.8:8765/")
-        )
+    fun blankShelfIsSkippedAndAddressesAreNotRewritten() {
+        assertFalse(UpdateSources.shouldCheckShelf(null))
+        assertFalse(UpdateSources.shouldCheckShelf(""))
+        assertFalse(UpdateSources.shouldCheckShelf("   "))
+        assertTrue(UpdateSources.shouldCheckShelf("https://example.test/shelf/"))
+        val saved = "http://10.0.0.8:8765/phone/"
+        assertEquals(saved, UpdateSources.migrateShelfHost(saved))
+        assertFalse(UpdateSources.UPDATE_UNAVAILABLE.contains("192.168"))
+        assertFalse(UpdateSources.UPDATE_UNAVAILABLE.contains("example.test"))
+        val gradle = java.io.File("build.gradle.kts").readText()
+        val sources = java.io.File("src/main/java/com/totaliptv/pro/data/update/UpdateSources.kt").readText()
+        val readme = java.io.File("../README.md").readText()
+        val settings = java.io.File("src/tv/java/com/totaliptv/pro/ui/settings/SettingsScreen.kt").readText()
+        assertFalse(gradle.contains("192.168"))
+        assertFalse(sources.contains("192.168"))
+        assertFalse(readme.contains("192.168"))
+        assertFalse(settings.contains("192.168"))
+        assertTrue(gradle.contains("DEFAULT_UPDATE_BASE_URL"))
+        assertTrue(gradle.contains("\"\""))
     }
 
     @Test

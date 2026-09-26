@@ -2,6 +2,7 @@ package com.totaliptv.pro.ui.home
 
 import android.util.Log
 import android.widget.Toast
+import com.totaliptv.pro.util.SensitiveText
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -224,14 +225,14 @@ fun HomeScreen(
         } catch (t: Throwable) {
             refreshFromCache()
             if (liveCatCount > 0 || vodCatCount > 0 || seriesCatCount > 0) {
-                warning = t.message ?: "Partial load - showing available catalog"
+                warning = SensitiveText.forUser(t)
                 error = null
                 if (userRefresh) {
                     refreshStatus = warning
                     Toast.makeText(context, warning, Toast.LENGTH_LONG).show()
                 }
             } else {
-                error = t.message ?: "Failed to load catalog"
+                error = SensitiveText.forUser(t)
                 if (userRefresh) {
                     refreshStatus = error
                     Toast.makeText(context, error, Toast.LENGTH_LONG).show()
@@ -454,7 +455,7 @@ fun HomeScreen(
         val bound = repository.playableFrom(repository.itemById(clickedId) ?: item)
         Log.i(
             "TotalIPTV.Live",
-            "click name=${bound.name} id=${bound.id} sid=${bound.xtreamStreamId} num=${bound.channelNum} url=${bound.streamUrl} startOver=$startOver"
+            "click name=${bound.name} id=${bound.id} sid=${bound.xtreamStreamId} num=${bound.channelNum} url=${SensitiveText.redact(bound.streamUrl)} startOver=$startOver"
         )
         val sink: (MediaItem) -> Unit = if (startOver) onPlayFromStart else onPlayItem
         // Already a concrete episode leaf from Continue watching / Resume - do not re-resolve.

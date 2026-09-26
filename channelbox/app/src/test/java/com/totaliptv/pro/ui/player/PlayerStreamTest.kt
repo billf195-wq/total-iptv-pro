@@ -71,12 +71,11 @@ class PlayerStreamTest {
         assertTrue(phoneManifest.contains("tools:node=\"remove\""))
         assertTrue(desktopLive.contains("Game Day"))
         val gradle = java.io.File("build.gradle.kts").readText()
-        assertTrue(gradle.contains("192.168.4.33:8765"))
-        assertFalse(gradle.contains("192.168.4.37"))
-        assertTrue(gradle.contains("versionName = \"1.4.73\""))
-        assertTrue(gradle.contains("versionName = \"1.4.50-phone\""))
-        assertTrue(gradle.contains("versionCode = 85"))
-        assertTrue(gradle.contains("versionCode = 62"))
+        assertFalse(gradle.contains("192.168"))
+        assertTrue(gradle.contains("versionName = \"1.4.74\""))
+        assertTrue(gradle.contains("versionName = \"1.4.51-phone\""))
+        assertTrue(gradle.contains("versionCode = 86"))
+        assertTrue(gradle.contains("versionCode = 63"))
     }
 
     @Test

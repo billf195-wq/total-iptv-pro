@@ -54,6 +54,7 @@ import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.local.WatchProgressStore
 import com.totaliptv.pro.data.model.EpgNowNext
 import com.totaliptv.pro.diagnostics.DebugLog
+import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -207,7 +208,7 @@ class PlayerActivity : ComponentActivity() {
             }
             Log.i(
                 "TotalIPTV.Live",
-                "playerStart name=$mediaTitle id=$mediaId sid=${canonical.xtreamStreamId} num=${canonical.channelNum} url=$streamUrl"
+                "playerStart name=$mediaTitle id=$mediaId sid=${canonical.xtreamStreamId} num=${canonical.channelNum} url=${SensitiveText.redact(streamUrl)}"
             )
         }
 
@@ -640,7 +641,7 @@ class PlayerActivity : ComponentActivity() {
                 Toast.LENGTH_LONG
             ).show()
         } catch (t: Throwable) {
-            Toast.makeText(this, "Could not open VLC: ${t.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Could not open VLC: ${SensitiveText.forUser(t)}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -1180,7 +1181,7 @@ class PlayerActivity : ComponentActivity() {
         statusView?.text = reason
         statusView?.isVisible = true
         overlay?.isVisible = true
-        Log.i("TotalIPTV.Live", "liveUrlFlip reason=$reason url=$alt")
+        Log.i("TotalIPTV.Live", "liveUrlFlip reason=$reason url=${SensitiveText.redact(alt)}")
         scheduleRebuild(reason)
         return true
     }
@@ -1499,15 +1500,15 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun showPlaybackFailure(error: Throwable) {
-        logPlaybackFailure(error.message ?: error.javaClass.simpleName, error)
-        val msg = error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
+        logPlaybackFailure(SensitiveText.forUser(error), error)
+        val msg = SensitiveText.forUser(error)
         statusView?.text = "Playback failed: $msg. Press Retry or Play with VLC."
         statusView?.isVisible = true
         overlay?.isVisible = true
     }
 
     private fun logPlaybackFailure(message: String, error: Throwable?) {
-        Log.e("TotalIPTV.Player", message, error)
+        Log.e("TotalIPTV.Player", "${SensitiveText.redact(message)}: ${SensitiveText.safeLog(error)}")
         val app = runCatching { applicationContext }.getOrNull() ?: return
         DebugLog.append(app, "TotalIPTV.Player", message, error)
     }

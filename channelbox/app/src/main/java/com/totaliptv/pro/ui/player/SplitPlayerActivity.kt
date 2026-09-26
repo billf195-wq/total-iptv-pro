@@ -7,6 +7,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.util.Log
+import com.totaliptv.pro.util.SensitiveText
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -373,7 +374,7 @@ class SplitPlayerActivity : ComponentActivity() {
             startSideInner(side)
         } catch (t: Throwable) {
             DebugLog.append(this, TAG, "start ${side.id} failed", t)
-            Log.e(TAG, "start ${side.id} failed", t)
+            Log.e(TAG, "start ${side.id} failed: ${SensitiveText.safeLog(t)}")
             side.statusView?.text = "This side failed. The other keeps playing."
             side.statusView?.visibility = View.VISIBLE
         }
@@ -397,7 +398,7 @@ class SplitPlayerActivity : ComponentActivity() {
         applyVolumes()
         side.statusView?.text = "Starting ${side.title}…"
         side.statusView?.visibility = View.VISIBLE
-        Log.i(TAG, "start ${side.id} url=${side.playbackUrl} software=${side.preferSoftware}")
+        Log.i(TAG, "start ${side.id} url=${SensitiveText.redact(side.playbackUrl)} software=${side.preferSoftware}")
     }
 
     private fun buildPlayer(side: Side): ExoPlayer {
@@ -573,7 +574,7 @@ class SplitPlayerActivity : ComponentActivity() {
         exo.setMediaItem(buildMediaItem(alt))
         exo.prepare()
         exo.playWhenReady = true
-        Log.i(TAG, "alternate ${side.id} -> $alt")
+        Log.i(TAG, "alternate ${side.id} -> ${SensitiveText.redact(alt)}")
         return true
     }
 

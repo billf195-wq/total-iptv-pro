@@ -62,6 +62,19 @@ class GuideWindowTest {
         assertTrue(File("src/phone").walk().none { file ->
             file.isFile && file.extension == "kt" && file.readText().contains("EpgGuideScreen")
         })
+        assertTrue(repo.contains("trimChannelCache"))
+    }
+
+    @Test
+    fun channelCacheDropsOldRowsWhenFull() {
+        val cache = linkedMapOf<Int, String>()
+        repeat(4) { cache[it] = "row$it" }
+        GuideWindow.trimChannelCache(cache, incomingKey = 9, maxChannels = 4)
+        assertEquals(2, cache.size)
+        assertFalse(cache.containsKey(0))
+        assertFalse(cache.containsKey(1))
+        GuideWindow.trimChannelCache(cache, incomingKey = 2, maxChannels = 4)
+        assertTrue(cache.containsKey(2))
     }
 
     private fun prog(title: String, startMs: Long, endMs: Long) = EpgProgram(

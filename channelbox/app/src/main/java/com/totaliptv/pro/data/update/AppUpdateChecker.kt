@@ -63,34 +63,34 @@ object AppUpdateChecker {
 
     fun normalizeBase(raw: String): String {
         var u = raw.trim()
-        if (u.isEmpty()) return BuildConfig.DEFAULT_UPDATE_BASE_URL
+        if (u.isEmpty()) return ""
         if (!u.startsWith("http://") && !u.startsWith("https://")) u = "http://$u"
         if (!u.endsWith("/")) u += "/"
-        return UpdateSources.migrateShelfHost(u)
+        return u
     }
 
     /**
      * GitHub Releases first (list releases; do not trust /releases/latest, because
-     * a desktop tag can be Latest). Then the LAN shelf version.json.
+     * a desktop tag can be Latest). An optional shelf URL is the fallback.
+     * A blank shelf is skipped. Failures never include a server address.
      */
     suspend fun check(baseUrl: String): UpdateCheckResult = withContext(Dispatchers.IO) {
-        val github = runCatching { checkGitHub() }.getOrElse { t ->
-            UpdateCheckResult.Failed(t.message ?: t.javaClass.simpleName)
+        val github = runCatching { checkGitHub() }.getOrElse {
+            UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
         }
         if (github is UpdateCheckResult.Available) return@withContext github
+        if (!UpdateSources.shouldCheckShelf(baseUrl)) {
+            return@withContext when (github) {
+                is UpdateCheckResult.UpToDate -> github
+                else -> UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
+            }
+        }
         val shelf = checkShelf(baseUrl)
         if (shelf is UpdateCheckResult.Available) return@withContext shelf
         if (github is UpdateCheckResult.UpToDate || shelf is UpdateCheckResult.UpToDate) {
             return@withContext UpdateCheckResult.UpToDate
         }
-        val githubMessage = (github as? UpdateCheckResult.Failed)?.message
-        val shelfMessage = (shelf as? UpdateCheckResult.Failed)?.message
-        UpdateCheckResult.Failed(
-            listOfNotNull(
-                githubMessage?.let { "GitHub: $it" },
-                shelfMessage?.let { "Shelf: $it" }
-            ).joinToString(". ").ifBlank { "Update check failed" }
-        )
+        UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
     }
 
     private fun checkGitHub(): UpdateCheckResult {
@@ -155,8 +155,8 @@ object AppUpdateChecker {
                     UpdateCheckResult.UpToDate
                 }
             }
-        } catch (t: Throwable) {
-            UpdateCheckResult.Failed(t.message ?: t.javaClass.simpleName)
+        } catch (_: Throwable) {
+            UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
         }
     }
 

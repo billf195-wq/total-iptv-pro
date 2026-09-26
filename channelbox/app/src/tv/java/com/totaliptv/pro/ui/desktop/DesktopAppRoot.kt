@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.model.MediaItem
@@ -164,7 +165,7 @@ fun DesktopAppRoot(
             if (!warm) loading = true
             error = null
             runCatching { repository.ensureCatalogLoaded(force = false) }
-                .onFailure { error = it.message ?: it.javaClass.simpleName }
+                .onFailure { error = SensitiveText.forUser(it) }
             ready = true
             loading = false
         }
@@ -216,7 +217,7 @@ fun DesktopAppRoot(
                             scope.launch {
                                 refreshing = true
                                 runCatching { repository.ensureCatalogLoaded(force = true) }
-                                    .onFailure { error = it.message }
+                                    .onFailure { error = SensitiveText.forUser(it) }
                                     .onSuccess { error = null }
                                 refreshing = false
                             }
@@ -281,8 +282,8 @@ fun DesktopAppRoot(
                                             error = null
                                         }
                                         .onFailure {
-                                            statusMessage = it.message
-                                            error = it.message
+                                            statusMessage = SensitiveText.forUser(it)
+                                            error = SensitiveText.forUser(it)
                                         }
                                     refreshing = false
                                 }

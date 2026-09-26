@@ -3,6 +3,7 @@ package com.totaliptv.pro.diagnostics
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CrashLogTest {
@@ -33,6 +34,25 @@ class CrashLogTest {
         assertTrue(text.contains("TotalIPTV.Player: Audio selection failed"))
         assertTrue(text.contains("IndexOutOfBoundsException"))
         assertTrue(text.contains("track 4"))
+    }
+
+    @Test
+    fun debugLogStripsXtreamCredentials() {
+        val dir = File.createTempFile("debug-secret", "dir")
+        dir.delete()
+        dir.mkdirs()
+        val url = "http://example.test/live/alice/secret/1.ts"
+        DebugLog.appendTo(
+            dir,
+            "TotalIPTV.Player",
+            "fail $url",
+            RuntimeException("Source error $url?username=alice&password=secret")
+        )
+        val text = DebugLog.readFrom(dir)
+        assertTrue(text.contains("TotalIPTV.Player"))
+        assertFalse(text.contains("alice"))
+        assertFalse(text.contains("secret"))
+        assertTrue(text.contains("***"))
     }
 
     @Test

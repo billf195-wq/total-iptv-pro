@@ -75,6 +75,7 @@ import com.totaliptv.pro.ui.components.NetworkImage
 import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
 import com.totaliptv.pro.ui.player.GameDayPicker
+import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.CinemaBg
 import com.totaliptv.pro.ui.theme.CinemaSurfaceHigh
@@ -429,7 +430,7 @@ fun EpgGuideScreen(
                                         Log.i(
                                             "TotalIPTV.Guide",
                                             "guidePlay src=$source displayed=${channel.name} id=${playable.id} " +
-                                                "sid=${playable.xtreamStreamId} num=${playable.channelNum} url=${playable.streamUrl}"
+                                                "sid=${playable.xtreamStreamId} num=${playable.channelNum} url=${SensitiveText.redact(playable.streamUrl)}"
                                         )
                                     }
                                     latestOnPlay(playable)

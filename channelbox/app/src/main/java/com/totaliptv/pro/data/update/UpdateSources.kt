@@ -9,8 +9,8 @@ object UpdateSources {
     const val GITHUB_RELEASES_URL =
         "https://api.github.com/repos/billf195-wq/total-iptv-pro/releases"
 
-    const val OLD_SHELF_HOST = "192.168.4.37"
-    const val NEW_SHELF_HOST = "192.168.4.33"
+    const val UPDATE_UNAVAILABLE =
+        "Couldn't check for updates. Check your connection and try again."
 
     private const val TV_PREFIX = "TotalIPTVPro-android-tv-"
     private const val PHONE_PREFIX = "TotalIPTVPro-android-phone-"
@@ -27,11 +27,14 @@ object UpdateSources {
 
     data class PickedApk(val versionName: String, val url: String)
 
-    /** Rewrite a saved shelf that still points at the old PC address. */
-    fun migrateShelfHost(raw: String): String {
-        if (!raw.contains(OLD_SHELF_HOST)) return raw
-        return raw.replace(OLD_SHELF_HOST, NEW_SHELF_HOST)
-    }
+    /**
+     * A shelf is optional. Blank means GitHub only, so a fresh install never
+     * contacts a private update server.
+     */
+    fun shouldCheckShelf(baseUrl: String?): Boolean = !baseUrl.isNullOrBlank()
+
+    /** Kept so older call sites still compile. Shelf addresses are not rewritten. */
+    fun migrateShelfHost(raw: String): String = raw
 
     /**
      * Highest matching APK that is newer than [currentVersionName].

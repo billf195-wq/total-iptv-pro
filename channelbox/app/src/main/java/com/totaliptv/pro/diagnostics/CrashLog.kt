@@ -2,6 +2,7 @@ package com.totaliptv.pro.diagnostics
 
 import android.content.Context
 import android.content.Intent
+import com.totaliptv.pro.util.SensitiveText
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -34,7 +35,7 @@ object CrashLog {
             append("Thread: ")
             append(threadName)
             append('\n')
-            append(DebugLog.stackTrace(error))
+            append(SensitiveText.redact(DebugLog.stackTrace(error)))
         }
     }
 

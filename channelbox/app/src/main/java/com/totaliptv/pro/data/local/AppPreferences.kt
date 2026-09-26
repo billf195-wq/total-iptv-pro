@@ -73,7 +73,7 @@ class AppPreferences(private val context: Context) {
     private val autoPipKey = booleanPreferencesKey("auto_pip")
 
     companion object {
-        /** Flavor-specific: TV root shelf vs phone /phone/ channel. */
+        /** Blank unless the user saves a shelf. GitHub Releases is the update source. */
         val DEFAULT_UPDATE_BASE_URL: String
             get() = BuildConfig.DEFAULT_UPDATE_BASE_URL
 
@@ -156,25 +156,19 @@ class AppPreferences(private val context: Context) {
     }
 
     suspend fun setUpdateBaseUrl(url: String) {
-        val cleaned = UpdateSources.migrateShelfHost(
-            url.trim().let { if (it.endsWith("/")) it else "$it/" }
-        )
+        val trimmed = url.trim()
+        val cleaned = if (trimmed.isBlank()) {
+            ""
+        } else {
+            if (trimmed.endsWith("/")) trimmed else "$trimmed/"
+        }
         context.dataStore.edit { prefs ->
-            prefs[updateBaseUrlKey] = cleaned.ifBlank { DEFAULT_UPDATE_BASE_URL }
+            prefs[updateBaseUrlKey] = cleaned
         }
     }
 
-    /** Persist a saved 192.168.4.37 shelf as 192.168.4.33. No-op when unset or already new. */
-    suspend fun migrateSavedShelfHost(): Boolean {
-        val raw = context.dataStore.data.first()[updateBaseUrlKey]?.trim().orEmpty()
-        if (raw.isBlank() || !raw.contains(UpdateSources.OLD_SHELF_HOST)) return false
-        val migrated = UpdateSources.migrateShelfHost(raw)
-        if (migrated == raw) return false
-        context.dataStore.edit { prefs ->
-            prefs[updateBaseUrlKey] = migrated
-        }
-        return true
-    }
+    /** Older builds rewrote a saved shelf address. Fresh installs have nothing to migrate. */
+    suspend fun migrateSavedShelfHost(): Boolean = false
 
     suspend fun getAppearanceMode(): AppearanceMode =
         AppearanceMode.fromStorage(context.dataStore.data.first()[appearanceKey])

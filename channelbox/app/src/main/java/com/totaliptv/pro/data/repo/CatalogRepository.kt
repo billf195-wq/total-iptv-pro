@@ -17,6 +17,7 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.PlaylistSource
 import com.totaliptv.pro.data.model.SourceType
 import com.totaliptv.pro.data.xtream.XtreamApi
+import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -243,7 +244,7 @@ class CatalogRepository(
                             continue
                         }
                         if (hadCache) {
-                            val detail = t.message ?: t.javaClass.simpleName
+                            val detail = SensitiveText.forUser(t)
                             lastWarning =
                                 "Refresh failed (" + detail + "); showing cached catalog."
                             bumpRevision()
@@ -268,7 +269,7 @@ class CatalogRepository(
     ) {
         val vod = runCatching { xtreamApi.loadVodCatalog(base, user, pass) }
             .getOrElse { t ->
-                val detail = t.message ?: t.javaClass.simpleName
+                val detail = SensitiveText.forUser(t)
                 XtreamApi.VodCatalog(
                     emptyList(),
                     emptyList(),
@@ -296,7 +297,7 @@ class CatalogRepository(
     ) {
         val series = runCatching { xtreamApi.loadSeriesCatalog(base, user, pass) }
             .getOrElse { t ->
-                val detail = t.message ?: t.javaClass.simpleName
+                val detail = SensitiveText.forUser(t)
                 XtreamApi.SeriesCatalog(
                     emptyList(),
                     emptyList(),
@@ -805,6 +806,7 @@ class CatalogRepository(
         )
         if (kept.isNotEmpty()) {
             // Cache raw listings so bind can re-run with current nowMs / siblings.
+            GuideWindow.trimChannelCache(epgCache, sid)
             epgCache[sid] = kept
         }
         return bound
@@ -846,7 +848,13 @@ class CatalogRepository(
         synchronized(xmltvLock) {
             if (xmltvLoaded) return
             runCatching {
-                xmltvByChannel.putAll(XmltvParser.loadFromUrl(url))
+                val loaded = XmltvParser.loadFromUrl(url)
+                val start = GuideWindow.snapStart(System.currentTimeMillis())
+                val end = GuideWindow.windowEndMs(start, GuideWindow.MAX_HOURS)
+                for ((id, programs) in loaded) {
+                    val kept = GuideWindow.retain(programs, start, end)
+                    if (kept.isNotEmpty()) xmltvByChannel[id] = kept
+                }
             }
             xmltvLoaded = true
         }

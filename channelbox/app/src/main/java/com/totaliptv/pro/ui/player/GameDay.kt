@@ -107,6 +107,8 @@ object GameDayLauncher {
         } catch (e: ActivityNotFoundException) {
             // Phone builds remove SplitPlayerActivity from the manifest.
             Toast.makeText(context, "Split screen isn't in this app", Toast.LENGTH_SHORT).show()
+        } catch (_: Throwable) {
+            Toast.makeText(context, "Couldn't open split screen", Toast.LENGTH_SHORT).show()
         }
     }
 }

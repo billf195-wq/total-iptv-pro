@@ -65,6 +65,7 @@ import com.totaliptv.pro.ui.theme.FocusBorder
 import com.totaliptv.pro.ui.theme.AppearanceMode
 import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.components.SectionTitle
+import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.launch
 
 private class UrlFieldHolder(var text: String)
@@ -153,7 +154,7 @@ fun SettingsScreen(
                                 orientation = LinearLayout.VERTICAL
                                 setPadding(dp(4), dp(4), dp(4), dp(4))
                                 addView(TextView(ctx).apply {
-                                    text = "PC shelf URL (http.server on :8765). Example: http://192.168.4.33:8765/"
+                                    text = "Optional shelf URL. Leave blank to use GitHub Releases only."
                                     setTextColor(AndroidColor.parseColor("#B0BEC5"))
                                     textSize = 13f
                                 })
@@ -187,7 +188,7 @@ fun SettingsScreen(
                 item {
                     FocusableCard(
                         title = "Save update server URL",
-                        subtitle = "Default: ${AppPreferences.DEFAULT_UPDATE_BASE_URL}",
+                        subtitle = "Leave blank for GitHub only",
                         onClick = {
                             scope.launch {
                                 val normalized = AppUpdateChecker.normalizeBase(urlHolder.text)
@@ -235,7 +236,7 @@ fun SettingsScreen(
                                     updateStatus = "Opening installer…"
                                     AppUpdateChecker.launchInstaller(context, file)
                                 } catch (t: Throwable) {
-                                    updateStatus = "Download failed: ${t.message ?: t.javaClass.simpleName}"
+                                    updateStatus = "Download failed: ${SensitiveText.forUser(t)}"
                                     Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                                 } finally {
                                     updateBusy = false
@@ -261,7 +262,7 @@ fun SettingsScreen(
                                     ).show()
                                 }
                                 is UpdateCheckResult.Failed -> {
-                                    updateStatus = "Check failed: ${result.message}"
+                                    updateStatus = "Check failed: ${SensitiveText.forUser(result.message)}"
                                     Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                                 }
                             }
@@ -500,7 +501,7 @@ fun SettingsScreen(
                                         Toast.makeText(context, "Data updated", Toast.LENGTH_SHORT).show()
                                     }
                                 } catch (t: Throwable) {
-                                    val msg = t.message ?: "Refresh failed"
+                                    val msg = SensitiveText.forUser(t)
                                     refreshNote = msg
                                     Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                 } finally {

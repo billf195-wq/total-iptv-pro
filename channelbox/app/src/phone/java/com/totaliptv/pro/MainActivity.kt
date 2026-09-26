@@ -3,6 +3,7 @@ package com.totaliptv.pro
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import com.totaliptv.pro.util.SensitiveText
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -115,7 +116,7 @@ class MainActivity : ComponentActivity() {
         }
         Log.i(
             "TotalIPTV.Live",
-            "openPlayer name=${item.name} id=${item.id} sid=${item.xtreamStreamId} num=${item.channelNum} startOver=$startOver catalog=$catalogId url=${item.streamUrl}"
+            "openPlayer name=${item.name} id=${item.id} sid=${item.xtreamStreamId} num=${item.channelNum} startOver=$startOver catalog=$catalogId url=${SensitiveText.redact(item.streamUrl)}"
         )
         val intent = Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_URL, item.streamUrl)
@@ -131,7 +132,7 @@ class MainActivity : ComponentActivity() {
         try {
             startActivity(intent)
         } catch (t: Throwable) {
-            Log.e("TotalIPTV.Live", "openPlayer failed", t)
+            Log.e("TotalIPTV.Live", "openPlayer failed: ${SensitiveText.safeLog(t)}")
             Toast.makeText(this, "Couldn't open the player", Toast.LENGTH_LONG).show()
         }
     }

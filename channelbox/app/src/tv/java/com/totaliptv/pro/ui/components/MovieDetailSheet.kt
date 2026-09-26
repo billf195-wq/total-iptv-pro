@@ -203,10 +203,13 @@ fun MovieDetailSheet(
                 }
                 YoutubePreview.openTrailer(context, trailer)
             } catch (t: Throwable) {
-                android.util.Log.e("TotalIPTV.Preview", "runPreview failed", t)
+                android.util.Log.e(
+                    "TotalIPTV.Preview",
+                    "runPreview failed: ${com.totaliptv.pro.util.SensitiveText.safeLog(t)}"
+                )
                 android.widget.Toast.makeText(
                     context,
-                    "Preview failed: ${t.message ?: "error"}",
+                    "Preview failed: ${com.totaliptv.pro.util.SensitiveText.forUser(t)}",
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
             } finally {

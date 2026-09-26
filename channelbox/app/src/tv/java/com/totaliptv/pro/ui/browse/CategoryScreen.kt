@@ -2,6 +2,7 @@ package com.totaliptv.pro.ui.browse
 
 import android.util.Log
 import android.widget.Toast
+import com.totaliptv.pro.util.SensitiveText
 
 import androidx.activity.compose.BackHandler
 
@@ -428,7 +429,7 @@ fun BrowseScreen(
                                         onClick = {
                                             Log.i(
                                                 "TotalIPTV.Live",
-                                                "browseClick name=${item.name} id=${item.id} sid=${item.xtreamStreamId} num=${item.channelNum} url=${item.streamUrl}"
+                                                "browseClick name=${item.name} id=${item.id} sid=${item.xtreamStreamId} num=${item.channelNum} url=${SensitiveText.redact(item.streamUrl)}"
                                             )
                                             onPlay(item)
                                         }

@@ -25,6 +25,9 @@ object GuideWindow {
     /** Hard stop for a very wide display and for the per-channel cache. */
     const val MAX_HOURS = 18
 
+    /** Xtream EPG rows kept in memory. Older channels are dropped and fetched again. */
+    const val CACHE_CHANNELS = 240
+
     /**
      * Listings requested per channel. Two per hour covers half-hour slots
      * across [MAX_HOURS], plus the show already in progress.
@@ -56,5 +59,16 @@ object GuideWindow {
     fun retain(programs: List<EpgProgram>, windowStartMs: Long, windowEndMs: Long): List<EpgProgram> {
         if (windowEndMs <= windowStartMs) return emptyList()
         return programs.filter { it.endMs > windowStartMs && it.startMs < windowEndMs }
+    }
+
+    /**
+     * Drop about half the cached channels once [cache] is full, unless [incomingKey]
+     * is already stored. Callers can re-fetch a channel that was evicted.
+     */
+    fun <V> trimChannelCache(cache: MutableMap<Int, V>, incomingKey: Int, maxChannels: Int = CACHE_CHANNELS) {
+        if (maxChannels < 1) return
+        if (cache.size < maxChannels || cache.containsKey(incomingKey)) return
+        val dropCount = (maxChannels / 2).coerceAtLeast(1)
+        cache.keys.take(dropCount).forEach { cache.remove(it) }
     }
 }

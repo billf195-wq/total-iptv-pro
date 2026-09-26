@@ -1,6 +1,7 @@
 package com.totaliptv.pro.diagnostics
 
 import android.content.Context
+import com.totaliptv.pro.util.SensitiveText
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -51,10 +52,10 @@ object DebugLog {
             append(" ")
             append(tag)
             append(": ")
-            append(message)
+            append(SensitiveText.redact(message))
             if (error != null) {
                 append('\n')
-                append(stackTrace(error))
+                append(SensitiveText.redact(stackTrace(error)))
             }
             append("\n")
         }

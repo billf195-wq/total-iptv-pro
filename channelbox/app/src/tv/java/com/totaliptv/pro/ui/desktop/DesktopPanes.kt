@@ -67,6 +67,7 @@ import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.data.update.AppUpdateChecker
 import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
+import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
@@ -775,7 +776,11 @@ fun DesktopSettingsPane(
             color = TipGoldMuted,
             fontSize = TipDimens.BodyMediumSp
         )
-        Text("GitHub Releases, then shelf: $updateBaseUrl", color = TipGoldMuted, fontSize = TipDimens.sp(12))
+        Text(
+            if (updateBaseUrl.isBlank()) "Checks GitHub Releases" else "Checks GitHub Releases, then your shelf",
+            color = TipGoldMuted,
+            fontSize = TipDimens.sp(12)
+        )
         Spacer(Modifier.height(TipDimens.dp(10)))
         AmberButton(
             label = when {
@@ -802,7 +807,7 @@ fun DesktopSettingsPane(
                             updateStatus = "Opening installer…"
                             AppUpdateChecker.launchInstaller(context, file)
                         } catch (t: Throwable) {
-                            updateStatus = "Download failed: ${t.message ?: t.javaClass.simpleName}"
+                            updateStatus = "Download failed: ${SensitiveText.forUser(t)}"
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         } finally {
                             updateBusy = false
@@ -827,7 +832,7 @@ fun DesktopSettingsPane(
                             ).show()
                         }
                         is UpdateCheckResult.Failed -> {
-                            updateStatus = "Check failed: ${result.message}"
+                            updateStatus = "Check failed: ${SensitiveText.forUser(result.message)}"
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         }
                     }
