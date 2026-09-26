@@ -27,8 +27,10 @@ package com.totaliptv.pro.desktop
  *         Settings can turn that off. Game Day windows meet with no gap.
  * 1.2.23: Update check lists GitHub releases and uses the newest one that
  *         has this OS's desktop package, skipping Android-only releases.
+ * 1.2.24: Next-episode banner measures its text so the label is not clipped,
+ *         including GNOME text scaling and HiDPI.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 35
-    const val VERSION_NAME: String = "1.2.23"
+    const val VERSION_CODE: Int = 36
+    const val VERSION_NAME: String = "1.2.24"
 }

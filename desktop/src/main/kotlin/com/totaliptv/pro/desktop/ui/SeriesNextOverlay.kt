@@ -7,30 +7,35 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.ComposeWindow
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.totaliptv.pro.desktop.AppShutdown
 import com.totaliptv.pro.desktop.data.LastEpisodeBanner
 import com.totaliptv.pro.desktop.data.SeriesEpisode
 import com.totaliptv.pro.desktop.data.SeriesPlayback
-import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
 import com.totaliptv.pro.desktop.input.WindowsTopMost
 import com.totaliptv.pro.desktop.player.PlaybackDebugLog
 import com.totaliptv.pro.desktop.player.StreamPlayer
@@ -78,6 +83,7 @@ class SeriesNextHost {
     private var overlayWindow: ComposeWindow? = null
     private var raisePump: AutoCloseable? = null
     private var contentAttached = false
+    private var sizedKey: String? = null
 
     fun sync(
         session: ActiveSeriesPlay?,
@@ -260,9 +266,9 @@ class SeriesNextHost {
         bannerShown = true
         shownReason = reason
         lastMode = mode
+        ensureWindow()
         if (overlayWindow == null) {
             val monitor = WindowPositioner.playbackMonitor()
-            ensureWindow()
             if (first) note("show", reason, play.current.id, monitor.x, monitor.y)
         } else if (first) {
             val monitor = WindowPositioner.playbackMonitor()
@@ -340,7 +346,8 @@ class SeriesNextHost {
                                 onDismiss = { dismiss("dismiss") },
                                 onStop = { onStop() },
                                 onRecord = { onRecord() },
-                                recordingThisItem = recordingThisItem
+                                recordingThisItem = recordingThisItem,
+                                onContentHeightPx = { height -> growToContent(height) }
                             )
                         }
                     }
@@ -365,10 +372,53 @@ class SeriesNextHost {
         val w = overlayWindow
         overlayWindow = null
         contentAttached = false
+        sizedKey = null
         if (w != null) {
             runCatching { w.isAlwaysOnTop = false }
             runCatching { w.isVisible = false }
             runCatching { w.dispose() }
+        }
+    }
+
+    private fun placeBottomCenter(w: ComposeWindow) {
+        val play = session ?: return
+        val key = "${overlayKey(play)}|${recordingThisItem}|${lastMode}"
+        if (key == sizedKey && w.width > 0 && w.height > 0) return
+        val monitor = WindowPositioner.playbackMonitor()
+        val density = WindowPositioner.playbackUiScale()
+        val textScale = NextEpisodeBannerLayout.currentDesktopTextScale()
+        val size = NextEpisodeBannerLayout.measure(
+            density = density,
+            textScale = textScale,
+            copy = NextEpisodeBannerLayout.copyFor(play, recordingThisItem, AppPaths.isWindows),
+            measurer = AwtBannerTextMeasurer
+        )
+        val margin = NextEpisodeBannerLayout.marginPx(density)
+        val (x, y) = overlayOrigin(
+            monitor.x, monitor.y, monitor.width, monitor.height, size.widthPx, size.heightPx, margin
+        )
+        w.setSize(size.widthPx, size.heightPx)
+        w.setLocation(x, y)
+        sizedKey = key
+    }
+
+    private fun growToContent(contentHeightPx: Int) {
+        val w = overlayWindow ?: return
+        if (contentHeightPx <= w.height) return
+        val resize = resize@{
+            if (overlayWindow !== w) return@resize
+            val monitor = WindowPositioner.playbackMonitor()
+            val margin = NextEpisodeBannerLayout.marginPx(WindowPositioner.playbackUiScale())
+            val (x, y) = overlayOrigin(
+                monitor.x, monitor.y, monitor.width, monitor.height, w.width, contentHeightPx, margin
+            )
+            w.setSize(w.width, contentHeightPx)
+            w.setLocation(x, y)
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(resize)
+        } else {
+            onEdt(resize)
         }
     }
 
@@ -413,117 +463,183 @@ fun SeriesNextOverlayBody(
     onDismiss: () -> Unit = {},
     onStop: () -> Unit,
     onRecord: () -> Unit = {},
-    recordingThisItem: Boolean = false
+    recordingThisItem: Boolean = false,
+    onContentHeightPx: (Int) -> Unit = {}
+) {
+    val textScale = NextEpisodeBannerLayout.currentDesktopTextScale().toFloat()
+    val density = LocalDensity.current.density
+    CompositionLocalProvider(LocalDensity provides Density(density, textScale)) {
+        SeriesNextBannerContent(
+            session = session,
+            mode = mode,
+            onNext = onNext,
+            onDismiss = onDismiss,
+            onStop = onStop,
+            onRecord = onRecord,
+            recordingThisItem = recordingThisItem,
+            onContentHeightPx = onContentHeightPx
+        )
+    }
+}
+
+@Composable
+private fun SeriesNextBannerContent(
+    session: ActiveSeriesPlay,
+    mode: LastEpisodeBanner.Mode,
+    onNext: () -> Unit,
+    onDismiss: () -> Unit,
+    onStop: () -> Unit,
+    onRecord: () -> Unit,
+    recordingThisItem: Boolean,
+    onContentHeightPx: (Int) -> Unit
 ) {
     val next = session.next
-    Column(
+    val copy = NextEpisodeBannerLayout.copyFor(session, recordingThisItem, AppPaths.isWindows)
+    val buttonPadding = PaddingValues(
+        horizontal = NextEpisodeBannerLayout.BUTTON_PAD_H_DP.dp,
+        vertical = NextEpisodeBannerLayout.BUTTON_PAD_V_DP.dp
+    )
+    Box(
         Modifier
             .fillMaxSize()
             .background(TipSurface)
             .border(BorderStroke(3.dp, TipBlue))
-            .padding(14.dp)
     ) {
-        Text(
-            if (mode == LastEpisodeBanner.Mode.LAST_BRIEF) "LAST EPISODE" else "NEXT EPISODE",
-            color = TipBlue,
-            fontWeight = FontWeight.Bold,
-            fontSize = 13.sp
-        )
-        Text(
-            session.seriesName.ifBlank { "Series" },
-            style = MaterialTheme.typography.titleMedium,
-            color = TipOnBg,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1
-        )
-        Text(
-            "Now S${session.current.season}E${session.current.episodeNum}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = TipMuted
-        )
-        Spacer(Modifier.height(10.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .wrapContentHeight(unbounded = true)
+                .onSizeChanged { onContentHeightPx(it.height) }
+                .padding(
+                    horizontal = NextEpisodeBannerLayout.PAD_H_DP.dp,
+                    vertical = NextEpisodeBannerLayout.PAD_V_DP.dp
+                )
         ) {
-            if (next != null) {
-                Button(
-                    onClick = onNext,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = TipBlue,
-                        contentColor = TipOnAmber
-                    ),
-                    modifier = Modifier.weight(1f).height(48.dp)
-                ) {
-                    Text(
-                        "Next S${next.season}E${next.episodeNum}",
-                        color = TipOnAmber,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
+            Text(
+                copy.kicker,
+                color = TipBlue,
+                fontWeight = FontWeight.Bold,
+                fontSize = NextEpisodeBannerLayout.KICKER_SP.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                copy.title,
+                color = TipOnBg,
+                fontWeight = FontWeight.Bold,
+                fontSize = NextEpisodeBannerLayout.TITLE_SP.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                copy.nowLine,
+                color = TipMuted,
+                fontSize = NextEpisodeBannerLayout.BODY_SP.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.padding(top = NextEpisodeBannerLayout.GAP_DP.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(NextEpisodeBannerLayout.GAP_DP.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (next != null) {
+                    Button(
+                        onClick = onNext,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = TipBlue,
+                            contentColor = TipOnAmber
+                        ),
+                        contentPadding = buttonPadding,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            copy.primaryLabel,
+                            color = TipOnAmber,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else if (mode == LastEpisodeBanner.Mode.LAST_BRIEF) {
+                    Button(
+                        onClick = {},
+                        enabled = false,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = TipSurfaceAlt,
+                            contentColor = TipMuted,
+                            disabledContainerColor = TipSurfaceAlt,
+                            disabledContentColor = TipMuted
+                        ),
+                        contentPadding = buttonPadding,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            SeriesPlayback.LAST_EPISODE_MESSAGE,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
-            } else if (mode == LastEpisodeBanner.Mode.LAST_BRIEF) {
-                Button(
-                    onClick = {},
-                    enabled = false,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = TipSurfaceAlt,
-                        contentColor = TipMuted,
-                        disabledContainerColor = TipSurfaceAlt,
-                        disabledContentColor = TipMuted
-                    ),
-                    modifier = Modifier.weight(1f).height(48.dp)
-                ) {
-                    Text(
-                        SeriesPlayback.LAST_EPISODE_MESSAGE,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
+                if (recordingThisItem) {
+                    Button(
+                        onClick = onRecord,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = TipRecordActive,
+                            contentColor = TipOnRecordActive
+                        ),
+                        contentPadding = buttonPadding
+                    ) {
+                        Text(
+                            "Recording…",
+                            color = TipOnRecordActive,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp,
+                            maxLines = 1
+                        )
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onRecord,
+                        contentPadding = buttonPadding
+                    ) {
+                        Text("Record", color = TipOnBg, fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp, maxLines = 1)
+                    }
                 }
-            }
-            if (recordingThisItem) {
-                Button(
-                    onClick = onRecord,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = TipRecordActive,
-                        contentColor = TipOnRecordActive
-                    ),
-                    modifier = Modifier.height(48.dp)
-                ) {
-                    Text("Recording…", color = TipOnRecordActive, fontWeight = FontWeight.Bold)
-                }
-            } else {
                 OutlinedButton(
-                    onClick = onRecord,
-                    modifier = Modifier.height(48.dp)
+                    onClick = onDismiss,
+                    contentPadding = buttonPadding
                 ) {
-                    Text("Record", color = TipOnBg)
+                    Text(
+                        "Hide",
+                        color = TipOnBg,
+                        fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp,
+                        maxLines = 1
+                    )
+                }
+                OutlinedButton(
+                    onClick = onStop,
+                    contentPadding = buttonPadding
+                ) {
+                    Text(
+                        "Stop",
+                        color = TipOnBg,
+                        fontSize = NextEpisodeBannerLayout.BUTTON_SP.sp,
+                        maxLines = 1
+                    )
                 }
             }
-            OutlinedButton(
-                onClick = onDismiss,
-                modifier = Modifier.height(48.dp)
-            ) {
-                Text("Hide", color = TipOnBg)
-            }
-            OutlinedButton(
-                onClick = onStop,
-                modifier = Modifier.height(48.dp)
-            ) {
-                Text("Stop", color = TipOnBg)
-            }
+            Spacer(Modifier.padding(top = NextEpisodeBannerLayout.GAP_DP.dp))
+            Text(
+                copy.hint,
+                color = TipMuted,
+                fontSize = NextEpisodeBannerLayout.HINT_SP.sp
+            )
         }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            if (AppPaths.isWindows) {
-                "${SeriesNextHotkeys.CTRL_RIGHT_HINT} or ${SeriesNextHotkeys.MEDIA_NEXT_HINT} — not VLC’s Next"
-            } else {
-                "Advances at end of episode · ${SeriesNextHotkeys.CTRL_RIGHT_HINT} when this app is focused — not VLC’s Next"
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = TipMuted
-        )
     }
 }
 
@@ -547,15 +663,4 @@ internal fun overlayOrigin(
     val x = monitorX + (monitorWidth - overlayWidth) / 2
     val y = monitorY + monitorHeight - overlayHeight - marginPx
     return x to y
-}
-
-private fun placeBottomCenter(w: ComposeWindow) {
-    val monitor = WindowPositioner.playbackMonitor()
-    val scale = WindowPositioner.playbackUiScale()
-    val width = (420 * scale).toInt().coerceAtLeast(320)
-    val height = (196 * scale).toInt().coerceAtLeast(160)
-    val margin = (80 * scale).toInt().coerceAtLeast(24)
-    val (x, y) = overlayOrigin(monitor.x, monitor.y, monitor.width, monitor.height, width, height, margin)
-    w.setSize(width, height)
-    w.setLocation(x, y)
 }
