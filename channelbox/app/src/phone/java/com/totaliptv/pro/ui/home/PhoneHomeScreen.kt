@@ -12,10 +12,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -89,9 +89,9 @@ fun PhoneHomeScreen(
         }.onFailure {
             error = SensitiveText.forUser(it)
         }
-        newlyMovies = repository.newlyAddedMovies(24)
-        newlySeries = repository.newlyAddedSeries(24)
-        liveSample = repository.liveItems(20)
+        newlyMovies = repository.newlyAddedMovies(Int.MAX_VALUE)
+        newlySeries = repository.newlyAddedSeries(Int.MAX_VALUE)
+        liveSample = repository.liveItems()
         warning = repository.lastWarning
         reloadContinue()
         loading = false
@@ -134,108 +134,113 @@ fun PhoneHomeScreen(
                 }
             }
             else -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Text(
-                        text = "Home",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = OnCinema,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                    )
-                    if (vodLoading) {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    item {
                         Text(
-                            "Movies & series still loading…",
-                            color = OnCinemaMuted,
-                            modifier = Modifier.padding(horizontal = 16.dp)
+                            text = "Home",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = OnCinema,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                         )
                     }
-                    warning?.takeIf { it.isNotBlank() }?.let {
-                        Text(it, color = OnCinemaMuted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    if (vodLoading) {
+                        item {
+                            Text(
+                                "Movies & series still loading…",
+                                color = OnCinemaMuted,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
                     }
-
-                    Row(
-                        modifier = Modifier
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        TextButton(onClick = onOpenLive) { Text("Live") }
-                        TextButton(onClick = onOpenMovies) { Text("Movies") }
-                        TextButton(onClick = onOpenSeries) { Text("Series") }
+                    warning?.takeIf { it.isNotBlank() }?.let { message ->
+                        item {
+                            Text(message, color = OnCinemaMuted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                        }
                     }
-
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TextButton(onClick = onOpenLive) { Text("Live") }
+                            TextButton(onClick = onOpenMovies) { Text("Movies") }
+                            TextButton(onClick = onOpenSeries) { Text("Series") }
+                        }
+                    }
                     if (continueWatching.isNotEmpty()) {
-                        PhoneSectionTitle("Continue watching")
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(continueWatching, key = { it.id }) { wp ->
-                                PhonePosterCard(
-                                    item = wp.toMediaItem(),
-                                    progress = wp,
-                                    onClick = {
-                                        detail = wp.toMediaItem()
-                                    }
-                                )
+                        item { PhoneSectionTitle("Continue watching") }
+                        item {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(continueWatching, key = { it.id }) { wp ->
+                                    PhonePosterCard(
+                                        item = wp.toMediaItem(),
+                                        progress = wp,
+                                        onClick = { detail = wp.toMediaItem() }
+                                    )
+                                }
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
+                        item { Spacer(Modifier.height(8.dp)) }
                     }
-
                     if (newlyMovies.isNotEmpty()) {
-                        PhoneSectionTitle("Newly added movies")
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(newlyMovies, key = { it.id }) { item ->
-                                PhonePosterCard(
-                                    item = item,
-                                    progress = progressById[item.id],
-                                    onClick = { detail = item }
-                                )
+                        item { PhoneSectionTitle("Newly added movies") }
+                        item {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(newlyMovies, key = { it.id }) { movie ->
+                                    PhonePosterCard(
+                                        item = movie,
+                                        progress = progressById[movie.id],
+                                        onClick = { detail = movie }
+                                    )
+                                }
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
+                        item { Spacer(Modifier.height(8.dp)) }
                     }
-
                     if (newlySeries.isNotEmpty()) {
-                        PhoneSectionTitle("Newly added series")
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(newlySeries, key = { it.id }) { item ->
-                                PhonePosterCard(
-                                    item = item,
-                                    progress = progressById[item.id],
-                                    onClick = { detail = item }
-                                )
+                        item { PhoneSectionTitle("Newly added series") }
+                        item {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(newlySeries, key = { it.id }) { series ->
+                                    PhonePosterCard(
+                                        item = series,
+                                        progress = progressById[series.id],
+                                        onClick = { detail = series }
+                                    )
+                                }
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
+                        item { Spacer(Modifier.height(8.dp)) }
                     }
-
                     if (liveSample.isNotEmpty()) {
-                        PhoneSectionTitle("Live channels")
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(liveSample, key = { it.id }) { item ->
-                                PhonePosterCard(
-                                    item = item,
-                                    onClick = { onPlay(item) }
-                                )
+                        item { PhoneSectionTitle("Live channels") }
+                        item {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(liveSample, key = { it.id }) { channel ->
+                                    PhonePosterCard(
+                                        item = channel,
+                                        onClick = { onPlay(channel) }
+                                    )
+                                }
                             }
                         }
                     }
-                    Spacer(Modifier.height(24.dp))
+                    item { Spacer(Modifier.height(24.dp)) }
                 }
             }
         }

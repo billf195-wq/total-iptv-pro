@@ -43,8 +43,8 @@ class WatchProgressStore(context: Context) {
         }.getOrDefault(emptyList())
     }
 
-    /** In-progress items eligible for resume (≥15s, not completed), newest first. */
-    fun continueWatching(limit: Int = 24): List<WatchProgress> {
+    /** In-progress items eligible for resume (≥15s, not completed), newest first. No home-row cap. */
+    fun continueWatching(limit: Int = Int.MAX_VALUE): List<WatchProgress> {
         val raw = all()
         val list = raw
             .filter { it.kind != ContentKind.LIVE && it.shouldResume() }
@@ -121,7 +121,7 @@ class WatchProgressStore(context: Context) {
         private const val TAG = "TotalIPTV.Progress"
         private const val PREFS = "watch_progress"
         private const val KEY = "entries"
-        private const val MAX_ENTRIES = 80
+        private const val MAX_ENTRIES = 500
         const val MIN_SAVE_MS = 15_000L
     }
 }

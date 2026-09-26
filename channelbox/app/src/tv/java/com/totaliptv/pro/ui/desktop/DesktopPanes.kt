@@ -21,6 +21,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.tv.foundation.lazy.list.TvLazyRow
+import androidx.tv.foundation.lazy.list.itemsIndexed as tvItemsIndexed
+import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -123,9 +126,9 @@ fun HomePane(
         topSeries = ranked.second
     }
     val homeListState = rememberLazyListState()
-    val resumeRowState = rememberLazyListState()
-    val moviesRowState = rememberLazyListState()
-    val seriesRowState = rememberLazyListState()
+    val resumeRowState = rememberTvLazyListState()
+    val moviesRowState = rememberTvLazyListState()
+    val seriesRowState = rememberTvLazyListState()
     val homeScopes = setOf("desk-cw", "desk-movies", "desk-series")
     LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope) {
         if (!pendingFocusRestore) return@LaunchedEffect
@@ -207,11 +210,11 @@ fun HomePane(
                     )
                 }
             } else {
-                LazyRow(
+                TvLazyRow(
                     state = resumeRowState,
                     horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
                 ) {
-                    itemsIndexed(resume.take(24), key = { _, it -> it.id }) { index, entry ->
+                    tvItemsIndexed(resume, key = { _, it -> it.id }) { index, entry ->
                         DesktopPosterCard(
                             entry.toMediaItem(),
                             onClick = { onResume(entry, index) },
@@ -226,11 +229,11 @@ fun HomePane(
             if (top.items.isEmpty()) {
                 Text("No movies in catalog yet.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
             } else {
-                LazyRow(
+                TvLazyRow(
                     state = moviesRowState,
                     horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
                 ) {
-                    itemsIndexed(top.items, key = { _, it -> it.id }) { index, item ->
+                    tvItemsIndexed(top.items, key = { _, it -> it.id }) { index, item ->
                         DesktopPosterCard(
                             item,
                             onClick = { onPlay(item, index) },
@@ -245,11 +248,11 @@ fun HomePane(
             if (topSeries.items.isEmpty()) {
                 Text("No series in catalog yet.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
             } else {
-                LazyRow(
+                TvLazyRow(
                     state = seriesRowState,
                     horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
                 ) {
-                    itemsIndexed(topSeries.items, key = { _, it -> it.id }) { index, item ->
+                    tvItemsIndexed(topSeries.items, key = { _, it -> it.id }) { index, item ->
                         DesktopPosterCard(
                             item,
                             onClick = { onOpenSeries(item, index) },

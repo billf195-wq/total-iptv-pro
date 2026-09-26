@@ -19,10 +19,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.tv.foundation.lazy.list.TvLazyRow
+import androidx.tv.foundation.lazy.list.itemsIndexed as tvItemsIndexed
+import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -387,7 +388,7 @@ fun HomeScreen(
     LaunchedEffect(hubTab, catalogRevision) {
         if (hubTab != HubTab.Home) return@LaunchedEffect
         reloadContinueWatching()
-        val newest = repository.newlyAddedMovies(24)
+        val newest = repository.newlyAddedMovies(Int.MAX_VALUE)
         newlyAdded = newest
         topPicks = newest.drop(1).ifEmpty { newest }
         heroItem = repository.featuredHeroItem()?.let { item ->
@@ -792,10 +793,10 @@ private fun HomeTabContent(
     onPreviewHero: (MediaItem) -> Unit
 ) {
     val homeListState = rememberLazyListState()
-    val cwRowState = rememberLazyListState()
-    val newRowState = rememberLazyListState()
-    val topRowState = rememberLazyListState()
-    val favRowState = rememberLazyListState()
+    val cwRowState = rememberTvLazyListState()
+    val newRowState = rememberTvLazyListState()
+    val topRowState = rememberTvLazyListState()
+    val favRowState = rememberTvLazyListState()
     val homeScopes = setOf("cw", "new", "top", "fav")
     LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope) {
         if (!pendingFocusRestore) return@LaunchedEffect
@@ -895,12 +896,12 @@ private fun HomeTabContent(
         if (continueWatching.isNotEmpty()) {
             item { SectionRowLabel("Continue watching") }
             item {
-                LazyRow(
+                TvLazyRow(
                     state = cwRowState,
                     horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap),
                     contentPadding = PaddingValues(bottom = 4.dp)
                 ) {
-                    itemsIndexed(continueWatching, key = { _, it -> "cw-${it.id}" }) { index, prog ->
+                    tvItemsIndexed(continueWatching, key = { _, it -> "cw-${it.id}" }) { index, prog ->
                         val pct = (prog.fraction() * 100).toInt().coerceIn(1, 99)
                         val media = prog.toMediaItem()
                         PosterCard(
@@ -927,12 +928,12 @@ private fun HomeTabContent(
         if (newlyAdded.isNotEmpty()) {
             item { SectionRowLabel("Newly added") }
             item {
-                LazyRow(
+                TvLazyRow(
                     state = newRowState,
                     horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap),
                     contentPadding = PaddingValues(bottom = 4.dp)
                 ) {
-                    itemsIndexed(newlyAdded, key = { _, it -> it.id }) { index, item ->
+                    tvItemsIndexed(newlyAdded, key = { _, it -> it.id }) { index, item ->
                         val prog = progressById[item.id]
                         val pct = prog?.let { (it.fraction() * 100).toInt().coerceIn(1, 99) }
                         PosterCard(
@@ -958,12 +959,12 @@ private fun HomeTabContent(
         if (topPicks.isNotEmpty()) {
             item { SectionRowLabel("Top picks") }
             item {
-                LazyRow(
+                TvLazyRow(
                     state = topRowState,
                     horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap),
                     contentPadding = PaddingValues(bottom = 4.dp)
                 ) {
-                    itemsIndexed(topPicks, key = { _, it -> "tp-${it.id}" }) { index, item ->
+                    tvItemsIndexed(topPicks, key = { _, it -> "tp-${it.id}" }) { index, item ->
                         val prog = progressById[item.id]
                         val pct = prog?.let { (it.fraction() * 100).toInt().coerceIn(1, 99) }
                         PosterCard(
@@ -989,12 +990,12 @@ private fun HomeTabContent(
         if (favorites.isNotEmpty()) {
             item { SectionRowLabel("Favorites") }
             item {
-                LazyRow(
+                TvLazyRow(
                     state = favRowState,
                     horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
-                    itemsIndexed(favorites, key = { _, it -> "fav-${it.id}" }) { _, fav ->
+                    tvItemsIndexed(favorites, key = { _, it -> "fav-${it.id}" }) { _, fav ->
                         PosterCard(
                             title = fav.name,
                             imageUrl = fav.logoUrl,

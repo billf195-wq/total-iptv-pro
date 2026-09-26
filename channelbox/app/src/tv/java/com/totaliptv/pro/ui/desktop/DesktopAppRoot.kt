@@ -204,7 +204,7 @@ fun DesktopAppRoot(
             if (section != DesktopNavSection.HOME) return@LaunchedEffect
             yield()
             resume = withContext(Dispatchers.IO) {
-                runCatching { app?.watchProgress?.continueWatching(24).orEmpty() }.getOrDefault(emptyList())
+                runCatching { app?.watchProgress?.continueWatching().orEmpty() }.getOrDefault(emptyList())
             }
         }
 
