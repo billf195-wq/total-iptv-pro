@@ -23,12 +23,13 @@ class DvrRecorder(
 
     private val store = DvrStore(File(DvrPaths.metadataDir(appContext.filesDir.absolutePath)))
 
-    init {
-        reconcileStale()
-    }
+    // Declared before any use. An init block above this field ran reconcileStale
+    // while activeRef was still null and crashed every launch (1.4.75).
     private val activeRef = AtomicReference<Active?>(null)
     private val schedulerStarted = AtomicBoolean(false)
-    private val _snapshot = MutableStateFlow(readSnapshot())
+    private val _snapshot = MutableStateFlow(
+        Snapshot(active = null, recordings = emptyList(), schedules = emptyList(), recordingsDir = "")
+    )
     val snapshot: StateFlow<Snapshot> = _snapshot
     @Volatile
     var lastMessage: String? = null
@@ -170,6 +171,14 @@ class DvrRecorder(
         }
         lastMessage = "Deleted recording"
         publish()
+    }
+
+    /**
+     * Mark leftover "recording" rows from a previous process. Disk I/O — call off the main thread.
+     * There is no init block: property initializers must finish before this runs.
+     */
+    fun reconcileInterrupted() {
+        reconcileStale()
     }
 
     fun ensureScheduler() {

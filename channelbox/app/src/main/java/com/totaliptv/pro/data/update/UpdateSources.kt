@@ -42,6 +42,21 @@ object UpdateSources {
         return migrateShelfHost(chosen.trim())
     }
 
+    /**
+     * Phone checks `<base>/version.json`. One `TIP_UPDATE_BASE_URL` is the shared
+     * shelf root (TV files at the root). The phone flavor appends `phone/` unless
+     * the address already ends with it. A blank address stays blank.
+     */
+    fun shelfForDevice(base: String, flavor: String): String {
+        val trimmed = base.trim()
+        if (trimmed.isBlank()) return ""
+        val slashed = if (trimmed.endsWith("/")) trimmed else "$trimmed/"
+        if (!flavor.equals("phone", ignoreCase = true)) return slashed
+        val noSlash = slashed.trimEnd('/')
+        if (noSlash.endsWith("/phone", ignoreCase = true)) return "$noSlash/"
+        return "$noSlash/phone/"
+    }
+
     /** Kept so older call sites still compile. Shelf addresses are not rewritten. */
     fun migrateShelfHost(raw: String): String = raw
 

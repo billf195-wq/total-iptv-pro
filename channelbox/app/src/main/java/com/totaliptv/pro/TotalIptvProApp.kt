@@ -16,7 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
-class TotalIptvProApp : Application(), ImageLoaderFactory {
+open class TotalIptvProApp : Application(), ImageLoaderFactory {
     lateinit var preferences: AppPreferences
         private set
     lateinit var repository: CatalogRepository
@@ -35,7 +35,10 @@ class TotalIptvProApp : Application(), ImageLoaderFactory {
         repository = CatalogRepository(preferences)
         watchProgress = WatchProgressStore(this)
         dvr = DvrRecorder(this)
-        dvr.ensureScheduler()
+        appScope.launch {
+            runCatching { dvr.reconcileInterrupted() }
+            dvr.ensureScheduler()
+        }
         appScope.launch {
             preferences.recordingsDir.collect { dvr.overrideDir = it }
         }

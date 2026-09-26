@@ -104,7 +104,7 @@ class AppPreferences(private val context: Context) {
     }
 
     val updateBaseUrl: Flow<String> = context.dataStore.data.map { prefs ->
-        UpdateSources.resolveShelf(prefs[updateBaseUrlKey], BuildConfig.OWNER_UPDATE_BASE_URL)
+        shelfUrl(prefs[updateBaseUrlKey])
     }
 
     val appearanceMode: Flow<AppearanceMode> = context.dataStore.data.map { prefs ->
@@ -150,8 +150,14 @@ class AppPreferences(private val context: Context) {
 
     suspend fun getUpdateBaseUrl(): String {
         val stored = context.dataStore.data.first()[updateBaseUrlKey]
-        return UpdateSources.resolveShelf(stored, BuildConfig.OWNER_UPDATE_BASE_URL)
+        return shelfUrl(stored)
     }
+
+    private fun shelfUrl(stored: String?): String =
+        UpdateSources.shelfForDevice(
+            UpdateSources.resolveShelf(stored, BuildConfig.OWNER_UPDATE_BASE_URL),
+            BuildConfig.FLAVOR
+        )
 
     suspend fun setUpdateBaseUrl(url: String) {
         val trimmed = url.trim()

@@ -51,13 +51,15 @@ android {
         applicationId = "com.totaliptv.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 87
-        versionName = "1.4.75"
+        versionCode = 88
+        versionName = "1.4.76"
         buildConfigField(
             "String",
             "DEFAULT_UPDATE_BASE_URL",
             "\"\""
         )
+        // Shared shelf root for owner test builds. Not stored in git.
+        // Phone reads <root>/phone/version.json; the phone flavor appends phone/ at runtime.
         val ownerUpdate = (System.getenv("TIP_UPDATE_BASE_URL") ?: "")
             .replace("\"", "")
             .replace("\n", "")
@@ -74,8 +76,8 @@ android {
         create("tv") {
             dimension = "device"
             // Keep Shield / Leanback applicationId unchanged.
-            versionCode = 87
-            versionName = "1.4.75"
+            versionCode = 88
+            versionName = "1.4.76"
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",
@@ -86,8 +88,8 @@ android {
             dimension = "device"
             applicationIdSuffix = ".phone"
             // Phone-only bump so Shield is not forced to update.
-            versionCode = 64
-            versionName = "1.4.52-phone"
+            versionCode = 65
+            versionName = "1.4.53-phone"
             resValue("string", "app_name", "Total IPTV Pro Phone")
             buildConfigField(
                 "String",
@@ -160,6 +162,11 @@ android {
         error += "NewApi"
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.isReturnDefaultValues = true
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -224,6 +231,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.serialization.json)
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }
 
 // NewApi is an error on debug and release builds, not only lintVitalRelease.

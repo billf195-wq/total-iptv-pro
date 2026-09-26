@@ -16,4 +16,21 @@ class UpdateShelfTest {
             UpdateSources.resolveShelf("http://example.test/mine/", "http://example.test/tv/")
         )
     }
+
+    @Test
+    fun phoneShelfAppendsPhoneDirectoryUnlessAlreadyThere() {
+        assertEquals("", UpdateSources.shelfForDevice("", "phone"))
+        assertEquals(
+            "http://example.test/updates/",
+            UpdateSources.shelfForDevice("http://example.test/updates", "tv")
+        )
+        assertEquals(
+            "http://example.test/updates/phone/",
+            UpdateSources.shelfForDevice("http://example.test/updates", "phone")
+        )
+        assertEquals(
+            "http://example.test/updates/phone/",
+            UpdateSources.shelfForDevice("http://example.test/updates/phone/", "phone")
+        )
+    }
 }
