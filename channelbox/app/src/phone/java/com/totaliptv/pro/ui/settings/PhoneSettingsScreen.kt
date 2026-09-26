@@ -85,7 +85,7 @@ fun PhoneSettingsScreen(
             .background(tipScreenBrush())
             .padding(contentPadding)
     ) {
-        PhonePageHeader(title = "Settings")
+        PhonePageHeader()
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())

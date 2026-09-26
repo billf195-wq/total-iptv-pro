@@ -137,14 +137,7 @@ fun PhoneBrowseScreen(
             .background(tipScreenBrush())
             .padding(contentPadding)
     ) {
-        PhonePageHeader(
-            title = when (section) {
-                BrowseSection.Live -> "Live"
-                BrowseSection.Movies -> "Movies"
-                BrowseSection.Series -> "Series"
-                BrowseSection.Favorites -> "Favorites"
-            }
-        )
+        PhonePageHeader()
 
         if (section != BrowseSection.Favorites) {
             LazyRow(

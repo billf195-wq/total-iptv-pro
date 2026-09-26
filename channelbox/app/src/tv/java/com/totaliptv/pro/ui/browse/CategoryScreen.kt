@@ -58,7 +58,6 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.repo.CatalogSort
 import com.totaliptv.pro.ui.components.ClassicBrandBar
-import com.totaliptv.pro.ui.components.ClassicPageTitle
 import com.totaliptv.pro.ui.components.CategoryRailItem
 import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.components.ChannelGridCard
@@ -126,13 +125,6 @@ fun BrowseScreen(
 
     var selectedCategoryId by remember(section, categories) {
         mutableStateOf(categories.firstOrNull()?.id)
-    }
-
-    val title = when (section) {
-        BrowseSection.Live -> "Live TV"
-        BrowseSection.Movies -> "Movies"
-        BrowseSection.Series -> "Series"
-        BrowseSection.Favorites -> "Favorites"
     }
 
     val displayItems: List<MediaItem> = remember(selectedCategoryId, section, catalogRevision, catalogSort) {
@@ -247,7 +239,6 @@ fun BrowseScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             TopBarChip(label = "← Home", onClick = onBack, emphasized = true)
-            ClassicPageTitle(title)
             Spacer(Modifier.weight(1f))
             if (section == BrowseSection.Live && onOpenGuide != null) {
                 TopBarChip(label = "TV Guide", onClick = onOpenGuide)

@@ -37,6 +37,16 @@ object HomeShelfFit {
 
     val sidebarLogo = 36.dp
 
+    /**
+     * Catalog search field on Live, Movies, Series, and Search.
+     * 48 dp with 8 dp vertical padding leaves 32 dp for a 16 sp line, so the
+     * placeholder is not clipped.
+     */
+    val searchFieldHeight = 48.dp
+    val searchFieldPadH = 14.dp
+    val searchFieldPadV = 8.dp
+    val searchFieldCorner = 8.dp
+
     fun desktopPoster(): Dp = desktopPosterImage + desktopPosterTitle
 
     fun desktopRow(): Dp = desktopRowHeader + desktopPoster()

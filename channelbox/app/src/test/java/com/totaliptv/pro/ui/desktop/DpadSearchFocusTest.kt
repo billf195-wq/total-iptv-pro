@@ -36,7 +36,9 @@ class DpadSearchFocusTest {
 
         val search = java.io.File("src/tv/java/com/totaliptv/pro/ui/search/SearchScreen.kt").readText()
         assertTrue(search.contains("DpadSearchField("))
+        assertTrue(search.indexOf("DpadSearchField(") < search.indexOf("label = \"Close\""))
         assertTrue(search.contains("closeFocus.requestFocus()"))
+        assertTrue(search.contains("resultsNavigable = false"))
         assertFalse(search.contains("BasicTextField("))
         assertFalse(search.contains("fieldFocus.requestFocus"))
 

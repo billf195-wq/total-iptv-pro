@@ -69,7 +69,7 @@ fun PhoneSearchScreen(
             .background(tipScreenBrush())
             .padding(contentPadding)
     ) {
-        PhonePageHeader(title = "Search")
+        PhonePageHeader()
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },

@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.totaliptv.pro.BuildConfig
@@ -333,8 +334,6 @@ fun LivePane(
             .fillMaxSize()
             .focusProperties { canFocus = !showGameDay }
     ) {
-        PaneTitle("Live")
-        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
         FilterBar(
             search = search,
             onSearch = onSearch,
@@ -506,8 +505,6 @@ fun BrowseGridPane(
         if (focused) didInitialGridFocus = true
     }
     Column(Modifier.fillMaxSize()) {
-        PaneTitle(title)
-        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
         FilterBar(
             search = search,
             onSearch = onSearch,
@@ -616,7 +613,6 @@ fun FavoritesPane(
         if (focused) didInitialFavFocus = true
     }
     Column(Modifier.fillMaxSize()) {
-        PaneTitle("Favorites")
         Text(
             if (favorites.isEmpty()) "Long-press a poster or Favorite while watching to save titles here."
             else "${favorites.size} saved",
@@ -727,7 +723,6 @@ fun DesktopSettingsPane(
         runCatching { settingsFocus.requestFocus() }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        PaneTitle("Settings")
         Text(
             "Live $liveCount · Movies $movieCount · Series $seriesCount",
             color = TipGoldText,
@@ -1063,13 +1058,12 @@ fun FilterBar(
                 value = search,
                 onValueChange = onSearch,
                 placeholder = "Search…",
-                textStyle = TextStyle(color = TipGoldText, fontSize = TipDimens.BodyLargeSp),
+                textStyle = TextStyle(color = TipGoldText, fontSize = 16.sp),
                 placeholderColor = TipGoldMuted,
                 cursorColor = TipAmber,
                 backgroundColor = TipSurface,
                 focusedBorderColor = TipAmber,
-                shape = RoundedCornerShape(TipDimens.PosterCorner),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(TipDimens.dp(12)),
+                shape = RoundedCornerShape(HomeShelfFit.searchFieldCorner),
                 focusRequester = searchFocus,
                 downFocus = chips,
                 onEditingChange = onEditingChange

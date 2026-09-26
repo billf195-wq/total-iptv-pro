@@ -60,7 +60,7 @@ fun PhoneRecordingsScreen(
             .background(tipScreenBrush())
             .padding(contentPadding)
     ) {
-    PhonePageHeader(title = "Recordings")
+    PhonePageHeader()
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()

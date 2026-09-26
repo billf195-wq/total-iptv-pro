@@ -108,11 +108,23 @@ fun PhoneHomeScreen(
             .padding(contentPadding)
     ) {
         Column(Modifier.fillMaxSize()) {
-            PhonePageHeader(title = "Home") {
-                TextButton(onClick = onOpenLive) { Text("Live") }
-                TextButton(onClick = onOpenMovies) { Text("Movies") }
-                TextButton(onClick = onOpenSeries) { Text("Series") }
-            }
+            PhonePageHeader(trailing = {
+                TextButton(
+                    onClick = onOpenLive,
+                    modifier = Modifier.height(32.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) { Text("Live", maxLines = 1) }
+                TextButton(
+                    onClick = onOpenMovies,
+                    modifier = Modifier.height(32.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) { Text("Movies", maxLines = 1) }
+                TextButton(
+                    onClick = onOpenSeries,
+                    modifier = Modifier.height(32.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) { Text("Series", maxLines = 1) }
+            })
             when {
             loading && newlyMovies.isEmpty() && liveSample.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

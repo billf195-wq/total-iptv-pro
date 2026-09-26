@@ -28,7 +28,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.ui.home.HomeShelfFit
@@ -196,12 +195,11 @@ fun PhoneLiveRow(
 }
 
 /**
- * Shared phone page header. Every phone page starts with this bar, so content
- * begins at [HomeShelfFit.phoneTopOffset].
+ * Shared phone page header. Logo only — the bottom nav shows which page is open.
+ * Content on every phone page starts under this [HomeShelfFit.phoneTopOffset] bar.
  */
 @Composable
 fun PhonePageHeader(
-    title: String,
     modifier: Modifier = Modifier,
     trailing: @Composable (RowScope.() -> Unit)? = null
 ) {
@@ -214,17 +212,10 @@ fun PhonePageHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         AppBannerArt(Modifier.height(HomeShelfFit.classicLogo))
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = title,
-            color = OnCinema,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
-        trailing?.invoke(this)
+        if (trailing != null) {
+            Spacer(Modifier.weight(1f))
+            trailing()
+        }
     }
 }
 

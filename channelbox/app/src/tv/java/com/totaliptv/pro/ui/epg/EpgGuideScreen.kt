@@ -79,11 +79,9 @@ import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.components.ClassicBrandBar
-import com.totaliptv.pro.ui.components.ClassicPageTitle
 import com.totaliptv.pro.ui.components.NetworkImage
 import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
-import com.totaliptv.pro.ui.desktop.PaneTitle
 import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.ui.theme.BrandBlue
@@ -309,20 +307,13 @@ fun EpgGuideScreen(
     ) {
         if (applyPageInset) {
             ClassicBrandBar()
-            ClassicPageTitle(
-                "TV Guide",
-                Modifier.padding(
-                    start = 12.dp,
-                    end = 12.dp,
-                    top = HomeShelfFit.pageTopOffset
-                )
-            )
-        } else {
-            PaneTitle("TV Guide")
         }
-        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
         Row(
-            modifier = Modifier.padding(horizontal = if (applyPageInset) 12.dp else 0.dp),
+            modifier = Modifier.padding(
+                start = if (applyPageInset) 12.dp else 0.dp,
+                top = if (applyPageInset) HomeShelfFit.pageTopOffset else 0.dp,
+                end = if (applyPageInset) 12.dp else 0.dp
+            ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TopBarChip(label = "← Back", onClick = onBack, emphasized = true)

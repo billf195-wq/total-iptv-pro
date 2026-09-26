@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.totaliptv.pro.ui.components.ClassicBrandBar
-import com.totaliptv.pro.ui.components.ClassicPageTitle
 import com.totaliptv.pro.ui.components.DpadSearchField
 import com.totaliptv.pro.ui.home.HomeShelfFit
 import androidx.compose.runtime.Composable
@@ -36,6 +35,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -200,7 +200,38 @@ fun SearchScreen(
                     bottom = 12.dp
                 )
         ) {
-        // Stable top chrome — always composed, never keyed by query/results.
+        // Search is the first element at the shared top offset. Same 48 dp field as Live/Movies/Series.
+        DpadSearchField(
+            value = query,
+            onValueChange = {
+                query = it
+                typingEpoch += 1
+                // Typing again locks results so LazyColumn cannot steal focus mid-IME.
+                resultsNavigable = false
+                pendingMoveToResults = false
+            },
+            placeholder = "Search channels, movies, series…",
+            textStyle = TextStyle(
+                color = OnCinema,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            ),
+            placeholderColor = OnCinemaMuted,
+            cursorColor = BrandBlue,
+            backgroundColor = CinemaSurface,
+            focusedBorderColor = FocusBorder,
+            idleBorderColor = Hairline,
+            shape = RoundedCornerShape(HomeShelfFit.searchFieldCorner),
+            downFocus = if (displayedResults.isNotEmpty()) firstResultFocus else null,
+            onEditingChange = { fieldFocused = it },
+            onExitEdit = { toNext ->
+                if (toNext) goToResults() else false
+            }
+        )
+
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
+
+        // Stable chrome under the field — always composed, never keyed by query/results.
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -215,54 +246,22 @@ fun SearchScreen(
                     .focusRequester(closeFocus)
                     .focusProperties { canFocus = !fieldFocused }
             )
-            ClassicPageTitle("Search")
             Spacer(Modifier.weight(1f))
             Text(
                 text = when {
                     trimmed.isEmpty() -> "Live + movies + series"
                     trimmed.length < 2 -> "Type at least 2 characters"
-                    searching && displayedResults.isEmpty() -> "Searching\u2026"
-                    searching -> "Updating\u2026"
+                    searching && displayedResults.isEmpty() -> "Searching…"
+                    searching -> "Updating…"
                     displayedResults.isEmpty() -> "0 results"
-                    else -> "$liveCount live \u00b7 $vodCount movies"
+                    else -> "$liveCount live · $vodCount movies"
                 },
                 style = MaterialTheme.typography.labelLarge,
-                color = BrandBlue.copy(alpha = 0.9f)
+                color = BrandBlue.copy(alpha = 0.9f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
-
-        Spacer(Modifier.height(12.dp))
-
-        // Pinned query row — fixed height, never leaves composition, never keyed by query.
-        DpadSearchField(
-            value = query,
-            onValueChange = {
-                query = it
-                typingEpoch += 1
-                // Typing again locks results so LazyColumn cannot steal focus mid-IME.
-                resultsNavigable = false
-                pendingMoveToResults = false
-            },
-            placeholder = "Search channels, movies, series\u2026",
-            textStyle = TextStyle(
-                color = OnCinema,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium
-            ),
-            placeholderColor = OnCinemaMuted,
-            cursorColor = BrandBlue,
-            backgroundColor = CinemaSurface,
-            focusedBorderColor = FocusBorder,
-            idleBorderColor = Hairline,
-            shape = RoundedCornerShape(10.dp),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-            downFocus = if (displayedResults.isNotEmpty()) firstResultFocus else null,
-            onEditingChange = { fieldFocused = it },
-            onExitEdit = { toNext ->
-                if (toNext) goToResults() else false
-            },
-            modifier = Modifier.height(48.dp)
-        )
 
         // Fixed-height status slot so vodLoading banner never shifts the query row.
         Box(

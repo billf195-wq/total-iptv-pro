@@ -61,7 +61,6 @@ import com.totaliptv.pro.data.update.AppUpdateChecker
 import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
 import com.totaliptv.pro.ui.components.ClassicBrandBar
-import com.totaliptv.pro.ui.components.ClassicPageTitle
 import com.totaliptv.pro.ui.components.FocusableCard
 import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.theme.FocusBorder
@@ -127,10 +126,7 @@ fun SettingsScreen(
                     bottom = 24.dp
                 )
         ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = onBack) { Text("Back") }
-            ClassicPageTitle("Settings", Modifier.padding(start = 12.dp))
-        }
+        Button(onClick = onBack) { Text("Back") }
 
         LazyColumn(
             contentPadding = PaddingValues(vertical = 8.dp),

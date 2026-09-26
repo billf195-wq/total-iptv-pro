@@ -12,6 +12,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -44,8 +45,10 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
+import com.totaliptv.pro.ui.home.HomeShelfFit
 
 /**
  * True on Android TV / Leanback. Phone builds remove the leanback feature and are not television.
@@ -80,8 +83,11 @@ fun DpadSearchField(
     backgroundColor: Color = Color(0xFF141414),
     focusedBorderColor: Color = Color(0xFFFFB300),
     idleBorderColor: Color = Color.Transparent,
-    shape: Shape = RoundedCornerShape(8.dp),
-    contentPadding: PaddingValues = PaddingValues(12.dp),
+    shape: Shape = RoundedCornerShape(HomeShelfFit.searchFieldCorner),
+    contentPadding: PaddingValues = PaddingValues(
+        horizontal = HomeShelfFit.searchFieldPadH,
+        vertical = HomeShelfFit.searchFieldPadV
+    ),
     focusRequester: FocusRequester? = null,
     downFocus: FocusRequester? = null,
     onEditingChange: (Boolean) -> Unit = {},
@@ -154,6 +160,7 @@ fun DpadSearchField(
         Box(
             modifier
                 .fillMaxWidth()
+                .height(HomeShelfFit.searchFieldHeight)
                 .focusRequester(idleFocus)
                 .onFocusChanged { idleFocused = it.isFocused }
                 .focusProperties {
@@ -181,7 +188,8 @@ fun DpadSearchField(
                 text = value.ifEmpty { placeholder },
                 style = textStyle,
                 color = if (value.isEmpty()) placeholderColor else textStyle.color,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     } else {
@@ -208,6 +216,7 @@ fun DpadSearchField(
             ),
             modifier = modifier
                 .fillMaxWidth()
+                .height(HomeShelfFit.searchFieldHeight)
                 .focusRequester(editFocus)
                 .focusProperties {
                     if (downFocus != null) down = downFocus
@@ -228,7 +237,13 @@ fun DpadSearchField(
             decorationBox = { inner ->
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (value.isEmpty()) {
-                        Text(placeholder, style = textStyle, color = placeholderColor, maxLines = 1)
+                        Text(
+                            placeholder,
+                            style = textStyle,
+                            color = placeholderColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                     inner()
                 }

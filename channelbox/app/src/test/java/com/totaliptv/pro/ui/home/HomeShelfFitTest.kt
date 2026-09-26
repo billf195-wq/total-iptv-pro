@@ -50,10 +50,16 @@ class HomeShelfFitTest {
         assertEquals(2, Regex("applyPageInset = false").findAll(root).count())
 
         val panes = File("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopPanes.kt").readText()
-        assertTrue(panes.contains("PaneTitle(\"Live\")"))
-        assertTrue(panes.contains("PaneTitle(title)"))
-        assertTrue(panes.contains("PaneTitle(\"Favorites\")"))
-        assertTrue(panes.contains("PaneTitle(\"Settings\")"))
+        assertFalse(panes.contains("PaneTitle(\"Live\")"))
+        assertFalse(panes.contains("PaneTitle(title)"))
+        assertFalse(panes.contains("PaneTitle(\"Favorites\")"))
+        assertFalse(panes.contains("PaneTitle(\"Settings\")"))
+        val live = panes.substringAfter("fun LivePane").substringBefore("fun sortDesktopRecentlyAdded")
+        val liveColumn = live.substringAfter("Column(")
+        assertTrue(liveColumn.contains("FilterBar("))
+        assertTrue(liveColumn.indexOf("FilterBar(") < liveColumn.indexOf("label = \"Game Day\""))
+        val grid = panes.substringAfter("Column(Modifier.fillMaxSize()) {\n        FilterBar(")
+        assertTrue(grid.startsWith("\n            search = search"))
         val shelfHeader = panes.substringAfter("fun HomeShelfHeader").substringBefore("fun LivePane")
         assertTrue(shelfHeader.contains("PaneTitle(text)"))
 
@@ -64,15 +70,15 @@ class HomeShelfFitTest {
 
         val guide = File("src/tv/java/com/totaliptv/pro/ui/epg/EpgGuideScreen.kt").readText()
         assertTrue(guide.contains("HomeShelfFit.pageTopOffset"))
-        assertTrue(guide.contains("PaneTitle(\"TV Guide\")"))
+        assertFalse(guide.contains("PaneTitle(\"TV Guide\")"))
+        assertFalse(guide.contains("ClassicPageTitle("))
         assertTrue(guide.contains("ClassicBrandBar()"))
-        assertTrue(guide.contains("ClassicPageTitle("))
 
         val recordings = File("src/tv/java/com/totaliptv/pro/ui/dvr/RecordingsScreen.kt").readText()
         assertTrue(recordings.contains("HomeShelfFit.pageTopOffset"))
-        assertTrue(recordings.contains("PaneTitle(\"Recordings\""))
+        assertFalse(recordings.contains("PaneTitle(\"Recordings\""))
+        assertFalse(recordings.contains("ClassicPageTitle("))
         assertTrue(recordings.contains("ClassicBrandBar()"))
-        assertTrue(recordings.contains("ClassicPageTitle("))
 
         val classicPages = listOf(
             "src/tv/java/com/totaliptv/pro/ui/home/HomeScreen.kt",
@@ -92,8 +98,19 @@ class HomeShelfFitTest {
             val text = File(path).readText()
             assertTrue(path, text.contains("ClassicBrandBar()"))
             assertTrue(path, text.contains("HomeShelfFit.pageTopOffset"))
-            assertTrue(path, text.contains("ClassicPageTitle("))
+            assertFalse(path, text.contains("ClassicPageTitle("))
         }
+        val search = File(classicPages[3]).readText()
+        val searchBody = search.substringAfter("ClassicBrandBar()")
+        assertTrue(searchBody.indexOf("DpadSearchField(") < searchBody.indexOf("label = \"Close\""))
+        assertTrue(search.contains("HomeShelfFit.searchFieldCorner"))
+        assertTrue(panes.contains("HomeShelfFit.searchFieldCorner"))
+        assertTrue(panes.contains("fontSize = 16.sp"))
+        assertEquals(48f, HomeShelfFit.searchFieldHeight.value, 0.01f)
+        assertTrue(
+            HomeShelfFit.searchFieldHeight.value >=
+                HomeShelfFit.searchFieldPadV.value * 2 + 20f
+        )
 
         val header = File("src/phone/java/com/totaliptv/pro/ui/components/PhoneComponents.kt").readText()
             .substringAfter("fun PhonePageHeader")
@@ -102,6 +119,7 @@ class HomeShelfFitTest {
         assertTrue(header.contains("HomeShelfFit.classicLogo"))
         assertTrue(header.contains("AppBannerArt("))
         assertTrue(header.contains("Color(0xFF000000)"))
+        assertFalse(header.contains("text = title"))
         val phonePages = listOf(
             "src/phone/java/com/totaliptv/pro/ui/home/PhoneHomeScreen.kt",
             "src/phone/java/com/totaliptv/pro/ui/browse/PhoneBrowseScreen.kt",
