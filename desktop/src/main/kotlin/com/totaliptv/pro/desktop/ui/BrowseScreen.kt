@@ -160,7 +160,7 @@ fun BrowseScreen(
                     )
             }
         }
-        Column(Modifier.fillMaxSize().background(TipBg)) {
+        Column(Modifier.fillMaxSize().tvContentBackground()) {
             TopBanner(banner)
             val resume = ResumeStore.forSeries(seriesDetail?.seriesId, resumeEntries)
             SeriesDetailPane(
@@ -195,7 +195,7 @@ fun BrowseScreen(
 
     if (vodDetail != null || vodLoading) {
         val vodMedia = remember(vodDetail) { vodDetail?.toMediaItem() }
-        Column(Modifier.fillMaxSize().background(TipBg)) {
+        Column(Modifier.fillMaxSize().tvContentBackground()) {
             TopBanner(banner)
             VodDetailPane(
                 detail = vodDetail,
@@ -231,7 +231,7 @@ fun BrowseScreen(
         else -> null
     }
 
-    Column(Modifier.fillMaxSize().background(TipBg)) {
+    Column(Modifier.fillMaxSize().tvContentBackground()) {
         TopBanner(banner)
 
         Row(Modifier.weight(1f).fillMaxWidth()) {
@@ -239,7 +239,7 @@ fun BrowseScreen(
                 Modifier
                     .width(220.dp)
                     .fillMaxHeight()
-                    .background(TipSurface)
+                    .tvChromeBackground()
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -494,7 +494,7 @@ private fun TopBanner(banner: ImageBitmap?) {
         modifier = Modifier
             .fillMaxWidth()
             .height(128.dp)
-            .background(TipSurface)
+            .tvChromeBackground()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Bottom
     ) {

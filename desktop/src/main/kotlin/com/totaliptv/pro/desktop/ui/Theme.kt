@@ -35,10 +35,12 @@ val TipOnAmber = Color(0xFF1A1200)
 val TipRecordActive = Color(0xFFE53935)
 val TipOnRecordActive = Color(0xFFFFFFFF)
 
-// Sidebar, banner, and cards. Unchanged so they stay a step lighter than the TV screen.
+// Page fill used by splash, loading, and light-theme chrome. Cards stay on DarkTipSurface.
 val DarkTipBg = Color(0xFF0B0F14)
 val DarkTipSurface = Color(0xFF141A22)
 val DarkTipSurfaceAlt = Color(0xFF1C2430)
+/** Light-theme top bar and sidebar. Dark theme uses flat black instead. */
+private val TipChromeLight = Color(0xFFFFFFFF)
 
 /** Flat black behind Live TV, Movies, and Series. No gradient. */
 val TipContentBlack = Color(0xFF000000)
@@ -62,7 +64,16 @@ var tipContentDark = true
 fun tvContentColor(darkTheme: Boolean): Color =
     if (darkTheme) TipContentBlack else TipContentLightPage
 
+/**
+ * Top bar and left nav panel. Dark theme matches the content black so the
+ * window is one surface. Light theme keeps the white card surface.
+ */
+fun tvChromeColor(darkTheme: Boolean): Color =
+    if (darkTheme) TipContentBlack else TipChromeLight
+
 fun Modifier.tvContentBackground(): Modifier = background(tvContentColor(tipContentDark))
+
+fun Modifier.tvChromeBackground(): Modifier = background(tvChromeColor(tipContentDark))
 
 private val DarkColors = darkColorScheme(
     primary = TipBlue,
