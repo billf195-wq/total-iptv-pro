@@ -2,6 +2,7 @@ package com.totaliptv.pro.diagnostics
 
 import android.content.Context
 import android.content.Intent
+import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.util.SensitiveText
 import java.io.File
 import java.io.FileOutputStream
@@ -26,12 +27,17 @@ object CrashLog {
         Thread.setDefaultUncaughtExceptionHandler(handler)
     }
 
-    fun format(threadName: String, error: Throwable, nowMs: Long): String {
+    fun format(threadName: String, error: Throwable, nowMs: Long, appVersion: String? = null): String {
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(nowMs))
         return buildString {
             append("Time: ")
             append(stamp)
             append('\n')
+            if (!appVersion.isNullOrBlank()) {
+                append("App: ")
+                append(appVersion.trim())
+                append('\n')
+            }
             append("Thread: ")
             append(threadName)
             append('\n')
@@ -39,13 +45,21 @@ object CrashLog {
         }
     }
 
-    fun write(context: Context, thread: Thread, error: Throwable) {
-        writeTo(context.applicationContext.filesDir, thread.name, error)
+    /** Prefix crashes that have no version, or a version other than the one running now. */
+    fun labelForSettings(raw: String, currentVersion: String): String {
+        if (raw.isBlank()) return raw
+        val recorded = Regex("(?m)^App: (.+)$").find(raw)?.groupValues?.getOrNull(1)?.trim()
+        val older = recorded.isNullOrBlank() || recorded != currentVersion.trim()
+        return if (older) "Recorded on an older version.\n$raw" else raw
     }
 
-    fun writeTo(dir: File, threadName: String, error: Throwable) {
+    fun write(context: Context, thread: Thread, error: Throwable) {
+        writeTo(context.applicationContext.filesDir, thread.name, error, BuildConfig.VERSION_NAME)
+    }
+
+    fun writeTo(dir: File, threadName: String, error: Throwable, appVersion: String? = null) {
         dir.mkdirs()
-        val text = format(threadName, error, System.currentTimeMillis())
+        val text = format(threadName, error, System.currentTimeMillis(), appVersion)
         val out = file(dir)
         FileOutputStream(out).use { stream ->
             stream.write(text.toByteArray(Charsets.UTF_8))

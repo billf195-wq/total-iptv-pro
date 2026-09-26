@@ -28,8 +28,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -167,71 +173,120 @@ fun LiveRowItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onRecord: (() -> Unit)? = null,
-    recordActive: Boolean = false
+    recordActive: Boolean = false,
+    upFocus: FocusRequester? = null
 ) {
-    TipFocusable(onClick = onClick, modifier = modifier.fillMaxWidth()) { focused ->
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(TipDimens.NavCorner))
-                .background(if (focused) TipSurfaceAlt else TipSurface)
-                .padding(horizontal = TipDimens.LivePadH, vertical = TipDimens.LivePadV),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
+    val rowFocus = remember(item.id) { FocusRequester() }
+    val recFocus = remember(item.id) { FocusRequester() }
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TipFocusable(
+            onClick = onClick,
+            modifier = Modifier
+                .weight(1f)
+                .then(modifier)
+                .focusRequester(rowFocus)
+                .focusProperties {
+                    if (onRecord != null) right = recFocus
+                    if (upFocus != null) up = upFocus
+                }
+                .onKeyEvent { e ->
+                    val record = onRecord ?: return@onKeyEvent false
+                    val menu = e.key == Key.Menu
+                    val longOk = e.nativeKeyEvent.isLongPress &&
+                        (e.key == Key.DirectionCenter || e.key == Key.Enter)
+                    if ((menu || longOk) && e.type == KeyEventType.KeyUp) {
+                        record()
+                        true
+                    } else {
+                        false
+                    }
+                }
+        ) { focused ->
+            Row(
                 Modifier
-                    .size(TipDimens.LiveThumb)
-                    .clip(RoundedCornerShape(TipDimens.PosterCorner))
-                    .background(TipSurfaceAlt)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(TipDimens.NavCorner))
+                    .background(if (focused) TipSurfaceAlt else TipSurface)
+                    .padding(horizontal = TipDimens.LivePadH, vertical = TipDimens.LivePadV),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                val url = item.logoUrl ?: item.artworkUrl()
-                if (url != null) {
-                    AsyncImage(
-                        model = url,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
-                }
-            }
-            Text(
-                item.name,
-                color = if (focused) TipAccent else TipGoldText,
-                fontSize = TipDimens.BodyLargeSp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .padding(start = TipDimens.dp(12))
-                    .weight(1f)
-            )
-            item.groupTitle?.takeIf { it.isNotBlank() }?.let { group ->
-                Text(group, color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
-            }
-            if (onRecord != null) {
-                TipFocusable(onClick = onRecord) { recFocused ->
+                Box(
+                    Modifier
+                        .size(TipDimens.LiveThumb)
+                        .clip(RoundedCornerShape(TipDimens.PosterCorner))
+                        .background(TipSurfaceAlt),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        if (recordActive) DvrRecordUi.ACTIVE_LABEL else "REC",
-                        color = when {
-                            recordActive -> Color.White
-                            recFocused -> TipOnAmber
-                            else -> TipAccent
-                        },
-                        fontWeight = FontWeight.Bold,
-                        fontSize = TipDimens.LabelLargeSp,
-                        modifier = Modifier
-                            .padding(start = TipDimens.dp(8))
-                            .background(
-                                when {
-                                    recordActive -> LiveMarker
-                                    recFocused -> TipAmber
-                                    else -> TipSurfaceAlt
-                                },
-                                RoundedCornerShape(TipDimens.NavCorner)
-                            )
-                            .padding(horizontal = TipDimens.dp(8), vertical = TipDimens.dp(4))
+                        item.name.take(1).uppercase(),
+                        color = TipGoldMuted,
+                        fontWeight = FontWeight.Bold
                     )
+                    val url = item.logoUrl ?: item.artworkUrl()
+                    if (!url.isNullOrBlank()) {
+                        val context = LocalContext.current
+                        val model = remember(url) {
+                            ImageRequest.Builder(context)
+                                .data(url)
+                                .size(128, 128)
+                                .crossfade(false)
+                                .build()
+                        }
+                        AsyncImage(
+                            model = model,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
                 }
+                Text(
+                    item.name,
+                    color = if (focused) TipAccent else TipGoldText,
+                    fontSize = TipDimens.BodyLargeSp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .padding(start = TipDimens.dp(12))
+                        .weight(1f)
+                )
+                item.groupTitle?.takeIf { it.isNotBlank() }?.let { group ->
+                    Text(group, color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
+                }
+            }
+        }
+        if (onRecord != null) {
+            TipFocusable(
+                onClick = onRecord,
+                modifier = Modifier
+                    .focusRequester(recFocus)
+                    .focusProperties { left = rowFocus }
+            ) { recFocused ->
+                Text(
+                    if (recordActive) DvrRecordUi.ACTIVE_LABEL else "REC",
+                    color = when {
+                        recordActive -> Color.White
+                        recFocused -> TipOnAmber
+                        else -> TipAccent
+                    },
+                    fontWeight = FontWeight.Bold,
+                    fontSize = TipDimens.LabelLargeSp,
+                    modifier = Modifier
+                        .padding(start = TipDimens.dp(8))
+                        .background(
+                            when {
+                                recordActive -> LiveMarker
+                                recFocused -> TipAmber
+                                else -> TipSurfaceAlt
+                            },
+                            RoundedCornerShape(TipDimens.NavCorner)
+                        )
+                        .padding(horizontal = TipDimens.dp(8), vertical = TipDimens.dp(4))
+                )
             }
         }
     }

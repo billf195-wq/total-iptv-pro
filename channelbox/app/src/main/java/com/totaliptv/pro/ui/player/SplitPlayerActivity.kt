@@ -375,9 +375,15 @@ class SplitPlayerActivity : ComponentActivity() {
         } catch (t: Throwable) {
             DebugLog.append(this, TAG, "start ${side.id} failed", t)
             Log.e(TAG, "start ${side.id} failed: ${SensitiveText.safeLog(t)}")
-            side.statusView?.text = "This side failed. The other keeps playing."
+            side.statusView?.text = SplitStatus.failureMessage(otherSideReady(side))
             side.statusView?.visibility = View.VISIBLE
         }
+    }
+
+    private fun otherSideReady(side: Side): Boolean {
+        if (!::left.isInitialized || !::right.isInitialized) return false
+        val other = if (side.id == SideId.LEFT) right else left
+        return other.player?.playbackState == Player.STATE_READY
     }
 
     private fun startSideInner(side: Side) {
@@ -494,7 +500,7 @@ class SplitPlayerActivity : ComponentActivity() {
                     scope.launch {
                         val flipped = tryAlternate(side, "Retrying this side…")
                         if (!flipped && side.player === exo) {
-                            side.statusView?.text = "This side failed. The other keeps playing."
+                            side.statusView?.text = SplitStatus.failureMessage(otherSideReady(side))
                             side.statusView?.visibility = View.VISIBLE
                         }
                     }
@@ -509,7 +515,7 @@ class SplitPlayerActivity : ComponentActivity() {
                     scope.launch { startSide(side) }
                     return
                 }
-                side.statusView?.text = "This side failed. The other keeps playing."
+                side.statusView?.text = SplitStatus.failureMessage(otherSideReady(side))
                 side.statusView?.visibility = View.VISIBLE
                 Log.w(TAG, "side ${side.id} error ${error.errorCodeName}")
             }

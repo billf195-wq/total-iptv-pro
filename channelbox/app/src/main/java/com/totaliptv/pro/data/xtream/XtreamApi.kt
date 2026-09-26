@@ -45,6 +45,8 @@ class XtreamApi(
         coerceInputValues = true
     }
 ) {
+    class RateLimited(val action: String?) : Exception("EPG rate limited")
+
     /** From `server_info.timezone` / `time_now` on the last successful login probe. */
     internal var providerZone: ZoneId? = null
 
@@ -554,7 +556,10 @@ class XtreamApi(
                 extra = mapOf("stream_id" to streamId.toString(), "limit" to limit.toString())
             )
             parseEpgListings(body, streamId)
-        }.onFailure { Log.w(TAG, "get_short_epg failed for $streamId: ${SensitiveText.safeLog(it)}") }.getOrDefault(emptyList())
+        }.onFailure {
+            if (it is RateLimited) throw it
+            Log.w(TAG, "get_short_epg failed for $streamId: ${SensitiveText.safeLog(it)}")
+        }.getOrDefault(emptyList())
     }
 
     fun fetchSimpleEpgTable(creds: Credentials, streamId: Int): List<EpgProgram> {
@@ -794,6 +799,7 @@ class XtreamApi(
             .header("Accept", "application/json")
             .build()
         client.newCall(request).execute().use { response ->
+            if (response.code == 429) throw RateLimited(action)
             if (!response.isSuccessful) error("Xtream ${action ?: "auth"} failed: HTTP ${response.code}")
             return response.body?.string().orEmpty()
         }

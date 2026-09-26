@@ -33,6 +33,15 @@ object UpdateSources {
      */
     fun shouldCheckShelf(baseUrl: String?): Boolean = !baseUrl.isNullOrBlank()
 
+    /**
+     * A missing preference uses the build-time owner default (blank in public builds).
+     * A saved blank stays blank so clearing the field is not undone on the next launch.
+     */
+    fun resolveShelf(stored: String?, ownerBuildDefault: String): String {
+        val chosen = if (stored != null) stored else ownerBuildDefault
+        return migrateShelfHost(chosen.trim())
+    }
+
     /** Kept so older call sites still compile. Shelf addresses are not rewritten. */
     fun migrateShelfHost(raw: String): String = raw
 

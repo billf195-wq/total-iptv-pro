@@ -12,6 +12,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -24,6 +27,7 @@ import com.totaliptv.pro.dvr.DvrActions
 import com.totaliptv.pro.dvr.DvrKind
 import com.totaliptv.pro.dvr.RecordingEntry
 import com.totaliptv.pro.ui.components.FocusableCard
+import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -35,7 +39,9 @@ fun RecordingsScreen(
     onPlay: (MediaItem) -> Unit,
     onBack: () -> Unit
 ) {
-    BackHandler { onBack() }
+    var pendingDelete by remember { mutableStateOf<RecordingEntry?>(null) }
+    BackHandler(enabled = pendingDelete == null) { onBack() }
+    BackHandler(enabled = pendingDelete != null) { pendingDelete = null }
     val context = LocalContext.current
     val dvr = DvrActions.recorder(context)
     val snapshot by dvr.snapshot.collectAsState()
@@ -46,8 +52,18 @@ fun RecordingsScreen(
         Text(
             "Recordings",
             style = MaterialTheme.typography.headlineMedium,
+            color = OnCinema,
             modifier = Modifier.padding(vertical = 12.dp)
         )
+        pendingDelete?.let { doomed ->
+            Text("Delete ${doomed.title}?", color = OnCinema)
+            androidx.tv.material3.Button(onClick = {
+                dvr.deleteRecording(doomed.id)
+                pendingDelete = null
+                Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
+            }) { Text("Delete") }
+            androidx.tv.material3.Button(onClick = { pendingDelete = null }) { Text("Cancel") }
+        }
         Text(
             "Saved on this TV only — ${snapshot.recordingsDir}",
             color = OnCinemaMuted,
@@ -66,7 +82,7 @@ fun RecordingsScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             if (snapshot.schedules.isNotEmpty()) {
-                item { Text("Scheduled", style = MaterialTheme.typography.titleMedium) }
+                item { Text("Scheduled", style = MaterialTheme.typography.titleMedium, color = OnCinema) }
                 items(snapshot.schedules, key = { it.id }) { sched ->
                     FocusableCard(
                         title = sched.title,
@@ -75,7 +91,7 @@ fun RecordingsScreen(
                     )
                 }
             }
-            item { Text("Library", style = MaterialTheme.typography.titleMedium) }
+            item { Text("Library", style = MaterialTheme.typography.titleMedium, color = OnCinema) }
             val library = snapshot.recordings.filterNot { it.isActive() }
             if (library.isEmpty()) {
                 item {
@@ -88,12 +104,22 @@ fun RecordingsScreen(
                 items(library, key = { it.id }) { rec ->
                     FocusableCard(
                         title = rec.title,
-                        subtitle = "${DvrKind.label(rec.contentKind)} · ${rec.channelName} · ${timeFmt.format(Date(rec.startMs))} · ${rec.statusEnum().name.lowercase()} — play / long-press delete",
+                        subtitle = buildString {
+                            append(DvrKind.label(rec.contentKind))
+                            append(" · ")
+                            append(rec.channelName)
+                            append(" · ")
+                            append(timeFmt.format(Date(rec.startMs)))
+                            append(" · ")
+                            append(rec.statusEnum().name.lowercase())
+                            rec.errorMessage?.takeIf { it.isNotBlank() }?.let {
+                                append(" · ")
+                                append(it)
+                            }
+                            append(" — play / long-press delete")
+                        },
                         onClick = { playRecording(onPlay, rec) },
-                        onLongClick = {
-                            dvr.deleteRecording(rec.id)
-                            Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
-                        }
+                        onLongClick = { pendingDelete = rec }
                     )
                 }
             }

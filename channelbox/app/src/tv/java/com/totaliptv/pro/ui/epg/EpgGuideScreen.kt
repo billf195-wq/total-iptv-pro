@@ -32,12 +32,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
@@ -45,6 +50,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
@@ -96,7 +102,7 @@ private val CHANNEL_COL = 168.dp
 private val ROW_H = 56.dp
 private const val GUIDE_ALL_ID = "__all_live__"
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, kotlinx.coroutines.FlowPreview::class)
 @Composable
 fun EpgGuideScreen(
     repository: CatalogRepository,
@@ -132,6 +138,7 @@ fun EpgGuideScreen(
     var focusedChannelId by remember { mutableStateOf<String?>(null) }
     val timeFmt = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
     val nowMs = remember { System.currentTimeMillis() }
+    var cursorMs by remember { mutableLongStateOf(nowMs) }
     val windowStart = remember(nowMs) { GuideWindow.snapStart(nowMs) }
     val timelineWidthDp = (
         LocalConfiguration.current.screenWidthDp - CHANNEL_COL.value - 32f
@@ -196,53 +203,72 @@ fun EpgGuideScreen(
             "Loading programming… | $selectedCategoryName"
         }
 
-        val ids = channels.map { it.id }
-        val alreadyCached = channels.mapNotNull { ch ->
-            ch.id.takeIf { repository.peekCachedGuideRow(ch) != null }
-        }.toSet()
-        val order = GuideEpgLoad.fetchOrder(
-            channelIds = ids,
-            firstVisibleIndex = listState.firstVisibleItemIndex.coerceAtLeast(0),
-            focusedId = focusedChannelId,
-            alreadyStarted = alreadyCached
-        )
-
-        // Fetch on IO, apply rows on Main. supervisorScope: one failure must not cancel the rest.
-        // Do not read Compose state or send a Channel from Dispatchers.IO (1.4.53 dropped all updates).
-        supervisorScope {
-            for (idx in order) {
-                val ch = channels[idx]
-                launch {
-                    val filled = withContext(Dispatchers.IO) {
-                        try {
-                            repository.loadGuideRow(ch)
-                        } catch (ce: CancellationException) {
-                            throw ce
-                        } catch (_: Throwable) {
-                            EpgChannelRow(channel = ch)
-                        }
-                    }
-                    if (!isActive || guideLoadGen != myGen) return@launch
-                    rows = GuideEpgLoad.applyRow(rows, filled)
-                    val n = withDataCount()
-                    status = "Timeline | $n / ${channels.size} | $selectedCategoryName | ${timeFmt.format(Date())}"
-                    Log.i(
-                        "TotalIPTV.Guide",
-                        "guideRowApplied name=${filled.channel.name} id=${filled.channel.id} " +
-                            "sid=${filled.channel.xtreamStreamId} programs=${filled.programs.size} " +
-                            "n=$n/${channels.size}"
-                    )
-                }
-            }
+        withContext(Dispatchers.IO) {
+            runCatching { repository.prepareBulkGuideEpg(context.cacheDir) }
         }
-
         if (guideLoadGen != myGen) return@LaunchedEffect
+        rows = channels.map { repository.peekCachedGuideRow(it) ?: EpgChannelRow(channel = it) }
         val n = withDataCount()
         status = if (n == 0) {
-            "Server returned no EPG data. Showing channels only. | $selectedCategoryName"
+            "Timeline | $selectedCategoryName | loading visible rows…"
         } else {
             "Timeline | $n channels | $selectedCategoryName | ${timeFmt.format(Date())}"
         }
+    }
+
+    LaunchedEffect(selectedCategoryId, listState) {
+        if (!repository.hasXtreamEpg()) return@LaunchedEffect
+        var batch: kotlinx.coroutines.Job? = null
+        snapshotFlow {
+            val first = listState.firstVisibleItemIndex.coerceAtLeast(0)
+            val visible = listState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(8)
+            first to visible
+        }
+            .distinctUntilChanged()
+            .debounce(GuideEpgLoad.SCROLL_DEBOUNCE_MS)
+            .collect { (first, visible) ->
+                val gen = guideLoadGen
+                val channels = rows.map { it.channel }
+                if (channels.isEmpty() || gen == 0) return@collect
+                val already = channels.mapNotNull { ch ->
+                    ch.id.takeIf { repository.peekCachedGuideRow(ch) != null }
+                }.toSet()
+                val order = GuideEpgLoad.fetchOrder(
+                    channelIds = channels.map { it.id },
+                    firstVisibleIndex = first,
+                    visibleCount = visible,
+                    focusedId = focusedChannelId,
+                    alreadyStarted = already
+                )
+                if (order.isEmpty()) return@collect
+                batch?.cancel()
+                batch = launch {
+                supervisorScope {
+                    for (idx in order) {
+                        val ch = channels.getOrNull(idx) ?: continue
+                        launch {
+                            val filled = withContext(Dispatchers.IO) {
+                                try {
+                                    repository.loadGuideRow(ch)
+                                } catch (ce: CancellationException) {
+                                    throw ce
+                                } catch (_: Throwable) {
+                                    EpgChannelRow(channel = ch)
+                                }
+                            }
+                            if (!isActive || guideLoadGen != gen) return@launch
+                            val nowFirst = listState.firstVisibleItemIndex.coerceAtLeast(0)
+                            val nowVisible = listState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(8)
+                            val stillNear = idx in nowFirst until (nowFirst + nowVisible + GuideEpgLoad.BUFFER_ROWS)
+                            if (!stillNear) return@launch
+                            rows = GuideEpgLoad.applyRow(rows, filled)
+                            val n = rows.count { it.programs.isNotEmpty() || it.nowNext.now != null }
+                            status = "Timeline | $n / ${channels.size} | $selectedCategoryName"
+                        }
+                    }
+                }
+                }
+            }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -270,6 +296,23 @@ fun EpgGuideScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = OnCinemaMuted
                     )
+                }
+                run {
+                    val row = rows.find { it.channel.id == focusedChannelId }
+                    val programs = row?.let {
+                        if (it.programs.isNotEmpty()) it.programs
+                        else listOfNotNull(it.nowNext.now, it.nowNext.next)
+                    }.orEmpty()
+                    val prog = GuideCursor.programAt(programs, cursorMs)
+                    if (prog != null) {
+                        Text(
+                            "${prog.title}  ${timeFmt.format(Date(prog.startMs))}–${timeFmt.format(Date(prog.endMs))}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OnCinema,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
             TopBarChip(
@@ -398,6 +441,8 @@ fun EpgGuideScreen(
                             timeFmt = timeFmt,
                             scrollState = scroll,
                             isFocusedRow = focusedChannelId == row.channel.id,
+                            cursorMs = cursorMs,
+                            onMoveCursor = { cursorMs = it },
                             onFocused = { id, focused ->
                                 if (focused) focusedChannelId = id
                                 else if (focusedChannelId == id) focusedChannelId = null
@@ -463,6 +508,8 @@ private fun TimelineRow(
     timeFmt: SimpleDateFormat,
     scrollState: androidx.compose.foundation.ScrollState,
     isFocusedRow: Boolean,
+    cursorMs: Long,
+    onMoveCursor: (Long) -> Unit,
     onFocused: (id: String, focused: Boolean) -> Unit,
     onPlayChannel: (channel: MediaItem, source: String) -> Unit
 ) {
@@ -477,6 +524,9 @@ private fun TimelineRow(
     val focused = locallyFocused || isFocusedRow
     val latestPlay by rememberUpdatedState(onPlayChannel)
     val latestFocus by rememberUpdatedState(onFocused)
+    val latestCursor by rememberUpdatedState(onMoveCursor)
+    val rowScope = rememberCoroutineScope()
+    val density = LocalDensity.current
     var lastClickMs by remember(channelId) { mutableStateOf(0L) }
 
     fun firePlay(source: String) {
@@ -521,13 +571,27 @@ private fun TimelineRow(
             }
             .focusable()
             .onKeyEvent { e ->
+                val dir = when (e.key) {
+                    Key.DirectionLeft, Key.MediaRewind, Key.MediaSkipBackward -> -1
+                    Key.DirectionRight, Key.MediaFastForward, Key.MediaSkipForward -> 1
+                    else -> 0
+                }
+                if (dir != 0 && e.type == KeyEventType.KeyDown) {
+                    val next = GuideCursor.step(programs, cursorMs, dir, windowStart, windowEnd)
+                    latestCursor(next)
+                    val widthPx = with(density) { totalWidthDp.toPx() }.toInt().coerceAtLeast(1)
+                    val px = GuideCursor.scrollOffsetPx(next, windowStart, windowMs, widthPx)
+                    rowScope.launch {
+                        scrollState.scrollTo(px.coerceAtMost(scrollState.maxValue.coerceAtLeast(0)))
+                    }
+                    return@onKeyEvent true
+                }
                 if (e.type != KeyEventType.KeyUp) return@onKeyEvent false
                 val isActivate =
                     e.key == Key.DirectionCenter ||
                         e.key == Key.Enter ||
                         e.key == Key.NumPadEnter
                 if (!isActivate) return@onKeyEvent false
-                // Use this row's own id from composition state — not parent focus steal.
                 firePlay("dpad")
                 true
             }
@@ -564,7 +628,9 @@ private fun TimelineRow(
                         contentDescription = row.channel.name,
                         modifier = Modifier.fillMaxSize().padding(3.dp),
                         contentScale = ContentScale.Fit,
-                        placeholderLabel = row.channel.name.take(1).uppercase()
+                        placeholderLabel = row.channel.name.take(1).uppercase(),
+                        decodeWidth = 96,
+                        decodeHeight = 96
                     )
                 }
                 Spacer(Modifier.width(8.dp))
@@ -598,6 +664,10 @@ private fun TimelineRow(
                         val leftFrac = (start - windowStart).toFloat() / windowMs
                         val widthFrac = (end - start).toFloat() / windowMs
                         val isLive = prog.contains(nowMs)
+                        val selected = focused &&
+                            GuideCursor.programAt(programs, cursorMs)?.let {
+                                it.startMs == prog.startMs && it.endMs == prog.endMs
+                            } == true
                         Box(
                             modifier = Modifier
                                 .offset(x = totalWidthDp * leftFrac)
@@ -606,12 +676,15 @@ private fun TimelineRow(
                                 .padding(vertical = 4.dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(
-                                    if (isLive) BrandBlue.copy(alpha = 0.28f)
-                                    else CinemaSurfaceHigh
+                                    when {
+                                        selected -> BrandBlue.copy(alpha = 0.55f)
+                                        isLive -> BrandBlue.copy(alpha = 0.28f)
+                                        else -> CinemaSurfaceHigh
+                                    }
                                 )
                                 .border(
-                                    1.dp,
-                                    if (isLive) BrandBlue.copy(alpha = 0.55f)
+                                    if (selected) 2.dp else 1.dp,
+                                    if (selected || isLive) BrandBlue.copy(alpha = 0.9f)
                                     else SoftOverlay,
                                     RoundedCornerShape(6.dp)
                                 )

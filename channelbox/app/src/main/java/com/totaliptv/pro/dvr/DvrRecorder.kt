@@ -22,6 +22,10 @@ class DvrRecorder(
     )
 
     private val store = DvrStore(File(DvrPaths.metadataDir(appContext.filesDir.absolutePath)))
+
+    init {
+        reconcileStale()
+    }
     private val activeRef = AtomicReference<Active?>(null)
     private val schedulerStarted = AtomicBoolean(false)
     private val _snapshot = MutableStateFlow(readSnapshot())
@@ -214,13 +218,22 @@ class DvrRecorder(
         publish()
     }
 
+    private fun reconcileStale() {
+        val fixed = RecordingReconcile.interrupted(store.recordings(), activeRef.get()?.entry?.id) { path ->
+            runCatching { File(path).length() }.getOrDefault(0L)
+        }
+        if (fixed.isEmpty()) return
+        fixed.forEach { store.upsert(it) }
+        publish()
+    }
+
     private fun finishActive(stopped: Boolean, failed: Boolean, storageFailure: Boolean) {
         val current = activeRef.getAndSet(null) ?: return
         val file = File(current.entry.filePath)
         val size = if (file.exists()) file.length() else 0L
         val now = System.currentTimeMillis()
         val status = recordingFinishStatus(stopped, size, failed)
-        val errorMessage = recordingErrorMessage(status, storageFailure, failed)
+        val errorMessage = recordingErrorMessage(status, storageFailure, failed, size)
         store.upsert(
             current.entry.copy(
                 durationMs = (now - current.entry.startMs).coerceAtLeast(0L),
@@ -255,19 +268,25 @@ class DvrRecorder(
         /** A capture error is a failure even when some bytes were already written. */
         fun recordingFinishStatus(stopped: Boolean, bytesWritten: Long, failed: Boolean): RecordingStatus {
             return when {
+                bytesWritten <= 0L -> RecordingStatus.FAILED
                 failed && !stopped -> RecordingStatus.FAILED
                 stopped -> RecordingStatus.STOPPED
-                bytesWritten > 0L -> RecordingStatus.COMPLETED
-                else -> RecordingStatus.FAILED
+                else -> RecordingStatus.COMPLETED
             }
         }
 
-        fun recordingErrorMessage(status: RecordingStatus, storageFailure: Boolean, failed: Boolean): String? {
+        fun recordingErrorMessage(
+            status: RecordingStatus,
+            storageFailure: Boolean,
+            failed: Boolean,
+            bytesWritten: Long = 0L
+        ): String? {
             if (status != RecordingStatus.FAILED) return null
             return when {
                 storageFailure -> "Not enough storage to keep recording"
+                bytesWritten <= 0L -> "No video saved"
                 failed -> "Recording failed"
-                else -> "No data written"
+                else -> "No video saved"
             }
         }
 

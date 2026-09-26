@@ -6,6 +6,7 @@ import android.util.Log
 import com.totaliptv.pro.util.SensitiveText
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -30,10 +31,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.totaliptv.pro.ui.nav.TvBack
 import androidx.lifecycle.lifecycleScope
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.FavoriteRef
@@ -77,11 +81,20 @@ class MainActivity : ComponentActivity() {
         startOver: Boolean = false
     ) {
         val bound = repository.playableFrom(item)
-        val catalogId = when {
+        val catalogId = item.seriesCatalogId
+            ?: bound.seriesCatalogId
+            ?: when {
             bound.kind == ContentKind.SERIES && !bound.id.startsWith("series-ep-") -> bound.id
             item.kind == ContentKind.SERIES && !item.id.startsWith("series-ep-") -> item.id
             item.id.startsWith("vod-") -> item.id
             bound.id.startsWith("vod-") -> bound.id
+            bound.id.startsWith("series-ep-") || item.id.startsWith("series-ep-") -> {
+                val epId = if (bound.id.startsWith("series-ep-")) bound.id else item.id
+                runCatching {
+                    (application as TotalIptvProApp).watchProgress.get(epId)?.catalogId
+                        ?: (application as TotalIptvProApp).watchProgress.forCatalogItem(epId)?.catalogId
+                }.getOrNull()
+            }
             else -> null
         }
         if (bound.kind != ContentKind.SERIES || bound.id.startsWith("series-ep-")) {
@@ -101,7 +114,11 @@ class MainActivity : ComponentActivity() {
                 ).show()
                 return@launch
             }
-            openPlayer(playable, startOver = startOver, catalogId = catalogId ?: bound.id)
+            openPlayer(
+                playable,
+                startOver = startOver,
+                catalogId = playable.seriesCatalogId ?: catalogId ?: bound.id
+            )
         }
     }
 
@@ -196,6 +213,22 @@ private fun PhoneAppRoot(
     }
 
     val pageBlack = LocalTipColors.current.isDark
+    val backContext = LocalContext.current
+    var exitArmedAt by remember { mutableLongStateOf(0L) }
+    BackHandler {
+        val atHome = tab == PhoneTab.Home
+        when (TvBack.action(atHome, exitArmedAt, System.currentTimeMillis())) {
+            TvBack.Action.GO_HOME -> {
+                exitArmedAt = 0L
+                tab = PhoneTab.Home
+            }
+            TvBack.Action.ARM_EXIT -> {
+                exitArmedAt = System.currentTimeMillis()
+                Toast.makeText(backContext, "Press Back again to exit", Toast.LENGTH_SHORT).show()
+            }
+            TvBack.Action.EXIT -> (backContext as? android.app.Activity)?.finish()
+        }
+    }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = if (pageBlack) Color(0xFF000000) else MaterialTheme.colorScheme.background,

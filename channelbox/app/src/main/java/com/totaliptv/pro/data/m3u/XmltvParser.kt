@@ -33,7 +33,13 @@ object XmltvParser {
         }
     }
 
-    fun parseStream(rawStream: InputStream, isGzipHint: Boolean = false): Map<String, List<EpgProgram>> {
+    fun parseStream(
+        rawStream: InputStream,
+        isGzipHint: Boolean = false,
+        windowStartMs: Long = Long.MIN_VALUE,
+        windowEndMs: Long = Long.MAX_VALUE,
+        keepDescription: Boolean = true
+    ): Map<String, List<EpgProgram>> {
         val buffered = BufferedInputStream(rawStream)
         buffered.mark(2)
         val b1 = buffered.read()
@@ -87,10 +93,11 @@ object XmltvParser {
                     XmlPullParser.END_TAG -> {
                         val endTag = parser.name.lowercase(Locale.ROOT)
                         if (endTag == "programme") {
-                            if (inProgramme && !currentChannelId.isNullOrBlank() && currentStartMs > 0 && currentEndMs > currentStartMs) {
+                            val inWindow = currentEndMs > windowStartMs && currentStartMs < windowEndMs
+                            if (inProgramme && inWindow && !currentChannelId.isNullOrBlank() && currentStartMs > 0 && currentEndMs > currentStartMs) {
                                 val prog = EpgProgram(
                                     title = currentTitle.ifBlank { "Program" },
-                                    description = currentDesc,
+                                    description = if (keepDescription) currentDesc else null,
                                     startMs = currentStartMs,
                                     endMs = currentEndMs
                                 )

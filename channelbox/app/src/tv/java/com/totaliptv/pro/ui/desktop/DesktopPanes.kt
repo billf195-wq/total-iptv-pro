@@ -1,7 +1,9 @@
 package com.totaliptv.pro.ui.desktop
 
 import android.app.Activity
+import android.widget.EditText
 import android.widget.Toast
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -267,8 +269,15 @@ fun LivePane(
     var showGameDay by remember { mutableStateOf(false) }
     val gameDayFocus = remember { FocusRequester() }
     val chipFocus = remember { FocusRequester() }
+    LaunchedEffect(showGameDay) {
+        if (!showGameDay) runCatching { gameDayFocus.requestFocus() }
+    }
     Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize()) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .focusProperties { canFocus = !showGameDay }
+    ) {
         Text(
             "Live TV",
             color = TipGoldText,
@@ -307,11 +316,7 @@ fun LivePane(
                     onClick = { onPlay(item) },
                     onRecord = { onRecord(item) },
                     recordActive = DvrRecordUi.matches(dvrSnap.active, item.id, item.streamUrl),
-                    modifier = if (index == 0) {
-                        Modifier.focusProperties { up = gameDayFocus }
-                    } else {
-                        Modifier
-                    }
+                    upFocus = if (index == 0) gameDayFocus else null
                 )
             }
         }
@@ -425,6 +430,13 @@ fun BrowseGridPane(
         }
         onRestoreConsumed()
     }
+    LaunchedEffect(filtered.firstOrNull()?.id, pendingFocusRestore) {
+        if (pendingFocusRestore) return@LaunchedEffect
+        val first = filtered.firstOrNull() ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(80)
+        if (pendingFocusRestore) return@LaunchedEffect
+        runCatching { posterFocus(gridScope, first.id).requestFocus() }
+    }
     Column(Modifier.fillMaxSize()) {
         PaneTitle(title)
         FilterBar(
@@ -516,6 +528,13 @@ fun FavoritesPane(
             if (focused) break
         }
         onRestoreConsumed()
+    }
+    LaunchedEffect(resolved.firstOrNull()?.second?.id, pendingFocusRestore) {
+        if (pendingFocusRestore) return@LaunchedEffect
+        val first = resolved.firstOrNull()?.second ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(80)
+        if (pendingFocusRestore) return@LaunchedEffect
+        runCatching { posterFocus(gridScope, first.id).requestFocus() }
     }
     Column(Modifier.fillMaxSize()) {
         PaneTitle("Favorites")
@@ -617,6 +636,10 @@ fun DesktopSettingsPane(
     var pendingInstall by remember { mutableStateOf<UpdateCheckResult.Available?>(null) }
     val sources by repository.sources.collectAsState(initial = emptyList())
 
+    val settingsFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        runCatching { settingsFocus.requestFocus() }
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         PaneTitle("Settings")
         Text(
@@ -646,6 +669,11 @@ fun DesktopSettingsPane(
         Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
             AppLayoutMode.entries.forEach { mode ->
                 TipFocusable(
+                    modifier = if (mode == AppLayoutMode.entries.first()) {
+                        Modifier.focusRequester(settingsFocus)
+                    } else {
+                        Modifier
+                    },
                     onClick = {
                         scope.launch {
                             app?.preferences?.setAppLayoutMode(mode)
@@ -781,6 +809,39 @@ fun DesktopSettingsPane(
             color = TipGoldMuted,
             fontSize = TipDimens.sp(12)
         )
+        Text(
+            "Shelf address (optional). Leave blank to use GitHub only. A saved address stays after updates.",
+            color = TipGoldMuted,
+            fontSize = TipDimens.sp(12)
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        val shelfField = remember { mutableStateOf<EditText?>(null) }
+        AndroidView(
+            factory = { ctx ->
+                EditText(ctx).apply {
+                    setSingleLine(true)
+                    hint = "https://example.test/updates/"
+                    setText(updateBaseUrl)
+                    setTextColor(0xFFF5F5F5.toInt())
+                    setHintTextColor(0xFFB0B0B0.toInt())
+                    shelfField.value = this
+                }
+            },
+            update = { edit ->
+                if (!edit.isFocused && edit.text?.toString() != updateBaseUrl) {
+                    edit.setText(updateBaseUrl)
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        AmberButton("Save shelf address", onClick = {
+            val typed = shelfField.value?.text?.toString().orEmpty()
+            scope.launch {
+                app?.preferences?.setUpdateBaseUrl(typed)
+                Toast.makeText(context, "Shelf address saved", Toast.LENGTH_SHORT).show()
+            }
+        })
         Spacer(Modifier.height(TipDimens.dp(10)))
         AmberButton(
             label = when {
@@ -847,7 +908,9 @@ fun DesktopSettingsPane(
 
                 Spacer(Modifier.height(TipDimens.dp(24)))
         SectionHeader("Last crash")
-        val crashText = remember { CrashLog.read(context) }
+        val crashText = remember {
+            CrashLog.labelForSettings(CrashLog.read(context), BuildConfig.VERSION_NAME)
+        }
         val debugText = remember { DebugLog.read(context) }
         Text(
             crashText.ifBlank { "No crash recorded." },

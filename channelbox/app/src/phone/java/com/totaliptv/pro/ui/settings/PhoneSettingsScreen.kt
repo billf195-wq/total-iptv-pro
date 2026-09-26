@@ -246,7 +246,9 @@ fun PhoneSettingsScreen(
             fontWeight = FontWeight.SemiBold
         )
         Spacer(Modifier.height(4.dp))
-        val crashText = remember { CrashLog.read(context) }
+        val crashText = remember {
+            CrashLog.labelForSettings(CrashLog.read(context), com.totaliptv.pro.BuildConfig.VERSION_NAME)
+        }
         val debugText = remember { DebugLog.read(context) }
         Text(
             text = crashText.ifBlank { "No crash recorded." },

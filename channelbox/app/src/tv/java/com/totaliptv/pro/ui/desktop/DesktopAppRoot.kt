@@ -15,8 +15,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -29,6 +32,10 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.totaliptv.pro.ui.nav.TvBack
 import androidx.compose.ui.text.font.FontWeight
 import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.util.SensitiveText
@@ -77,6 +84,7 @@ fun DesktopAppRoot(
         var error by remember { mutableStateOf<String?>(null) }
         var showOnboarding by remember { mutableStateOf(false) }
         var section by remember { mutableStateOf(DesktopNavSection.HOME) }
+        var exitArmedAt by remember { mutableLongStateOf(0L) }
         var search by remember { mutableStateOf("") }
         var categoryId by remember { mutableStateOf<String?>(null) }
         var browseSort by remember { mutableStateOf("AZ") }
@@ -129,6 +137,25 @@ fun DesktopAppRoot(
             if (!pendingFocusRestore) return@LaunchedEffect
             kotlinx.coroutines.delay(2000)
             pendingFocusRestore = false
+        }
+
+        val lifecycleOwner = LocalLifecycleOwner.current
+        DisposableEffect(lifecycleOwner) {
+            val obs = LifecycleEventObserver { _, event ->
+                if (event != Lifecycle.Event.ON_RESUME) return@LifecycleEventObserver
+                if (restoreFocusId == null || detailItem != null) return@LifecycleEventObserver
+                val homeScopes = setOf("desk-cw", "desk-movies", "desk-series")
+                val matches = when (section) {
+                    DesktopNavSection.HOME -> restoreFocusScope in homeScopes
+                    DesktopNavSection.MOVIES -> restoreFocusScope == "desk-movies-grid"
+                    DesktopNavSection.SERIES -> restoreFocusScope == "desk-series-grid"
+                    DesktopNavSection.FAVORITES -> restoreFocusScope == "desk-fav"
+                    else -> false
+                }
+                if (matches) pendingFocusRestore = true
+            }
+            lifecycleOwner.lifecycle.addObserver(obs)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
         }
 
         fun toggleFavoriteToast(item: MediaItem) {
@@ -249,6 +276,20 @@ fun DesktopAppRoot(
                 }
 
                 Box(Modifier.fillMaxSize().background(TipBg)) {
+                BackHandler(enabled = detailItem == null) {
+                    val atHome = section == DesktopNavSection.HOME
+                    when (TvBack.action(atHome, exitArmedAt, System.currentTimeMillis())) {
+                        TvBack.Action.GO_HOME -> {
+                            exitArmedAt = 0L
+                            section = DesktopNavSection.HOME
+                        }
+                        TvBack.Action.ARM_EXIT -> {
+                            exitArmedAt = System.currentTimeMillis()
+                            Toast.makeText(context, "Press Back again to exit", Toast.LENGTH_SHORT).show()
+                        }
+                        TvBack.Action.EXIT -> (context as? android.app.Activity)?.finish()
+                    }
+                }
                 Column(Modifier.fillMaxSize()) {
                     TopBanner()
                     Row(Modifier.weight(1f).fillMaxWidth()) {

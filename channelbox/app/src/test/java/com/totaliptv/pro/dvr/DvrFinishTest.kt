@@ -43,12 +43,16 @@ class DvrFinishTest {
             DvrRecorder.recordingFinishStatus(stopped = false, bytesWritten = 0L, failed = false)
         )
         assertEquals(
-            "No data written",
+            "No video saved",
             DvrRecorder.recordingErrorMessage(
                 RecordingStatus.FAILED,
                 storageFailure = false,
                 failed = false
             )
+        )
+        assertEquals(
+            RecordingStatus.FAILED,
+            DvrRecorder.recordingFinishStatus(stopped = true, bytesWritten = 0L, failed = false)
         )
     }
 }

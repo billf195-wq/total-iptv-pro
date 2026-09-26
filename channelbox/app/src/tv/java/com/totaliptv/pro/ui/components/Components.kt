@@ -51,7 +51,6 @@ import androidx.tv.material3.Text
 import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
 import coil.compose.AsyncImage
-import coil.compose.AsyncImagePainter
 import com.totaliptv.pro.ui.splash.AppBannerArt
 import com.totaliptv.pro.ui.splash.DesktopBannerImageHeight
 import com.totaliptv.pro.ui.splash.SplashBranding
@@ -900,46 +899,32 @@ fun NetworkImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
-    placeholderLabel: String = "?"
+    placeholderLabel: String = "?",
+    decodeWidth: Int = 220,
+    decodeHeight: Int = 330
 ) {
-    if (url.isNullOrBlank()) {
-        Box(modifier = modifier.background(Color(0xFF151C28)), contentAlignment = Alignment.Center) {
-            Text(
-                text = placeholderLabel,
-                color = OnCinemaMuted,
-                style = MaterialTheme.typography.titleMedium
-            )
-        }
-        return
-    }
-    var failed by remember(url) { mutableStateOf(false) }
-    if (failed) {
-        Box(modifier = modifier.background(Color(0xFF151C28)), contentAlignment = Alignment.Center) {
-            Text(
-                text = placeholderLabel,
-                color = OnCinemaMuted,
-                style = MaterialTheme.typography.titleMedium
-            )
-        }
-    } else {
-        val context = LocalContext.current
-        // Decode near Classic poster cell size — full-res posters during LazyVerticalGrid scroll cause jank/OOM.
-        val model = remember(url) {
-            ImageRequest.Builder(context)
-                .data(url)
-                .size(220, 330)
-                .crossfade(false)
-                .build()
-        }
-        AsyncImage(
-            model = model,
-            contentDescription = contentDescription,
-            modifier = modifier,
-            contentScale = contentScale,
-            onState = { state ->
-                if (state is AsyncImagePainter.State.Error) failed = true
-            }
+    Box(modifier = modifier.background(Color(0xFF151C28)), contentAlignment = Alignment.Center) {
+        Text(
+            text = placeholderLabel,
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.titleMedium
         )
+        if (!url.isNullOrBlank()) {
+            val context = LocalContext.current
+            val model = remember(url, decodeWidth, decodeHeight) {
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .size(decodeWidth, decodeHeight)
+                    .crossfade(false)
+                    .build()
+            }
+            AsyncImage(
+                model = model,
+                contentDescription = contentDescription,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = contentScale
+            )
+        }
     }
 }
 

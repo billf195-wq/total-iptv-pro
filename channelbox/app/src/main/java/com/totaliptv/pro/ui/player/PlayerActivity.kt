@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
@@ -113,6 +114,8 @@ class PlayerActivity : ComponentActivity() {
     private var overlay: LinearLayout? = null
     private var playNextButton: Button? = null
     private var recordButton: Button? = null
+    private var controlRow: LinearLayout? = null
+    private var recordButtonArmed = false
     private var cachedNextEpisode: com.totaliptv.pro.data.model.MediaItem? = null
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.Main + CoroutineExceptionHandler { _, error ->
@@ -215,7 +218,7 @@ class PlayerActivity : ComponentActivity() {
         val root = FrameLayout(this)
         playerView = PlayerView(this).apply {
             useController = true
-            controllerShowTimeoutMs = 3500
+            controllerShowTimeoutMs = 0
             setShowNextButton(false)
             setShowPreviousButton(false)
             layoutParams = FrameLayout.LayoutParams(
@@ -278,13 +281,21 @@ class PlayerActivity : ComponentActivity() {
         fun controlBtn(label: String, action: () -> Unit) = Button(this).apply {
             text = label
             isAllCaps = false
+            id = View.generateViewId()
             applyContentSizedButton(this)
+            stylePlayerButton(this, focused = false, recording = false)
+            setOnFocusChangeListener { v, hasFocus ->
+                val recording = v === recordButton && recordButtonArmed
+                stylePlayerButton(v as Button, hasFocus, recording)
+                if (hasFocus) showOverlayTemporarily()
+            }
             setOnClickListener {
                 showOverlayTemporarily()
                 action()
             }
         }
-        controls.addView(controlBtn("Audio") { showAudioMenu() })
+        val audioButton = controlBtn("Audio") { showAudioMenu() }
+        controls.addView(audioButton)
         controls.addView(controlBtn("Subtitles") { showSubtitleMenu() })
         aspectRatioBtn = controlBtn("Aspect") { cycleAspectRatio() }
         controls.addView(aspectRatioBtn)
@@ -381,6 +392,14 @@ class PlayerActivity : ComponentActivity() {
         }
         root.addView(overlayHost)
         setContentView(root)
+        controlRow = controls
+        playerView?.post {
+            val play = playerView?.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)
+            if (play != null) {
+                play.nextFocusUpId = audioButton.id
+                audioButton.nextFocusDownId = play.id
+            }
+        }
         enterImmersiveFullscreen()
 
         if (streamUrl.isBlank()) {
@@ -414,15 +433,47 @@ class PlayerActivity : ComponentActivity() {
             idle
         )
         btn.text = look.label
-        if (look.selected) {
-            btn.setBackgroundColor(0xFFE53935.toInt())
-            btn.setTextColor(Color.WHITE)
-            btn.setTypeface(btn.typeface, Typeface.BOLD)
-        } else {
-            btn.backgroundTintList = null
-            btn.setTextColor(0xFFD0D7DE.toInt())
-            btn.setTypeface(null, Typeface.NORMAL)
+        recordButtonArmed = look.selected
+        stylePlayerButton(btn, btn.isFocused, look.selected)
+        btn.setTypeface(btn.typeface, if (look.selected) Typeface.BOLD else Typeface.NORMAL)
+    }
+
+    private fun stylePlayerButton(btn: Button, focused: Boolean, recording: Boolean) {
+        btn.backgroundTintList = null
+        when {
+            recording -> {
+                btn.setBackgroundColor(0xFFE53935.toInt())
+                btn.setTextColor(Color.WHITE)
+            }
+            focused -> {
+                btn.setBackgroundColor(0xFFFFB300.toInt())
+                btn.setTextColor(Color.BLACK)
+            }
+            else -> {
+                btn.setBackgroundColor(0xFF1C1C1C.toInt())
+                btn.setTextColor(Color.WHITE)
+            }
         }
+    }
+
+    private fun aButtonIsFocused(): Boolean {
+        val focused = currentFocus ?: return false
+        if (focused is Button || focused is android.widget.ImageButton) return true
+        var view: View? = focused
+        val row = controlRow
+        while (view != null && row != null) {
+            if (view === row) return true
+            view = view.parent as? View
+        }
+        return false
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            playerView?.showController()
+            showOverlayTemporarily()
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private fun showOverlayTemporarily(ms: Long = 4500) {
@@ -432,14 +483,24 @@ class PlayerActivity : ComponentActivity() {
         hideOverlayJob?.cancel()
         hideOverlayJob = scope.launch {
             delay(ms)
-            // Keep overlay if still buffering/error text
+            if (aButtonIsFocused()) {
+                showOverlayTemporarily(ms)
+                return@launch
+            }
             val busy = statusView?.text?.isNotBlank() == true && statusView?.isVisible == true
-            if (!busy) overlay?.isVisible = false
+            if (!busy) {
+                overlay?.isVisible = false
+                playerView?.hideController()
+            }
         }
     }
 
     /** Hide title/controls when the ExoPlayer OSD hides (unless buffering/error). */
     private fun hideOverlayIfIdle() {
+        if (aButtonIsFocused()) {
+            showOverlayTemporarily()
+            return
+        }
         hideOverlayJob?.cancel()
         val busy = statusView?.text?.isNotBlank() == true && statusView?.isVisible == true
         if (!busy) {

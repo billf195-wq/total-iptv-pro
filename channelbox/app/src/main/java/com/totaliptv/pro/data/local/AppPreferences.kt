@@ -104,8 +104,7 @@ class AppPreferences(private val context: Context) {
     }
 
     val updateBaseUrl: Flow<String> = context.dataStore.data.map { prefs ->
-        val raw = prefs[updateBaseUrlKey]?.trim()?.takeIf { it.isNotBlank() } ?: DEFAULT_UPDATE_BASE_URL
-        UpdateSources.migrateShelfHost(raw)
+        UpdateSources.resolveShelf(prefs[updateBaseUrlKey], BuildConfig.OWNER_UPDATE_BASE_URL)
     }
 
     val appearanceMode: Flow<AppearanceMode> = context.dataStore.data.map { prefs ->
@@ -150,9 +149,8 @@ class AppPreferences(private val context: Context) {
     }
 
     suspend fun getUpdateBaseUrl(): String {
-        val raw = context.dataStore.data.first()[updateBaseUrlKey]?.trim()?.takeIf { it.isNotBlank() }
-            ?: DEFAULT_UPDATE_BASE_URL
-        return UpdateSources.migrateShelfHost(raw)
+        val stored = context.dataStore.data.first()[updateBaseUrlKey]
+        return UpdateSources.resolveShelf(stored, BuildConfig.OWNER_UPDATE_BASE_URL)
     }
 
     suspend fun setUpdateBaseUrl(url: String) {
