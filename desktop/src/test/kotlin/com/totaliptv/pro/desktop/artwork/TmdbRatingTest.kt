@@ -3,6 +3,7 @@ package com.totaliptv.pro.desktop.artwork
 import com.totaliptv.pro.desktop.data.Catalog
 import com.totaliptv.pro.desktop.data.ContentKind
 import com.totaliptv.pro.desktop.data.MediaItem
+import com.totaliptv.pro.desktop.player.PlaybackDebugLog
 import com.totaliptv.pro.desktop.ui.pickTopRatedMovies
 import com.totaliptv.pro.desktop.ui.pickTopRatedSeries
 import java.nio.file.Files
@@ -28,8 +29,12 @@ class TmdbRatingTest {
     fun cleanup() {
         TmdbRatingStore.resetForTests()
         TmdbRatingStore.fileOverride = null
-        TmdbRatingStore.pauseMs = 1000
+        TmdbRatingStore.pauseMs = 0
         TmdbRatingStore.autoDrain = true
+        TmdbRatingStore.parallel = true
+        TmdbRatingStore.maxInFlight = TmdbRatingStore.MAX_IN_FLIGHT
+        TmdbRatingStore.startGapMs = TmdbRatingStore.START_GAP_MS
+        TmdbRatingStore.log = { PlaybackDebugLog.note(it) }
         TmdbRatingStore.fetch = { TmdbClient.get(it) }
         TmdbRatingStore.nowMs = { System.currentTimeMillis() }
         ArtworkSettings.tmdbApiKey = ""
@@ -224,6 +229,139 @@ class TmdbRatingTest {
     }
 
     @Test
+    fun titleSearchFillsGridRatingsWhenTheProviderHasNoTmdbId() {
+        enableKey()
+        val lines = mutableListOf<String>()
+        TmdbRatingStore.log = { lines += it }
+        val paths = mutableListOf<String>()
+        TmdbRatingStore.fetch = { req ->
+            paths += req.pathAndQuery
+            when {
+                req.pathAndQuery.startsWith("search/movie") && req.pathAndQuery.contains("The+Matrix") ->
+                    """{"results":[
+                        {"id":1,"title":"The Matrix Reloaded","release_date":"2003-05-15","popularity":200,"vote_average":7.0,"vote_count":9000},
+                        {"id":603,"title":"The Matrix","original_title":"The Matrix","release_date":"1999-03-31","popularity":40,"vote_average":8.7,"vote_count":20000}
+                    ]}"""
+                req.pathAndQuery.startsWith("search/tv") ->
+                    """{"results":[
+                        {"id":1396,"name":"Breaking Bad","original_name":"Breaking Bad","first_air_date":"2008-01-20","popularity":80,"vote_average":8.9,"vote_count":15000}
+                    ]}"""
+                else -> """{"results":[]}"""
+            }
+        }
+        val matrix = titled("matrix", "EN - The Matrix (1999) 1080p BluRay", ContentKind.VOD, rating = "10.0")
+        val show = titled("bb", "|EN| Breaking Bad (2008) WEB-DL", ContentKind.SERIES, rating = "10.0", year = null)
+        TmdbRatingStore.enqueue(listOf(matrix, show), front = true)
+        TmdbRatingStore.drainForTests()
+        assertEquals(
+            listOf(
+                "search/movie?query=The+Matrix&year=1999",
+                "search/tv?query=Breaking+Bad&first_air_date_year=2008"
+            ),
+            paths
+        )
+        assertEquals(8.7, TmdbRatingStore.displayScore(matrix))
+        assertEquals(8.7, TmdbRatingStore.rankScore(matrix))
+        assertEquals(8.9, TmdbRatingStore.displayScore(show))
+        assertEquals(8.9, TmdbRatingStore.rankScore(show))
+        val line = lines.single()
+        assertTrue(Regex("""ratings resolved=2 missed=0 ms=\d+""").matches(line))
+        assertFalse(line.contains("secret"))
+        assertFalse(line.contains("api_key"))
+        assertFalse(Files.readString(TmdbRatingStore.fileOverride!!).contains("secret"))
+        val again = paths.size
+        TmdbRatingStore.enqueue(listOf(matrix, show), front = true)
+        TmdbRatingStore.drainForTests()
+        assertEquals(again, paths.size)
+        val row = pickTopRatedMovies(Catalog(vodItems = listOf(matrix))) { TmdbRatingStore.rankScore(it) }
+        assertEquals("matrix", row.items.single().id)
+    }
+
+    @Test
+    fun unsureTitleMatchesAreSkippedAndRetriedAfterADay() {
+        enableKey()
+        var calls = 0
+        TmdbRatingStore.fetch = {
+            calls += 1
+            """{"results":[{"id":1,"title":"The Matrix Reloaded","release_date":"1999-01-01","popularity":500,"vote_average":9.9,"vote_count":100}]}"""
+        }
+        val item = titled("m", "The Matrix (1999)", ContentKind.VOD, rating = "8.2")
+        TmdbRatingStore.enqueue(listOf(item), front = true)
+        TmdbRatingStore.drainForTests()
+        assertEquals(1, calls)
+        assertEquals(8.2, TmdbRatingStore.displayScore(item))
+        assertEquals(8.2, TmdbRatingStore.rankScore(item))
+        TmdbRatingStore.enqueue(listOf(item), front = true)
+        TmdbRatingStore.drainForTests()
+        assertEquals(1, calls)
+        TmdbRatingStore.nowMs = { 1_000_000L + TmdbRatings.MISS_AGE_MS }
+        TmdbRatingStore.enqueue(listOf(item), front = true)
+        TmdbRatingStore.drainForTests()
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun lowVoteSearchHitShowsOnTheTileButDoesNotLeadTopRated() {
+        enableKey()
+        TmdbRatingStore.fetch = { req ->
+            if (req.pathAndQuery.contains("Dune")) {
+                """{"results":[{"id":438631,"title":"Dune","release_date":"2021-09-15","popularity":10,"vote_average":9.4,"vote_count":5}]}"""
+            } else {
+                """{"results":[{"id":603,"title":"The Matrix","release_date":"1999-03-31","popularity":20,"vote_average":8.4,"vote_count":100}]}"""
+            }
+        }
+        val dune = titled("dune", "Dune (2021)", ContentKind.VOD, rating = "10.0")
+        val matrix = titled("matrix", "The Matrix (1999)", ContentKind.VOD, rating = "6.0")
+        TmdbRatingStore.enqueue(listOf(dune, matrix), front = true)
+        TmdbRatingStore.drainForTests()
+        assertEquals(9.4, TmdbRatingStore.displayScore(dune))
+        assertEquals(0.0, TmdbRatingStore.rankScore(dune))
+        assertEquals(8.4, TmdbRatingStore.rankScore(matrix))
+        val row = pickTopRatedMovies(Catalog(vodItems = listOf(dune, matrix))) { TmdbRatingStore.rankScore(it) }
+        assertEquals(listOf("matrix"), row.items.map { it.id })
+    }
+
+    @Test
+    fun titleCleanupAndMatchPreferExactTitleThenPopularity() {
+        val matrix = TmdbTitle.query(
+            titled("1", "EN - The Matrix (1999) 1080p BluRay", ContentKind.VOD, year = null)
+        )
+        assertEquals("The Matrix", matrix?.title)
+        assertEquals(1999, matrix?.year)
+        val dune = TmdbTitle.query(titled("2", "|FR| Dune Part Two (2024) WEB-DL", ContentKind.VOD, year = null))
+        assertEquals("Dune Part Two", dune?.title)
+        assertEquals(2024, dune?.year)
+        val itMovie = TmdbTitle.query(titled("3", "It (2017)", ContentKind.VOD, year = null))
+        assertEquals("It", itMovie?.title)
+        val kept = TmdbTitle.query(titled("4", "Blade Runner 2049", ContentKind.VOD, year = 2017))
+        assertEquals("Blade Runner 2049", kept?.title)
+        assertEquals(2017, kept?.year)
+        val inception = TmdbTitle.query(titled("5", "DE: Inception 2010", ContentKind.VOD, year = null))
+        assertEquals("Inception", inception?.title)
+        assertEquals(2010, inception?.year)
+        assertEquals(null, TmdbTitle.query(titled("6", "Some Movie", ContentKind.VOD, year = null)))
+
+        val body = """{"results":[
+            {"id":1,"title":"The Matrix Reloaded","release_date":"1999-05-15","popularity":500,"vote_average":9.9,"vote_count":100},
+            {"id":10,"title":"The Matrix","release_date":"1999-03-31","popularity":15,"vote_average":8.0,"vote_count":100},
+            {"id":11,"title":"The Matrix","original_title":"The Matrix","release_date":"1999-03-31","popularity":60,"vote_average":8.7,"vote_count":200}
+        ]}"""
+        val hit = TmdbTitle.bestMatch(body, TmdbTitle.Query("The Matrix", 1999, ContentKind.VOD))
+        assertEquals("11", hit?.tmdbId)
+        assertEquals(8.7, hit?.average)
+        assertEquals("1", TmdbTitle.bestMatch(
+            """{"results":[{"id":1,"title":"The Matrix Reloaded","release_date":"2003-05-15","popularity":10,"vote_average":7.0,"vote_count":20}]}""",
+            TmdbTitle.Query("The Matrix Reloaded", 2003, ContentKind.VOD)
+        )?.tmdbId)
+        assertEquals(null, TmdbTitle.bestMatch(body, TmdbTitle.Query("The Matrix", 2005, ContentKind.VOD)))
+        assertTrue(TmdbRatingStore.MAX_IN_FLIGHT in 4..6)
+        assertTrue(1000.0 / TmdbRatingStore.START_GAP_MS < 10.0)
+        val logged = TmdbRatings.batchLine(4, 1, 380)
+        assertEquals("ratings resolved=4 missed=1 ms=380", logged)
+        assertFalse(logged.contains("secret"))
+    }
+
+    @Test
     fun settingsAndHomeWireTheKeyAndTheRank() {
         val settings = source("src/main/kotlin/com/totaliptv/pro/desktop/ui/SettingsScreen.kt")
         assertTrue(settings.contains("TMDB API key"))
@@ -242,6 +380,26 @@ class TmdbRatingTest {
         ArtworkSettings.tmdbRatings = true
         ArtworkSettings.tmdbApiKey = "secret"
     }
+
+    private fun titled(
+        id: String,
+        name: String,
+        kind: ContentKind,
+        rating: String? = null,
+        year: Int? = 2024,
+        tmdbId: String? = null
+    ) = MediaItem(
+        id = id,
+        name = name,
+        streamUrl = "",
+        categoryId = null,
+        kind = kind,
+        rating = rating,
+        country = "United States",
+        year = year,
+        tmdbId = tmdbId,
+        playable = kind != ContentKind.SERIES
+    )
 
     private fun vod(id: String, rating: String?, tmdbId: String? = null) = MediaItem(
         id = id,

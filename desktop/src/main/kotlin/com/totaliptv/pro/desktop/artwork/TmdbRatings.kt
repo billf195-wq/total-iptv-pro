@@ -15,17 +15,29 @@ data class TmdbRating(
     val average: Double,
     val votes: Int,
     val found: Boolean,
-    val fetchedAtMs: Long
+    val fetchedAtMs: Long,
+    /** Set when this row was resolved from a title search rather than a provider id. */
+    val tmdbId: String? = null
 )
 
 /** How provider scores and TMDB votes become the number on a tile and the Top rated sort key. */
 object TmdbRatings {
     const val MIN_VOTES_FOR_TOP = 20
     const val MAX_AGE_MS: Long = 7L * 24L * 60L * 60L * 1000L
+    /** Search misses and unknown ids. Short so a later rename or new TMDB row can be picked up. */
+    const val MISS_AGE_MS: Long = 24L * 60L * 60L * 1000L
 
     private val json = Json { ignoreUnknownKeys = true }
 
     fun isFresh(fetchedAtMs: Long, nowMs: Long): Boolean = nowMs - fetchedAtMs < MAX_AGE_MS
+
+    fun isFresh(entry: TmdbRating, nowMs: Long): Boolean {
+        val limit = if (entry.found) MAX_AGE_MS else MISS_AGE_MS
+        return nowMs - entry.fetchedAtMs < limit
+    }
+
+    fun batchLine(resolved: Int, missed: Int, elapsedMs: Long): String =
+        "ratings resolved=$resolved missed=$missed ms=$elapsedMs"
 
     fun cacheKey(kind: ContentKind, tmdbId: String): String {
         val type = if (kind == ContentKind.SERIES) "tv" else "movie"
@@ -70,6 +82,12 @@ object TmdbRatings {
 
     /** TMDB status 34 is a real miss. Other status codes (bad key, rate limit) should be retried. */
     fun isNotFound(body: String): Boolean = statusCode(body) == 34
+
+    /** Invalid key, rate limit, and other API errors. Do not cache these. */
+    fun isHardFailure(body: String): Boolean {
+        val code = statusCode(body) ?: return false
+        return code != 34
+    }
 
     private fun statusCode(body: String): Int? {
         val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull() ?: return null

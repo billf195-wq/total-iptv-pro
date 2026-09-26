@@ -34,6 +34,8 @@ import com.totaliptv.pro.desktop.data.Catalog
 import com.totaliptv.pro.desktop.data.ContentKind
 import com.totaliptv.pro.desktop.data.MediaItem
 import com.totaliptv.pro.desktop.data.ResumeStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val TOP_N = 11
 /** Enough titles to honestly claim a filtered row label. */
@@ -227,7 +229,10 @@ fun HomeScreen(
         if (!ratingsOn) return@LaunchedEffect
         val visible = movieRow.items + seriesRow.items + continuePairs.mapNotNull { it.second }
         TmdbRatingStore.enqueue(visible, front = true)
-        TmdbRatingStore.enqueue(catalog.vodItems + catalog.seriesItems, front = false)
+        val rest = catalog.vodItems + catalog.seriesItems
+        withContext(Dispatchers.Default) {
+            TmdbRatingStore.enqueue(rest, front = false)
+        }
     }
 
     CompositionLocalProvider(LocalArtworkPage provides "Home") {
