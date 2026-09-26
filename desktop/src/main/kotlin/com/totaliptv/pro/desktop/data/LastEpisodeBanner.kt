@@ -58,8 +58,8 @@ object LastEpisodeBanner {
 
     /**
      * Clock-based dismiss used by Windows and Linux (same Compose host).
-     * A Swing timer alone can miss a beat under Windows VLC fullscreen;
-     * every overlay sync consults this so the banner cannot sit for the show.
+     * Next and last-episode chrome both use it. A Swing timer alone can miss
+     * a beat under fullscreen VLC; every overlay sync consults this too.
      */
     fun isAutoDismissed(shownAtMs: Long, nowMs: Long, dismissMs: Long = AUTO_DISMISS_MS): Boolean =
         nowMs - shownAtMs >= dismissMs
@@ -72,9 +72,45 @@ object LastEpisodeBanner {
         key: String? = null
     ): Boolean {
         if (mode == Mode.HIDDEN) return false
-        if (mode == Mode.NEXT) return true
         if (key != null && dismissedKey == key) return false
         val shown = firstShownAtMs ?: return true
         return !isAutoDismissed(shown, nowMs)
+    }
+
+    /**
+     * Player-exit is separate from the clock: once this episode's player has
+     * been seen running, a dead player must not leave the banner up.
+     */
+    fun shouldShow(
+        mode: Mode,
+        firstShownAtMs: Long?,
+        nowMs: Long,
+        dismissedKey: String?,
+        key: String?,
+        sawPlayer: Boolean,
+        playerRunning: Boolean
+    ): Boolean {
+        if (!overlayStillVisible(mode, firstShownAtMs, nowMs, dismissedKey, key)) return false
+        if (sawPlayer && !playerRunning) return false
+        return true
+    }
+
+    fun logLine(action: String, mode: Mode, reason: String, episodeId: String?, monitorX: Int? = null, monitorY: Int? = null): String {
+        return buildString {
+            append("banner ")
+            append(action)
+            append(" mode=")
+            append(mode.name)
+            append(" reason=")
+            append(reason.ifBlank { "-" })
+            append(" episodeId=")
+            append(episodeId?.trim()?.ifBlank { null } ?: "-")
+            if (monitorX != null && monitorY != null) {
+                append(" monitor=")
+                append(monitorX)
+                append(',')
+                append(monitorY)
+            }
+        }
     }
 }

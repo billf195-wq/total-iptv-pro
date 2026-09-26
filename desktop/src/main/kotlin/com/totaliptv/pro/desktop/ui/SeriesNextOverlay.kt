@@ -32,8 +32,9 @@ import com.totaliptv.pro.desktop.data.SeriesEpisode
 import com.totaliptv.pro.desktop.data.SeriesPlayback
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
 import com.totaliptv.pro.desktop.input.WindowsTopMost
+import com.totaliptv.pro.desktop.player.PlaybackDebugLog
+import com.totaliptv.pro.desktop.player.WindowPositioner
 import com.totaliptv.pro.desktop.util.AppPaths
-import java.awt.Toolkit
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
 import javax.swing.SwingUtilities
@@ -58,8 +59,10 @@ class SeriesNextHost {
     @Volatile var onRecord: () -> Unit = {}
     private var dismissedLastKey: String? = null
     private var pendingDismissKey: String? = null
-    private var lastBriefKey: String? = null
-    private var lastBriefShownAtMs: Long? = null
+    private var shownKey: String? = null
+    private var shownAtMs: Long? = null
+    private var bannerShown: Boolean = false
+    private var lastMode: LastEpisodeBanner.Mode = LastEpisodeBanner.Mode.HIDDEN
     private var dismissTimer: javax.swing.Timer? = null
     private var recordingThisItem: Boolean = false
 
@@ -86,50 +89,49 @@ class SeriesNextHost {
         this.onRecord = onRecord
         this.darkTheme = darkTheme
         this.recordingThisItem = recordingThisItem
-        val key = session?.let { overlayKey(it) }
-        val mode = session?.let { overlayMode(it) } ?: LastEpisodeBanner.Mode.HIDDEN
         if (session == null) {
-            this.session = null
-            resetLastBrief()
-            disposeWindow()
+            clearSession("session-cleared")
             return
         }
         this.session = session
+        val key = overlayKey(session)
+        val mode = overlayMode(session)
+        lastMode = mode
         if (mode == LastEpisodeBanner.Mode.HIDDEN) {
-            resetLastBrief()
-            disposeWindow()
+            hideIfUp("hidden")
             return
         }
-        if (mode == LastEpisodeBanner.Mode.NEXT) {
-            resetLastBrief()
-            ensureWindow()
+        if (shownKey != key) {
+            shownKey = key
+            shownAtMs = nowMs
+            bannerShown = false
+            if (dismissedLastKey != null && dismissedLastKey != key) dismissedLastKey = null
+        }
+        if (!LastEpisodeBanner.shouldShow(mode, shownAtMs, nowMs, dismissedLastKey, key, sawPlayer = false, playerRunning = true)) {
+            val reason = if (dismissedLastKey == key) "dismissed" else "timeout"
+            hide(reason)
             return
         }
-        if (lastBriefKey != key) {
-            lastBriefKey = key
-            lastBriefShownAtMs = nowMs
-            dismissedLastKey = null
-            cancelDismissTimer()
-        }
-        if (!LastEpisodeBanner.overlayStillVisible(mode, lastBriefShownAtMs, nowMs, dismissedLastKey, key)) {
-            if (key != null) dismissedLastKey = key
-            cancelDismissTimer()
-            disposeWindow()
-            return
-        }
-        ensureWindow()
-        if (key != null) {
-            scheduleLastEpisodeDismiss(key)
-        }
+        scheduleDismiss(key)
+        show(mode)
     }
 
-    fun dismissLastIfMatching(key: String) {
-        if (session?.let { overlayKey(it) } == key) {
-            dismissedLastKey = key
-            cancelDismissTimer()
-            disposeWindow()
-        }
+    /** VLC left and this episode is not being replaced. Session can stay so Next still works. */
+    fun onPlayerExited() = dismiss("player-exited")
+
+    /** Hide the current banner without stopping playback. Safe to call more than once. */
+    fun dismiss(reason: String) {
+        if (session == null && overlayWindow == null && !bannerShown) return
+        hide(reason)
     }
+
+    fun dismissLastIfMatching(key: String) = dismissIfMatching(key, "timeout")
+
+    fun dismissIfMatching(key: String, reason: String) {
+        if (session?.let { overlayKey(it) } == key) hide(reason)
+    }
+
+    fun isBannerShowing(): Boolean = overlayWindow != null || bannerShown
 
     internal fun shouldKeepOverlay(
         play: ActiveSeriesPlay,
@@ -144,11 +146,59 @@ class SeriesNextHost {
         overlayKey(play)
     )
 
-    private fun resetLastBrief() {
+    private fun clearSession(reason: String) {
+        val episodeId = session?.current?.id
+        val wasUp = bannerShown || overlayWindow != null
+        session = null
+        shownKey = null
+        shownAtMs = null
+        bannerShown = false
         dismissedLastKey = null
-        lastBriefKey = null
-        lastBriefShownAtMs = null
         cancelDismissTimer()
+        if (wasUp) note("hide", reason, episodeId, null, null)
+        disposeWindow()
+    }
+
+    private fun hideIfUp(reason: String) {
+        if (!bannerShown && overlayWindow == null) return
+        val episodeId = session?.current?.id
+        bannerShown = false
+        cancelDismissTimer()
+        note("hide", reason, episodeId, null, null)
+        disposeWindow()
+    }
+
+    /**
+     * Marks this episode's banner dismissed, then drops the window.
+     * The timer that calls this lives on the host, not on the AWT window,
+     * so disposing the window cannot cancel the hide.
+     */
+    private fun hide(reason: String) {
+        val play = session
+        val key = play?.let { overlayKey(it) }
+        if (key != null) dismissedLastKey = key
+        val episodeId = play?.current?.id
+        val wasUp = bannerShown || overlayWindow != null
+        bannerShown = false
+        cancelDismissTimer()
+        if (wasUp) note("hide", reason, episodeId, null, null)
+        disposeWindow()
+    }
+
+    private fun show(mode: LastEpisodeBanner.Mode) {
+        val play = session ?: return
+        val monitor = WindowPositioner.playbackMonitor()
+        val first = !bannerShown
+        bannerShown = true
+        ensureWindow()
+        if (first) note("show", "visible", play.current.id, monitor.x, monitor.y)
+        lastMode = mode
+    }
+
+    private fun note(action: String, reason: String, episodeId: String?, monitorX: Int?, monitorY: Int?) {
+        PlaybackDebugLog.note(
+            LastEpisodeBanner.logLine(action, lastMode, reason, episodeId, monitorX, monitorY)
+        )
     }
 
     fun clear() = disposeOverlay()
@@ -165,14 +215,13 @@ class SeriesNextHost {
             play.current.streamUrl
         )
 
-    private fun scheduleLastEpisodeDismiss(key: String) {
-        if (pendingDismissKey == key) return
+    private fun scheduleDismiss(key: String) {
+        if (pendingDismissKey == key && dismissTimer != null) return
         cancelDismissTimer()
         pendingDismissKey = key
         val timer = javax.swing.Timer(LastEpisodeBanner.AUTO_DISMISS_MS.toInt()) {
-            if (session?.let { overlayKey(it) } == key) {
-                dismissedLastKey = key
-                disposeWindowOnEdt()
+            if (session?.let { overlayKey(it) } == key && dismissedLastKey != key) {
+                hide("timeout")
             }
         }
         timer.isRepeats = false
@@ -190,11 +239,8 @@ class SeriesNextHost {
         onNext = {}
         onStop = {}
         onRecord = {}
-        session = null
-        resetLastBrief()
+        clearSession("disposed")
         recordingThisItem = false
-        if (overlayWindow == null && raisePump == null) return
-        disposeWindow()
     }
 
     fun isOverlayWindowAlive(): Boolean = overlayWindow != null
@@ -236,6 +282,7 @@ class SeriesNextHost {
                                 session = current,
                                 mode = overlayMode(current),
                                 onNext = { onNext() },
+                                onDismiss = { dismiss("dismiss") },
                                 onStop = { onStop() },
                                 onRecord = { onRecord() },
                                 recordingThisItem = recordingThisItem
@@ -264,6 +311,7 @@ class SeriesNextHost {
         overlayWindow = null
         contentAttached = false
         if (w != null) {
+            runCatching { w.isAlwaysOnTop = false }
             runCatching { w.isVisible = false }
             runCatching { w.dispose() }
         }
@@ -307,6 +355,7 @@ fun SeriesNextOverlayBody(
         session.current.streamUrl
     ),
     onNext: () -> Unit,
+    onDismiss: () -> Unit = {},
     onStop: () -> Unit,
     onRecord: () -> Unit = {},
     recordingThisItem: Boolean = false
@@ -398,6 +447,12 @@ fun SeriesNextOverlayBody(
                 }
             }
             OutlinedButton(
+                onClick = onDismiss,
+                modifier = Modifier.height(48.dp)
+            ) {
+                Text("Hide", color = TipOnBg)
+            }
+            OutlinedButton(
                 onClick = onStop,
                 modifier = Modifier.height(48.dp)
             ) {
@@ -425,14 +480,27 @@ private fun onEdt(block: () -> Unit) {
     }
 }
 
+internal fun overlayOrigin(
+    monitorX: Int,
+    monitorY: Int,
+    monitorWidth: Int,
+    monitorHeight: Int,
+    overlayWidth: Int,
+    overlayHeight: Int,
+    marginPx: Int
+): Pair<Int, Int> {
+    val x = monitorX + (monitorWidth - overlayWidth) / 2
+    val y = monitorY + monitorHeight - overlayHeight - marginPx
+    return x to y
+}
+
 private fun placeBottomCenter(w: ComposeWindow) {
-    val screen = w.graphicsConfiguration?.bounds
-        ?: java.awt.Rectangle(Toolkit.getDefaultToolkit().screenSize)
-    val scale = w.graphicsConfiguration?.defaultTransform?.scaleX?.takeIf { it > 0 } ?: 1.0
+    val monitor = WindowPositioner.playbackMonitor()
+    val scale = WindowPositioner.playbackUiScale()
     val width = (420 * scale).toInt().coerceAtLeast(320)
     val height = (196 * scale).toInt().coerceAtLeast(160)
+    val margin = (80 * scale).toInt().coerceAtLeast(24)
+    val (x, y) = overlayOrigin(monitor.x, monitor.y, monitor.width, monitor.height, width, height, margin)
     w.setSize(width, height)
-    val x = screen.x + (screen.width - width) / 2
-    val y = screen.y + screen.height - height - (80 * scale).toInt().coerceAtLeast(24)
     w.setLocation(x, y)
 }

@@ -107,6 +107,10 @@ fun main() {
                         SeriesNextHotkeys.requestNext()
                         true
                     }
+                    keyDown && event.key == Key.Escape && seriesNextHost.isBannerShowing() -> {
+                        seriesNextHost.dismiss("esc")
+                        true
+                    }
                     keyDown && event.key == Key.F11 -> {
                         state.placement = if (state.placement == WindowPlacement.Fullscreen) {
                             WindowPlacement.Floating

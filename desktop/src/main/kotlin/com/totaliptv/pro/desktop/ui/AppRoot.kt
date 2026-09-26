@@ -459,6 +459,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                             if (seq == playSeq.get()) {
                                 playingTitle = null
                                 playingItem = null
+                                seriesNextHost?.onPlayerExited()
                                 setSeriesSession(null)
                             }
                         }
@@ -558,6 +559,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                                 if (seq == playSeq.get()) {
                                     playingTitle = null
                                     playingItem = null
+                                    seriesNextHost?.onPlayerExited()
                                     if (outcome.reason == PlaybackAdvance.REASON_SAME_URL ||
                                         outcome.reason == PlaybackAdvance.REASON_NO_NEXT
                                     ) {
@@ -814,7 +816,9 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         }
     }
 
-    LaunchedEffect(seriesSession) {
+    val bannerKey = seriesSession?.let { "${it.seriesId}|${it.current.id}|${it.current.streamUrl}" }
+    LaunchedEffect(bannerKey) {
+        val key = bannerKey ?: return@LaunchedEffect
         val session = seriesSession ?: return@LaunchedEffect
         val mode = LastEpisodeBanner.overlayMode(
             session.episodes,
@@ -823,8 +827,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
             session.current.id,
             session.current.streamUrl
         )
-        if (mode != LastEpisodeBanner.Mode.LAST_BRIEF) return@LaunchedEffect
-        val key = "${session.seriesId}|${session.current.id}|${session.current.streamUrl}"
+        if (mode == LastEpisodeBanner.Mode.HIDDEN) return@LaunchedEffect
         delay(LastEpisodeBanner.AUTO_DISMISS_MS)
         seriesNextHost?.dismissLastIfMatching(key)
     }
@@ -839,8 +842,14 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         host.sync(
             session = seriesSession,
             darkTheme = prefs.themeMode != "light",
-            onNext = { skipToNextEpisode() },
-            onStop = { stopPlayback() },
+            onNext = {
+                seriesNextHost?.dismiss("next")
+                skipToNextEpisode()
+            },
+            onStop = {
+                seriesNextHost?.dismiss("stop")
+                stopPlayback()
+            },
             onRecord = {
                 val item = playingItem
                 if (item != null && item.streamUrl.isNotBlank()) {

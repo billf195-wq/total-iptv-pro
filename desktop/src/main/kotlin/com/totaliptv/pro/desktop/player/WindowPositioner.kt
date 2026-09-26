@@ -45,6 +45,20 @@ object WindowPositioner {
      */
     fun linuxPlaybackMonitor(): ScreenBounds = monitorOrFallback(readAppMonitor(), defaultMonitorBounds())
 
+    /** Monitor the player was placed on: the one holding the app window. */
+    fun playbackMonitor(): ScreenBounds = linuxPlaybackMonitor()
+
+    /** UI scale of the app window's monitor. Call on the EDT. */
+    fun playbackUiScale(): Double {
+        val window = appWindow ?: return 1.0
+        val scale = try {
+            window.graphicsConfiguration?.defaultTransform?.scaleX
+        } catch (_: Throwable) {
+            null
+        }
+        return scale?.takeIf { it > 0.0 } ?: 1.0
+    }
+
     internal fun monitorOrFallback(appMonitor: ScreenBounds?, fallback: ScreenBounds): ScreenBounds =
         appMonitor ?: fallback
 
