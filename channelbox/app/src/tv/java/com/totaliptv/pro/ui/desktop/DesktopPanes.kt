@@ -48,6 +48,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.diagnostics.CrashLog
+import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.LiveChannelMapping
 import com.totaliptv.pro.data.local.AppLayoutMode
 import com.totaliptv.pro.data.local.AppPreferences
@@ -822,6 +824,38 @@ fun DesktopSettingsPane(
         }
 
                 Spacer(Modifier.height(TipDimens.dp(24)))
+        SectionHeader("Last crash")
+        val crashText = remember { CrashLog.read(context) }
+        val debugText = remember { DebugLog.read(context) }
+        Text(
+            crashText.ifBlank { "No crash recorded." },
+            color = TipGoldMuted,
+            fontSize = TipDimens.sp(12)
+        )
+        if (debugText.isNotBlank()) {
+            Spacer(Modifier.height(TipDimens.dp(8)))
+            Text(
+                "Debug log\n$debugText",
+                color = TipGoldMuted,
+                fontSize = TipDimens.sp(12)
+            )
+        }
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        AmberButton(
+            label = "Share last crash",
+            onClick = {
+                if (CrashLog.read(context).isBlank()) {
+                    Toast.makeText(context, "No crash recorded", Toast.LENGTH_SHORT).show()
+                } else if (!runCatching { CrashLog.share(context) }.getOrDefault(false)) {
+                    Toast.makeText(
+                        context,
+                        "Couldn't open a share app. The crash text is above.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
+        Spacer(Modifier.height(TipDimens.dp(24)))
         SectionHeader("About")
         Text("Developed by Bill Foster", color = TipGoldText, fontSize = TipDimens.BodyLargeSp, fontWeight = FontWeight.SemiBold)
         Text("\u00A9 2026 Bill Foster. All rights reserved.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)

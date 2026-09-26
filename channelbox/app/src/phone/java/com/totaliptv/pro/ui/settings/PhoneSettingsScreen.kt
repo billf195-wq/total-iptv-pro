@@ -34,6 +34,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.diagnostics.CrashLog
+import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.local.PreferredPlayer
 import com.totaliptv.pro.data.repo.CatalogRepository
@@ -233,6 +235,47 @@ fun PhoneSettingsScreen(
             TextButton(onClick = { pendingInstall = null; updateStatus = null }) {
                 Text("Dismiss update")
             }
+        }
+
+        Spacer(Modifier.height(24.dp))
+        Text(
+            "Last crash",
+            style = MaterialTheme.typography.titleMedium,
+            color = OnCinema,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(4.dp))
+        val crashText = remember { CrashLog.read(context) }
+        val debugText = remember { DebugLog.read(context) }
+        Text(
+            text = crashText.ifBlank { "No crash recorded." },
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        if (debugText.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Debug log\n$debugText",
+                color = OnCinemaMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = {
+                if (CrashLog.read(context).isBlank()) {
+                    Toast.makeText(context, "No crash recorded", Toast.LENGTH_SHORT).show()
+                } else if (!runCatching { CrashLog.share(context) }.getOrDefault(false)) {
+                    Toast.makeText(
+                        context,
+                        "Couldn't open a share app. The crash text is above.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Share last crash")
         }
 
         Spacer(Modifier.height(24.dp))

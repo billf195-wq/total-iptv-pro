@@ -36,6 +36,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.totaliptv.pro.data.model.MediaItem as CatalogItem
+import com.totaliptv.pro.diagnostics.DebugLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -304,6 +305,17 @@ class SplitPlayerActivity : ComponentActivity() {
     }
 
     private fun startSide(side: Side) {
+        try {
+            startSideInner(side)
+        } catch (t: Throwable) {
+            DebugLog.append(this, TAG, "start ${side.id} failed", t)
+            Log.e(TAG, "start ${side.id} failed", t)
+            side.statusView?.text = "This side failed. The other keeps playing."
+            side.statusView?.visibility = View.VISIBLE
+        }
+    }
+
+    private fun startSideInner(side: Side) {
         side.bufferJob?.cancel()
         side.player?.let { existing ->
             existing.playWhenReady = false
@@ -449,7 +461,9 @@ class SplitPlayerActivity : ComponentActivity() {
                         side.bufferJob?.cancel()
                         side.statusView?.text = ""
                         side.statusView?.visibility = View.GONE
-                        if (EnglishAudio.applyPreferred(exo)) side.englishApplied = true
+                        if (runCatching { EnglishAudio.applyPreferred(exo) }.getOrDefault(false)) {
+                            side.englishApplied = true
+                        }
                         applyVolumes()
                     }
                     Player.STATE_ENDED -> {
@@ -461,7 +475,9 @@ class SplitPlayerActivity : ComponentActivity() {
 
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                 if (side.player !== exo) return
-                if (!side.englishApplied && EnglishAudio.applyPreferred(exo)) {
+                if (!side.englishApplied &&
+                    runCatching { EnglishAudio.applyPreferred(exo) }.getOrDefault(false)
+                ) {
                     side.englishApplied = true
                     applyVolumes()
                 }

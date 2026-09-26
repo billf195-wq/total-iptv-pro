@@ -1,6 +1,7 @@
 package com.totaliptv.pro
 
 import android.app.Application
+import com.totaliptv.pro.diagnostics.CrashLog
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.local.WatchProgressStore
 import com.totaliptv.pro.data.repo.CatalogRepository
@@ -25,6 +26,7 @@ class TotalIptvProApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        CrashLog.install(this)
         preferences = AppPreferences(this)
         repository = CatalogRepository(preferences)
         watchProgress = WatchProgressStore(this)

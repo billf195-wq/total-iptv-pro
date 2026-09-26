@@ -51,6 +51,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.diagnostics.CrashLog
+import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.local.PreferredPlayer
 import com.totaliptv.pro.data.local.AppLayoutMode
@@ -269,7 +271,41 @@ fun SettingsScreen(
                 )
             }
 
-
+            item { SectionTitle("Last crash") }
+            item {
+                val crashText = remember { CrashLog.read(context) }
+                val debugText = remember { DebugLog.read(context) }
+                Text(
+                    text = crashText.ifBlank { "No crash recorded." },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
+                )
+                if (debugText.isNotBlank()) {
+                    Text(
+                        text = "Debug log\n$debugText",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+            item {
+                FocusableCard(
+                    title = "Share last crash",
+                    subtitle = "Sends the saved stack trace. Playback failures are also in the debug log.",
+                    onClick = {
+                        if (CrashLog.read(context).isBlank()) {
+                            Toast.makeText(context, "No crash recorded", Toast.LENGTH_SHORT).show()
+                        } else if (!runCatching { CrashLog.share(context) }.getOrDefault(false)) {
+                            Toast.makeText(
+                                context,
+                                "Couldn't open a share app. The crash text is above.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                )
+            }
 
             item { SectionTitle("App layout") }
             item {
