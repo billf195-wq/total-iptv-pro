@@ -54,6 +54,19 @@ fun main() = application(exitProcessOnExit = true) {
 
     fun quit() {
         windowsOpen = false
+        runCatching {
+            val cur = PreferencesStore.load()
+            val absolute = state.position as? WindowPosition.Absolute
+            PreferencesStore.save(
+                cur.copy(
+                    windowWidth = state.size.width.value.toInt().coerceAtLeast(960),
+                    windowHeight = state.size.height.value.toInt().coerceAtLeast(600),
+                    windowX = absolute?.x?.value?.toInt(),
+                    windowY = absolute?.y?.value?.toInt(),
+                    windowMaximized = state.placement == WindowPlacement.Maximized
+                )
+            )
+        }
         AppShutdown.requestQuit(
             disposeOverlay = { seriesNextHost.disposeOverlay() },
             stopHotkeys = { SeriesNextHotkeys.shutdown() },
@@ -71,22 +84,7 @@ fun main() = application(exitProcessOnExit = true) {
     // second `Window {}` here would keep the JVM alive after this frame closes.
     if (windowsOpen && !AppShutdown.isExiting()) {
         Window(
-            onCloseRequest = {
-                runCatching {
-                    val cur = PreferencesStore.load()
-                    val absolute = state.position as? WindowPosition.Absolute
-                    PreferencesStore.save(
-                        cur.copy(
-                            windowWidth = state.size.width.value.toInt().coerceAtLeast(960),
-                            windowHeight = state.size.height.value.toInt().coerceAtLeast(600),
-                            windowX = absolute?.x?.value?.toInt(),
-                            windowY = absolute?.y?.value?.toInt(),
-                            windowMaximized = state.placement == WindowPlacement.Maximized
-                        )
-                    )
-                }
-                quit()
-            },
+            onCloseRequest = { quit() },
             title = SplashBranding.windowTitle(AppVersion.VERSION_NAME),
             state = state,
             icon = appIcon,

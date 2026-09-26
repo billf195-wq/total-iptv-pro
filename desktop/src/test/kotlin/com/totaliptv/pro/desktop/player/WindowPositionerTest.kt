@@ -148,7 +148,7 @@ class WindowPositionerTest {
     }
 
     @Test
-    fun linuxSplitAudioFollowsFocusAndClicks() {
+    fun linuxSplitAudioFollowsFocus() {
         val focus = LinuxX11WindowPlacer.SplitFocusAudio()
         val left = 10L
         val right = 20L
@@ -158,20 +158,10 @@ class WindowPositionerTest {
         assertEquals(SplitSide.RIGHT, focus.onActive(right, left, right))
         assertEquals(null, focus.onActive(0L, left, right))
         assertEquals(null, LinuxX11WindowPlacer.splitSideForWindow(99L, left, right))
-        val child = 30L
-        val known = mapOf(child to SplitSide.RIGHT)
-        assertEquals(
-            SplitSide.RIGHT,
-            LinuxX11WindowPlacer.splitSideForPressedWindow(child, emptyList(), known, left, right)
-        )
-        assertEquals(
-            SplitSide.LEFT,
-            LinuxX11WindowPlacer.splitSideForPressedWindow(40L, listOf(left), emptyMap(), left, right)
-        )
-        assertEquals(
-            null,
-            LinuxX11WindowPlacer.splitSideForPressedWindow(40L, listOf(99L), emptyMap(), left, right)
-        )
+        val placer = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/LinuxX11WindowPlacer.kt")
+        val text = placer.readText()
+        assertFalse(text.contains("XSelectInput"))
+        assertFalse(text.contains("ButtonPress"))
     }
 
     @Test

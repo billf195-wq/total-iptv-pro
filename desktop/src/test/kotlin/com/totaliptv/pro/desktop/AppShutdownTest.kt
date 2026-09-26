@@ -151,6 +151,57 @@ class AppShutdownTest {
     }
 
     @Test
+    fun nativeHardExitTriesLibcExitThenKill() {
+        val calls = CopyOnWriteArrayList<String>()
+        NativeProcessExit.hooks = object : NativeProcessExit.Hooks {
+            override fun exitImmediate(status: Int) {
+                calls += "exit:$status"
+            }
+            override fun killSelf() {
+                calls += "kill"
+            }
+        }
+        NativeProcessExit.exitNow(0)
+        assertEquals(listOf("exit:0", "kill"), calls.toList())
+    }
+
+    @Test
+    fun nativeHardExitStillKillsWhenExitThrows() {
+        val calls = CopyOnWriteArrayList<String>()
+        NativeProcessExit.hooks = object : NativeProcessExit.Hooks {
+            override fun exitImmediate(status: Int) {
+                calls += "exit"
+                throw IllegalStateException("libc exit failed")
+            }
+            override fun killSelf() {
+                calls += "kill"
+            }
+        }
+        NativeProcessExit.exitNow(0)
+        assertEquals(listOf("exit", "kill"), calls.toList())
+    }
+
+    @Test
+    fun nonWindowsBackstopUsesLibcNotJvmHalt() {
+        assertEquals(!com.totaliptv.pro.desktop.util.AppPaths.isWindows, AppShutdown.usesNativeHardExit)
+        if (!AppShutdown.usesNativeHardExit) return
+        assertTrue(NativeProcessExit.preload())
+        assertTrue(NativeProcessExit.libcReady())
+        val text = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/AppShutdown.kt").readText()
+        assertTrue(text.contains("NativeProcessExit.exitNow(0)"))
+        assertTrue(text.contains("Runtime.getRuntime().halt(0)"))
+    }
+
+    @Test
+    fun quitFlushesPrefsBeforeShutdown() {
+        val text = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/Main.kt").readText()
+        val quitFn = text.indexOf("fun quit()")
+        val save = text.indexOf("PreferencesStore.save")
+        val request = text.indexOf("AppShutdown.requestQuit")
+        assertTrue(quitFn >= 0 && save > quitFn && request > save)
+    }
+
+    @Test
     fun ctrlQIsTheQuitKey() {
         assertTrue(AppShutdown.isQuitCombo(keyDown = true, ctrlOrMeta = true, isQ = true))
         assertFalse(AppShutdown.isQuitCombo(keyDown = false, ctrlOrMeta = true, isQ = true))

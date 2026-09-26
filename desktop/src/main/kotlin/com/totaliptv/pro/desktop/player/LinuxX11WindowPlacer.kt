@@ -52,10 +52,6 @@ object LinuxX11WindowPlacer {
     private const val CW_OVERRIDE_REDIRECT = 512L
     private const val MIN_VIDEO_PX = 80
     private const val PLACEMENT_TOLERANCE_PX = 4
-    private const val BUTTON_PRESS = 4
-    private const val BUTTON_PRESS_MASK = 4L
-    private const val EVENT_WINDOW_OFFSET = 32L
-
     private val handlerInstalled = AtomicBoolean(false)
     private val swallowXErrors = object : X11ErrorHandler {
         override fun handle(display: Pointer?, error: Pointer?): Int = 0
@@ -362,29 +358,6 @@ object LinuxX11WindowPlacer {
         return null
     }
 
-    /**
-     * A click is often delivered to a child of the video window. Match the
-     * event window, then its ancestors, against the windows we are watching.
-     */
-    internal fun splitSideForPressedWindow(
-        eventWindow: Long,
-        ancestors: List<Long>,
-        known: Map<Long, SplitSide>,
-        leftWindow: Long,
-        rightWindow: Long
-    ): SplitSide? {
-        fun match(id: Long): SplitSide? {
-            if (id == 0L) return null
-            known[id]?.let { return it }
-            return splitSideForWindow(id, leftWindow, rightWindow)
-        }
-        match(eventWindow)?.let { return it }
-        for (id in ancestors) {
-            match(id)?.let { return it }
-        }
-        return null
-    }
-
     internal fun wmManagedWindows(owned: List<Long>, clientList: Set<Long>?): List<Long> {
         if (clientList == null) return owned
         return owned.filter { it in clientList }
@@ -459,10 +432,11 @@ object LinuxX11WindowPlacer {
     }
 
     /**
-     * While a Linux split is up, a click or a focus change onto one video
-     * window selects that side's audio. Left and Right are not watched here;
-     * those keys already switch the split and must keep working as before.
-     * The first focus reading is ignored so playback still starts on the left.
+     * While a Linux split is up, a focus change onto one video window selects
+     * that side's audio. Mouse clicks are left to VLC; a real click still
+     * moves focus, which is what switches the sound. Left and Right are not
+     * watched here. The first focus reading is ignored so playback still
+     * starts on the left.
      */
     fun watchSplitInput(scope: CoroutineScope, left: Process, right: Process, onSide: (SplitSide) -> Unit) {
         if (System.getenv("DISPLAY").isNullOrBlank() || Native.LONG_SIZE != 8) return
@@ -471,7 +445,6 @@ object LinuxX11WindowPlacer {
             val dpy = x11.XOpenDisplay(null) ?: return@launch
             ensureErrorHandler(x11)
             val focus = SplitFocusAudio()
-            val sideByWindow = mutableMapOf<Long, SplitSide>()
             try {
                 while (isActive && (left.isAlive || right.isAlive)) {
                     val root = x11.XDefaultRootWindow(dpy).toLong()
@@ -481,31 +454,6 @@ object LinuxX11WindowPlacer {
                     }
                     val leftWindow = managedVideoWindow(x11, dpy, root, left.pid()) ?: 0L
                     val rightWindow = managedVideoWindow(x11, dpy, root, right.pid()) ?: 0L
-                    listenForSplitInput(x11, dpy, leftWindow, SplitSide.LEFT, sideByWindow)
-                    listenForSplitInput(x11, dpy, rightWindow, SplitSide.RIGHT, sideByWindow)
-                    var drained = 0
-                    while (drained < 64 && x11.XPending(dpy) > 0) {
-                        drained++
-                        val event = Memory(XEVENT_BYTES.toLong())
-                        x11.XNextEvent(dpy, event)
-                        val type = event.getInt(0)
-                        val side = if (type == BUTTON_PRESS) {
-                            val eventWindow = event.getNativeLong(EVENT_WINDOW_OFFSET).toLong()
-                            splitSideForPressedWindow(
-                                eventWindow,
-                                ancestorWindows(x11, dpy, eventWindow),
-                                sideByWindow,
-                                leftWindow,
-                                rightWindow
-                            )
-                        } else {
-                            null
-                        }
-                        if (side != null) {
-                            PlaybackDebugLog.note("split-x11: audio ${side.name}")
-                            onSide(side)
-                        }
-                    }
                     val active = readActiveWindow(x11, dpy, root)
                     val focused = focus.onActive(active, leftWindow, rightWindow)
                     if (focused != null) {
@@ -520,81 +468,6 @@ object LinuxX11WindowPlacer {
                 runCatching { x11.XCloseDisplay(dpy) }
             }
         }
-    }
-
-    private fun listenForSplitInput(
-        x11: X11Lib,
-        dpy: Pointer,
-        video: Long,
-        side: SplitSide,
-        sideByWindow: MutableMap<Long, SplitSide>
-    ) {
-        if (video == 0L) return
-        for (window in windowAndDescendants(x11, dpy, video)) {
-            val previous = sideByWindow.put(window, side)
-            if (previous == null) {
-                x11.XSelectInput(dpy, NativeLong(window), NativeLong(BUTTON_PRESS_MASK))
-            }
-        }
-    }
-
-    private fun windowAndDescendants(x11: X11Lib, dpy: Pointer, video: Long): List<Long> {
-        val out = LinkedHashSet<Long>()
-        val queue = ArrayDeque<Pair<Long, Int>>()
-        queue.add(video to 0)
-        while (queue.isNotEmpty() && out.size < 48) {
-            val (window, depth) = queue.removeFirst()
-            if (window == 0L || !out.add(window)) continue
-            if (depth >= 6) continue
-            for (child in childWindows(x11, dpy, window)) {
-                queue.add(child to depth + 1)
-            }
-        }
-        return out.toList()
-    }
-
-    private fun ancestorWindows(x11: X11Lib, dpy: Pointer, window: Long): List<Long> {
-        val out = ArrayList<Long>(4)
-        var current = window
-        repeat(8) {
-            val parent = parentWindow(x11, dpy, current) ?: return out
-            if (parent == 0L || parent == current) return out
-            out += parent
-            current = parent
-        }
-        return out
-    }
-
-    private fun childWindows(x11: X11Lib, dpy: Pointer, window: Long): List<Long> {
-        val rootReturn = NativeLongByReference()
-        val parentReturn = NativeLongByReference()
-        val children = PointerByReference()
-        val count = IntByReference()
-        val ok = x11.XQueryTree(dpy, NativeLong(window), rootReturn, parentReturn, children, count)
-        if (ok == 0) return emptyList()
-        val ptr = children.value
-        val n = count.value.coerceIn(0, 64)
-        val ids = ArrayList<Long>(n)
-        if (ptr != null && n > 0) {
-            val longSize = Native.LONG_SIZE
-            for (i in 0 until n) {
-                val id = ptr.getNativeLong(i.toLong() * longSize).toLong()
-                if (id != 0L) ids += id
-            }
-        }
-        if (ptr != null) runCatching { x11.XFree(ptr) }
-        return ids
-    }
-
-    private fun parentWindow(x11: X11Lib, dpy: Pointer, window: Long): Long? {
-        val rootReturn = NativeLongByReference()
-        val parentReturn = NativeLongByReference()
-        val children = PointerByReference()
-        val count = IntByReference()
-        val ok = x11.XQueryTree(dpy, NativeLong(window), rootReturn, parentReturn, children, count)
-        if (ok == 0) return null
-        children.value?.let { runCatching { x11.XFree(it) } }
-        return parentReturn.value.toLong()
     }
 
     private fun placePid(pid: Long, requested: ScreenBounds): PlaceResult {
@@ -1143,9 +1016,6 @@ internal interface X11Lib : Library {
     fun XMoveResizeWindow(display: Pointer, window: NativeLong, x: Int, y: Int, width: Int, height: Int): Int
     fun XFlush(display: Pointer): Int
     fun XSync(display: Pointer, discard: Int): Int
-    fun XSelectInput(display: Pointer, window: NativeLong, mask: NativeLong): Int
-    fun XPending(display: Pointer): Int
-    fun XNextEvent(display: Pointer, event: Pointer): Int
     fun XSendEvent(
         display: Pointer,
         window: NativeLong,
