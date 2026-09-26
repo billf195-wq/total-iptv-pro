@@ -18,6 +18,7 @@ import com.totaliptv.pro.desktop.artwork.ArtworkRole
 import com.totaliptv.pro.desktop.artwork.ArtworkSettings
 import com.totaliptv.pro.desktop.artwork.PosterLoadLog
 import com.totaliptv.pro.desktop.artwork.TmdbArtwork
+import com.totaliptv.pro.desktop.artwork.TmdbClient
 import com.totaliptv.pro.desktop.data.ContentKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -180,7 +181,7 @@ private fun loadArtwork(
             year = year,
             kind = contentKind,
             role = role,
-            fetch = ::httpText
+            fetch = { TmdbClient.get(it) }
         )
         if (!better.isNullOrBlank() && better != current) {
             val fetched = readBytes(better)
@@ -233,20 +234,6 @@ private fun httpBytes(url: String): ByteArray? {
         negativeCache.markFailed(url)
         null
     }
-}
-
-private fun httpText(url: String): String? {
-    return runCatching {
-        val req = Request.Builder()
-            .url(url)
-            .header("User-Agent", "TotalIPTVPro-Desktop/1.0")
-            .get()
-            .build()
-        imageClient.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) return null
-            resp.body?.string()?.takeIf { it.isNotBlank() }
-        }
-    }.getOrNull()
 }
 
 private fun decodeScaled(bytes: ByteArray, targetLongEdge: Int, highQuality: Boolean): ImageBitmap? {

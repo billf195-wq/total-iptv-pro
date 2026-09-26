@@ -92,14 +92,15 @@ class TmdbArtworkTest {
             year = 1999,
             kind = ContentKind.VOD,
             role = ArtworkRole.POSTER,
-            fetch = { url ->
-                urls += url
-                if (url.contains("/movie/603")) movie else null
+            fetch = { req ->
+                urls += TmdbAuth.url(req)
+                if (req.pathAndQuery == "movie/603") movie else null
             }
         )
         assertEquals("https://image.tmdb.org/t/p/w780/matrix.jpg", fromId)
         assertTrue(urls.single().startsWith("https://api.themoviedb.org/3/movie/603?"))
         assertTrue(urls.single().contains("api_key=secret"))
+        assertNull(TmdbAuth.authorization(TmdbRequest("movie/603", "secret")))
 
         urls = mutableListOf()
         val fromSearch = TmdbArtwork.lookup(
@@ -109,9 +110,9 @@ class TmdbArtworkTest {
             year = 1999,
             kind = ContentKind.VOD,
             role = ArtworkRole.BACKDROP,
-            fetch = { url ->
-                urls += url
-                if (url.contains("search/movie")) {
+            fetch = { req ->
+                urls += TmdbAuth.url(req)
+                if (req.pathAndQuery.startsWith("search/movie")) {
                     """{"results":[{"poster_path":"/p.jpg","backdrop_path":"/b.jpg"}]}"""
                 } else null
             }
@@ -122,10 +123,38 @@ class TmdbArtworkTest {
     }
 
     @Test
+    fun v4ReadTokenUsesBearerAndStaysOutOfTheUrl() {
+        val token = "eyJhbGciOiJIUzI1NiJ9.payload.sig"
+        val seen = mutableListOf<TmdbRequest>()
+        val poster = TmdbArtwork.lookup(
+            apiKey = "Bearer $token",
+            tmdbId = "603",
+            title = "The Matrix",
+            year = 1999,
+            kind = ContentKind.VOD,
+            role = ArtworkRole.POSTER,
+            fetch = { req ->
+                seen += req
+                """{"poster_path":"/matrix.jpg"}"""
+            }
+        )
+        assertEquals("https://image.tmdb.org/t/p/w780/matrix.jpg", poster)
+        val req = seen.single()
+        assertEquals("https://api.themoviedb.org/3/movie/603", TmdbAuth.url(req))
+        assertFalse(TmdbAuth.url(req).contains("api_key"))
+        assertFalse(TmdbAuth.url(req).contains(token))
+        assertEquals("Bearer $token", TmdbAuth.authorization(req))
+    }
+
+    @Test
     fun sharpPostersDefaultOnAndOldPrefsStillLoad() {
         assertTrue(SavedPrefs().sharpPosters)
+        assertTrue(SavedPrefs().tmdbRatings)
+        assertEquals("", SavedPrefs().tmdbApiKey)
         val loaded = Json { ignoreUnknownKeys = true }.decodeFromString<SavedPrefs>("""{"themeMode":"dark"}""")
         assertTrue(loaded.sharpPosters)
+        assertTrue(loaded.tmdbRatings)
+        assertEquals("", loaded.tmdbApiKey)
     }
 
     @Test

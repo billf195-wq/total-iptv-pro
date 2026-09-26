@@ -16,6 +16,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +27,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.totaliptv.pro.desktop.artwork.ArtworkSettings
+import com.totaliptv.pro.desktop.artwork.TmdbRatingStore
+import com.totaliptv.pro.desktop.artwork.TmdbRatings
 import com.totaliptv.pro.desktop.data.Catalog
 import com.totaliptv.pro.desktop.data.ContentKind
 import com.totaliptv.pro.desktop.data.MediaItem
@@ -116,13 +122,17 @@ fun isLikelyNew(
 /**
  * Home movies row: pool = new American when thick enough; rank by rating desc.
  * Labels stay honest — never say "American" / "new" unless that filter was applied.
+ * [rank] defaults to the provider score with bogus 10.0s removed. Home passes TMDB rank when a key is on.
  */
-fun pickTopRatedMovies(catalog: Catalog): TopRatedRow {
-    val rated = catalog.vodItems.filter { it.ratingScore() > 0.0 }
+fun pickTopRatedMovies(
+    catalog: Catalog,
+    rank: (MediaItem) -> Double = { TmdbRatings.providerScore(it) }
+): TopRatedRow {
+    val rated = catalog.vodItems.filter { rank(it) > 0.0 }
     val pool = rated.ifEmpty { catalog.vodItems }
 
     fun byRating(list: List<MediaItem>) =
-        list.sortedByDescending { it.ratingScore() }.take(TOP_N)
+        list.sortedByDescending(rank).take(TOP_N)
 
     val americanNew = byRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) })
     if (americanNew.size >= MIN_FILTERED) {
@@ -145,12 +155,15 @@ fun pickTopRatedMovies(catalog: Catalog): TopRatedRow {
  * Home series row: same rules as movies — prefer new American, then new, then overall by rating.
  * Labels stay honest — never say "American" / "new" unless that filter was applied.
  */
-fun pickTopRatedSeries(catalog: Catalog): TopRatedRow {
-    val rated = catalog.seriesItems.filter { it.ratingScore() > 0.0 }
+fun pickTopRatedSeries(
+    catalog: Catalog,
+    rank: (MediaItem) -> Double = { TmdbRatings.providerScore(it) }
+): TopRatedRow {
+    val rated = catalog.seriesItems.filter { rank(it) > 0.0 }
     val pool = rated.ifEmpty { catalog.seriesItems }
 
     fun byRating(list: List<MediaItem>) =
-        list.sortedByDescending { it.ratingScore() }.take(TOP_N)
+        list.sortedByDescending(rank).take(TOP_N)
 
     val americanNew = byRating(pool.filter { isLikelyAmerican(it) && isLikelyNew(it) })
     if (americanNew.size >= MIN_FILTERED) {
@@ -202,8 +215,20 @@ fun HomeScreen(
     val continuePairs = remember(resumeEntries, catalog, columns) {
         resolveContinueItems(resumeEntries, catalog).take(columns)
     }
-    val movieRow = remember(catalog) { pickTopRatedMovies(catalog) }
-    val seriesRow = remember(catalog) { pickTopRatedSeries(catalog) }
+    val ratingRevision by TmdbRatingStore.revision.collectAsState()
+    val ratingsOn = ArtworkSettings.ratingsActive()
+    val movieRow = remember(catalog, ratingRevision, ratingsOn) {
+        pickTopRatedMovies(catalog) { TmdbRatingStore.rankScore(it) }
+    }
+    val seriesRow = remember(catalog, ratingRevision, ratingsOn) {
+        pickTopRatedSeries(catalog) { TmdbRatingStore.rankScore(it) }
+    }
+    LaunchedEffect(catalog, ratingsOn, movieRow.items, seriesRow.items, continuePairs) {
+        if (!ratingsOn) return@LaunchedEffect
+        val visible = movieRow.items + seriesRow.items + continuePairs.mapNotNull { it.second }
+        TmdbRatingStore.enqueue(visible, front = true)
+        TmdbRatingStore.enqueue(catalog.vodItems + catalog.seriesItems, front = false)
+    }
 
     CompositionLocalProvider(LocalArtworkPage provides "Home") {
     LazyColumn(
@@ -257,7 +282,7 @@ fun HomeScreen(
                             year = item.year,
                             cardWidth = cardWidth,
                             onClick = { onOpenVod(item) },
-                            ratingScore = item.ratingScore()
+                            ratingScore = rememberRatingScore(item)
                         )
                     }
                 }
@@ -280,7 +305,7 @@ fun HomeScreen(
                             year = item.year,
                             cardWidth = cardWidth,
                             onClick = { onOpenSeries(item) },
-                            ratingScore = item.ratingScore()
+                            ratingScore = rememberRatingScore(item)
                         )
                     }
                 }
@@ -336,7 +361,7 @@ private fun ContinueCard(
         cardWidth = cardWidth,
         onClick = onClick,
         showPlayBadge = true,
-        ratingScore = media?.ratingScore() ?: 0.0,
+        ratingScore = if (media != null) rememberRatingScore(media) else 0.0,
         progressPercent = entry.progressPercent.takeIf { entry.hasProgress }
     )
 }

@@ -11,8 +11,13 @@ object ArtworkSettings {
     @Volatile
     var tmdbApiKey: String = ""
 
-    fun apply(sharp: Boolean, prefKey: String? = null) {
+    /** Honored only when a key is actually available. Defaults on. */
+    @Volatile
+    var tmdbRatings: Boolean = true
+
+    fun apply(sharp: Boolean, prefKey: String? = null, ratings: Boolean = true) {
         sharpPosters = sharp
+        tmdbRatings = ratings
         tmdbApiKey = TmdbArtwork.resolveApiKey(
             pref = prefKey,
             env = System.getenv("TMDB_API_KEY"),
@@ -21,6 +26,8 @@ object ArtworkSettings {
     }
 
     fun hasTmdbKey(): Boolean = tmdbApiKey.isNotBlank()
+
+    fun ratingsActive(): Boolean = tmdbRatings && hasTmdbKey()
 
     private fun readKeyFile(): String? {
         val file = AppPaths.configDir.resolve("tmdb-api-key.txt")

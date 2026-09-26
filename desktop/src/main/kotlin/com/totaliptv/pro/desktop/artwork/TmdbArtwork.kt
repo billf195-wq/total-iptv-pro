@@ -8,6 +8,29 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.URLEncoder
 
+/** One TMDB API call. v3 keys go on the query string; v4 read tokens use Bearer auth. */
+data class TmdbRequest(val pathAndQuery: String, val key: String)
+
+object TmdbAuth {
+    fun normalize(raw: String): String = raw.trim().removePrefix("Bearer ").removePrefix("bearer ").trim()
+
+    /** v4 read access tokens are JWTs and start with eyJ. Anything else is treated as a v3 API key. */
+    fun isV4ReadToken(key: String): Boolean = normalize(key).startsWith("eyJ")
+
+    fun url(request: TmdbRequest): String {
+        val path = request.pathAndQuery.trim().trimStart('/')
+        val key = normalize(request.key)
+        if (isV4ReadToken(key)) return "https://api.themoviedb.org/3/$path"
+        val join = if (path.contains('?')) "&" else "?"
+        return "https://api.themoviedb.org/3/$path$join" + "api_key=" + URLEncoder.encode(key, Charsets.UTF_8)
+    }
+
+    fun authorization(request: TmdbRequest): String? {
+        val key = normalize(request.key)
+        return if (isV4ReadToken(key)) "Bearer $key" else null
+    }
+}
+
 enum class ArtworkRole {
     POSTER,
     BACKDROP,
@@ -69,9 +92,9 @@ object TmdbArtwork {
         year: Int?,
         kind: ContentKind?,
         role: ArtworkRole,
-        fetch: (String) -> String?
+        fetch: (TmdbRequest) -> String?
     ): String? {
-        val key = apiKey?.trim().orEmpty()
+        val key = TmdbAuth.normalize(apiKey.orEmpty())
         if (key.isEmpty() || role == ArtworkRole.LOGO) return null
         val id = tmdbId?.trim()?.takeIf { it.isNotEmpty() && it != "0" }
         if (id != null) {
@@ -99,14 +122,14 @@ object TmdbArtwork {
         id: String,
         kind: ContentKind?,
         role: ArtworkRole,
-        fetch: (String) -> String?
+        fetch: (TmdbRequest) -> String?
     ): String? {
         val paths = when (kind) {
             ContentKind.SERIES -> listOf("tv", "movie")
             else -> listOf("movie", "tv")
         }
         for (path in paths) {
-            val body = fetch(apiUrl("$path/$id", key)) ?: continue
+            val body = fetch(TmdbRequest("$path/$id", key)) ?: continue
             imageUrl(body, role)?.let { return it }
         }
         return null
@@ -118,7 +141,7 @@ object TmdbArtwork {
         year: Int?,
         kind: ContentKind?,
         role: ArtworkRole,
-        fetch: (String) -> String?
+        fetch: (TmdbRequest) -> String?
     ): String? {
         val encoded = URLEncoder.encode(title, Charsets.UTF_8)
         val searches = when (kind) {
@@ -127,15 +150,10 @@ object TmdbArtwork {
         }
         for ((path, yearParam) in searches) {
             val yearQuery = year?.takeIf { it in 1900..2100 }?.let { "&$yearParam=$it" }.orEmpty()
-            val body = fetch(apiUrl("$path?query=$encoded$yearQuery", key)) ?: continue
+            val body = fetch(TmdbRequest("$path?query=$encoded$yearQuery", key)) ?: continue
             imageUrl(body, role)?.let { return it }
         }
         return null
-    }
-
-    private fun apiUrl(pathAndQuery: String, key: String): String {
-        val join = if (pathAndQuery.contains('?')) "&" else "?"
-        return "https://api.themoviedb.org/3/$pathAndQuery${join}api_key=$key"
     }
 
     internal fun imageUrl(body: String, role: ArtworkRole): String? {

@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -21,7 +23,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.desktop.AppVersion
 import com.totaliptv.pro.desktop.util.AppPaths
@@ -50,6 +54,8 @@ fun SettingsScreen(
     var player by remember(prefs.preferredPlayer) { mutableStateOf(prefs.preferredPlayer) }
     var openFullscreen by remember(prefs.openPlayerFullscreen) { mutableStateOf(prefs.openPlayerFullscreen) }
     var sharpPosters by remember(prefs.sharpPosters) { mutableStateOf(prefs.sharpPosters) }
+    var tmdbKey by remember(prefs.tmdbApiKey) { mutableStateOf(prefs.tmdbApiKey) }
+    var tmdbRatings by remember(prefs.tmdbRatings) { mutableStateOf(prefs.tmdbRatings) }
     var theme by remember(prefs.themeMode) { mutableStateOf(prefs.themeMode) }
     var columns by remember(prefs.posterColumns) {
         mutableStateOf(prefs.posterColumns.let { if (it in setOf(5, 6, 8, 11)) it else 6 })
@@ -82,7 +88,9 @@ fun SettingsScreen(
         nextRecordingsDir: String = prefs.recordingsDir,
         nextEpg: Int = epgOffset,
         nextFullscreen: Boolean = openFullscreen,
-        nextSharp: Boolean = sharpPosters
+        nextSharp: Boolean = sharpPosters,
+        nextTmdbKey: String = tmdbKey,
+        nextTmdbRatings: Boolean = tmdbRatings
     ) {
         player = nextPlayer
         theme = nextTheme
@@ -92,6 +100,8 @@ fun SettingsScreen(
         epgOffset = nextEpg
         openFullscreen = nextFullscreen
         sharpPosters = nextSharp
+        tmdbKey = nextTmdbKey
+        tmdbRatings = nextTmdbRatings
         onSavePrefs(
             prefs.copy(
                 preferredPlayer = nextPlayer,
@@ -102,7 +112,9 @@ fun SettingsScreen(
                 recordingsDir = nextRecordingsDir,
                 epgTimeOffsetHours = nextEpg,
                 openPlayerFullscreen = nextFullscreen,
-                sharpPosters = nextSharp
+                sharpPosters = nextSharp,
+                tmdbApiKey = nextTmdbKey.trim(),
+                tmdbRatings = nextTmdbRatings
             )
         )
     }
@@ -306,6 +318,56 @@ fun SettingsScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TipChoiceChip(selected = sharpPosters, label = "On") { persist(nextSharp = true) }
                 TipChoiceChip(selected = !sharpPosters, label = "Off") { persist(nextSharp = false) }
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("TMDB API key", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
+            Text(
+                "v3 API key or v4 read token from themoviedb.org → Settings → API. Leave blank to use the TMDB_API_KEY environment variable (or tmdb-api-key.txt). The same key loads sharper posters.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = tmdbKey,
+                onValueChange = { tmdbKey = it },
+                label = { Text("TMDB API key") },
+                placeholder = { Text("v3 API key or v4 read token") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (tmdbKey.trim() != prefs.tmdbApiKey) persist(nextTmdbKey = tmdbKey)
+                }),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .trackTextInputFocus()
+                    .onFocusChanged { state ->
+                        if (!state.isFocused && tmdbKey.trim() != prefs.tmdbApiKey) {
+                            persist(nextTmdbKey = tmdbKey)
+                        }
+                    },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = TipBlue,
+                    unfocusedBorderColor = TipSurfaceAlt,
+                    focusedContainerColor = TipSurface,
+                    unfocusedContainerColor = TipSurface,
+                    focusedTextColor = TipOnBg,
+                    unfocusedTextColor = TipOnBg,
+                    cursorColor = TipBlue,
+                    focusedLabelColor = TipBlue,
+                    unfocusedLabelColor = TipMuted,
+                    focusedPlaceholderColor = TipMuted,
+                    unfocusedPlaceholderColor = TipMuted
+                )
+            )
+            Spacer(Modifier.height(14.dp))
+            Text("TMDB ratings", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
+            Text(
+                "On when a key is present. Tiles and movie/series details show TMDB vote averages instead of the provider score. Titles with fewer than 20 votes still show a number, but they do not lead Top rated. Without a key, provider ratings stay and a bare 10.0 is hidden.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TipChoiceChip(selected = tmdbRatings, label = "On") { persist(nextTmdbRatings = true) }
+                TipChoiceChip(selected = !tmdbRatings, label = "Off") { persist(nextTmdbRatings = false) }
             }
             Spacer(Modifier.height(14.dp))
             Text("Poster grid columns (Movies / Series)", style = MaterialTheme.typography.titleMedium, color = TipOnBg)

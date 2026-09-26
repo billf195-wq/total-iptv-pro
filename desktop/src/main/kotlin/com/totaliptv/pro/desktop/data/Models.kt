@@ -51,7 +51,11 @@ data class SavedPrefs(
      * HD movie/series artwork. On by default so Bill can turn it off to compare load time.
      * TMDB network lookups still require an API key (env TMDB_API_KEY or tmdb-api-key.txt).
      */
-    val sharpPosters: Boolean = true
+    val sharpPosters: Boolean = true,
+    /** TMDB v3 API key or v4 read access token. Blank falls back to TMDB_API_KEY. */
+    val tmdbApiKey: String = "",
+    /** Use TMDB vote_average when a key is available. Default on. */
+    val tmdbRatings: Boolean = true
 )
 
 data class Category(

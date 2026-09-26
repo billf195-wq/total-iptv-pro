@@ -853,7 +853,11 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     }
 
     TipTheme(darkTheme = prefs.themeMode != "light") {
-        com.totaliptv.pro.desktop.artwork.ArtworkSettings.apply(prefs.sharpPosters)
+        com.totaliptv.pro.desktop.artwork.ArtworkSettings.apply(
+            sharp = prefs.sharpPosters,
+            prefKey = prefs.tmdbApiKey,
+            ratings = prefs.tmdbRatings
+        )
         if (showSplash) {
             SplashScreen()
             return@TipTheme

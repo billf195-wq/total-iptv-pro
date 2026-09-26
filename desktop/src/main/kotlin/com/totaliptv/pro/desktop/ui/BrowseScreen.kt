@@ -865,7 +865,7 @@ private fun PosterCard(
                 contentScale = ContentScale.Crop
             )
             RatingBadge(
-                score = item.ratingScore(),
+                score = rememberRatingScore(item),
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
             )
             IconButton(
@@ -971,7 +971,7 @@ private fun VodDetailPane(
                         Spacer(Modifier.height(8.dp))
                         val meta = listOfNotNull(
                             detail.year?.toString(),
-                            detail.rating?.takeIf { it.isNotBlank() }?.let { "★ $it" },
+                            formatRating(rememberDetailRating(ContentKind.VOD, detail.tmdbId, detail.rating)),
                             detail.genre?.takeIf { it.isNotBlank() }
                         ).joinToString("  ·  ")
                         if (meta.isNotBlank()) {
@@ -1169,7 +1169,7 @@ private fun SeriesDetailPane(
                     Column(Modifier.weight(1f)) {
                         val meta = listOfNotNull(
                             detail.year?.toString(),
-                            detail.rating?.takeIf { it.isNotBlank() }?.let { "★ $it" },
+                            formatRating(rememberDetailRating(ContentKind.SERIES, detail.tmdbId, detail.rating)),
                             detail.genre?.takeIf { it.isNotBlank() }
                         ).joinToString("  ·  ")
                         if (meta.isNotBlank()) {
