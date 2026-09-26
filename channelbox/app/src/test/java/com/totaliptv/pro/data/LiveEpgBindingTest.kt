@@ -20,7 +20,7 @@ class LiveEpgBindingTest {
     ): MediaItem = MediaItem(
         id = "live-$streamId",
         name = name,
-        streamUrl = "http://hudv.net:80/live/u/p/$streamId.m3u8",
+        streamUrl = "http://example.test:80/live/u/p/$streamId.m3u8",
         categoryId = categoryIds.first(),
         kind = ContentKind.LIVE,
         xtreamStreamId = streamId,

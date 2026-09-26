@@ -134,18 +134,18 @@ class StreamPlayerTest {
 
     @Test
     fun liveUrlDetectsXtreamHlsAndSkipsVodContainers() {
-        assertTrue(StreamPlayer.isLiveStreamUrl("http://hudv.net:80/live/user/pass/3.m3u8"))
-        assertTrue(StreamPlayer.isLiveStreamUrl("http://hudv.net/live/u/p/67.ts"))
+        assertTrue(StreamPlayer.isLiveStreamUrl("http://example.test:80/live/user/pass/3.m3u8"))
+        assertTrue(StreamPlayer.isLiveStreamUrl("http://example.test/live/u/p/67.ts"))
         assertTrue(StreamPlayer.isLiveStreamUrl("http://cdn.example.test/playlist.m3u8"))
-        assertFalse(StreamPlayer.isLiveStreamUrl("http://hudv.net:80/movie/user/pass/825824.mp4"))
-        assertFalse(StreamPlayer.isLiveStreamUrl("http://hudv.net:80/series/user/pass/627490.mkv"))
-        assertFalse(StreamPlayer.isLiveStreamUrl("http://hudv.net:80/movie/user/pass/99.m3u8"))
+        assertFalse(StreamPlayer.isLiveStreamUrl("http://example.test:80/movie/user/pass/825824.mp4"))
+        assertFalse(StreamPlayer.isLiveStreamUrl("http://example.test:80/series/user/pass/627490.mkv"))
+        assertFalse(StreamPlayer.isLiveStreamUrl("http://example.test:80/movie/user/pass/99.m3u8"))
     }
 
     @Test
     fun windowsLiveVlcOmitsPlayAndExitAndKeepsVodGuard() {
-        val liveUrl = "http://hudv.net:80/live/user/pass/341.m3u8"
-        val vodUrl = "http://hudv.net:80/series/user/pass/825824.mp4"
+        val liveUrl = "http://example.test:80/live/user/pass/341.m3u8"
+        val vodUrl = "http://example.test:80/series/user/pass/825824.mp4"
         val vlc = """C:\Program Files\VideoLAN\VLC\vlc.exe"""
         val live = StreamPlayer.vlcCommand(vlc, listOf(liveUrl), windows = true, live = true)
         assertFalse(live.contains("--play-and-exit"), live.toString())
@@ -263,7 +263,7 @@ class StreamPlayerTest {
     fun linuxLiveVlcAlsoOmitsPlayAndExit() {
         val live = StreamPlayer.vlcCommand(
             "/usr/bin/vlc",
-            listOf("http://hudv.net/live/u/p/3.m3u8"),
+            listOf("http://example.test/live/u/p/3.m3u8"),
             windows = false,
             live = true
         )
@@ -272,7 +272,7 @@ class StreamPlayerTest {
         assertTrue(live.contains("--audio-language=eng,en,english"))
         val vod = StreamPlayer.vlcCommand(
             "/usr/bin/vlc",
-            listOf("http://hudv.net/series/u/p/1.mkv"),
+            listOf("http://example.test/series/u/p/1.mkv"),
             windows = false,
             live = false
         )
@@ -561,7 +561,7 @@ class StreamPlayerTest {
 
     @Test
     fun liveMpvKeepsWindowOpenAndFfplaySkipsAutoexit() {
-        val liveUrl = "http://hudv.net/live/u/p/84.m3u8"
+        val liveUrl = "http://example.test/live/u/p/84.m3u8"
         val mpv = StreamPlayer.mpvCommand("mpv.exe", listOf(liveUrl), windows = true, live = true)
         assertTrue(mpv.contains("--keep-open=yes"))
         assertFalse(mpv.contains("--keep-open=no"))
@@ -577,8 +577,8 @@ class StreamPlayerTest {
 
     @Test
     fun vlcAndMpvPreferEnglishAudioOnLiveAndVod() {
-        val liveUrl = "http://hudv.net/live/u/p/84.m3u8"
-        val vodUrl = "http://hudv.net/series/u/p/1.mkv"
+        val liveUrl = "http://example.test/live/u/p/84.m3u8"
+        val vodUrl = "http://example.test/series/u/p/1.mkv"
         val vlcWin = """C:\Program Files\VideoLAN\VLC\vlc.exe"""
 
         val vlcLiveWin = StreamPlayer.vlcCommand(vlcWin, listOf(liveUrl), windows = true, live = true)

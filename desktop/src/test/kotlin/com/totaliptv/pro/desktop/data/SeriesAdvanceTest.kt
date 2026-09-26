@@ -137,7 +137,7 @@ class SeriesAdvanceTest {
         val live = MediaItem(
             id = "live-3",
             name = "CNN",
-            streamUrl = "http://hudv.net/live/u/p/3.m3u8",
+            streamUrl = "http://example.test/live/u/p/3.m3u8",
             categoryId = null,
             kind = ContentKind.LIVE
         )
