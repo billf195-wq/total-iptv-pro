@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.totaliptv.pro.ui.desktop
 
 import android.app.Activity
@@ -9,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -37,7 +40,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -69,6 +74,8 @@ import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.home.HomeShelfFit
+import com.totaliptv.pro.ui.home.NoVerticalHomeScroll
+import com.totaliptv.pro.ui.home.PosterRowBringIntoView
 import com.totaliptv.pro.ui.components.DpadSearchField
 import com.totaliptv.pro.ui.components.SearchTyping
 import com.totaliptv.pro.ui.player.GameDayPicker
@@ -132,7 +139,11 @@ fun HomePane(
     val moviesRowState = rememberTvLazyListState()
     val seriesRowState = rememberTvLazyListState()
     val homeScopes = setOf("desk-cw", "desk-movies", "desk-series")
-    LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope) {
+    var didInitialHomeFocus by remember { mutableStateOf(false) }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val homeBlock = HomeShelfFit.desktopHomeBlock()
+    val centerHome = homeBlock <= maxHeight
+    LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope, centerHome) {
         if (!pendingFocusRestore) return@LaunchedEffect
         val scope = restoreFocusScope
         val id = restoreFocusId
@@ -150,7 +161,10 @@ fun HomePane(
                 "desk-series" -> 2
                 else -> 0
             }
-            runCatching { homeListState.scrollToItem(rowOrdinal) }
+            // A centered block is already fully on screen. Scrolling it would undo the inset.
+            if (!centerHome) {
+                runCatching { homeListState.scrollToItem(rowOrdinal) }
+            }
             when (scope) {
                 "desk-cw" -> runCatching { resumeRowState.scrollToItem(idx) }
                 "desk-movies" -> runCatching { moviesRowState.scrollToItem(idx) }
@@ -167,7 +181,6 @@ fun HomePane(
         }
         onRestoreConsumed()
     }
-    var didInitialHomeFocus by remember { mutableStateOf(false) }
     LaunchedEffect(resume.firstOrNull()?.id, top.items.firstOrNull()?.id, pendingFocusRestore) {
         if (didInitialHomeFocus || pendingFocusRestore) return@LaunchedEffect
         val target = when {
@@ -183,9 +196,23 @@ fun HomePane(
         }.getOrDefault(false)
         if (focused) didInitialHomeFocus = true
     }
+    val homeTop = HomeShelfFit.centeredTopOffset(
+        maxHeight,
+        homeBlock,
+        HomeShelfFit.pageTopOffset
+    )
+    val posterBringIntoView = LocalBringIntoViewSpec.current
+    CompositionLocalProvider(
+        LocalBringIntoViewSpec provides if (centerHome) NoVerticalHomeScroll else posterBringIntoView
+    ) {
     LazyColumn(
         state = homeListState,
         modifier = Modifier.fillMaxSize(),
+        userScrollEnabled = !centerHome,
+        contentPadding = PaddingValues(
+            top = homeTop,
+            bottom = if (centerHome) homeTop else HomeShelfFit.desktopContentPadBottom
+        ),
         verticalArrangement = Arrangement.spacedBy(HomeShelfFit.desktopRowGap)
     ) {
         item {
@@ -204,6 +231,7 @@ fun HomePane(
                     )
                 }
             } else {
+                PosterRowBringIntoView(posterBringIntoView) {
                 TvLazyRow(
                     state = resumeRowState,
                     horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
@@ -218,6 +246,7 @@ fun HomePane(
                         )
                     }
                 }
+                }
             }
         }
         item {
@@ -225,6 +254,7 @@ fun HomePane(
             if (top.items.isEmpty()) {
                 Text("No movies in catalog yet.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
             } else {
+                PosterRowBringIntoView(posterBringIntoView) {
                 TvLazyRow(
                     state = moviesRowState,
                     horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
@@ -239,6 +269,7 @@ fun HomePane(
                         )
                     }
                 }
+                }
             }
         }
         item {
@@ -246,6 +277,7 @@ fun HomePane(
             if (topSeries.items.isEmpty()) {
                 Text("No series in catalog yet.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
             } else {
+                PosterRowBringIntoView(posterBringIntoView) {
                 TvLazyRow(
                     state = seriesRowState,
                     horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
@@ -260,8 +292,11 @@ fun HomePane(
                         )
                     }
                 }
+                }
             }
         }
+    }
+    }
     }
 }
 

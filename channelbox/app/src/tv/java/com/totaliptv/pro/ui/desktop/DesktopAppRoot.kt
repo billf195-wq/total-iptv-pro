@@ -340,11 +340,16 @@ fun DesktopAppRoot(
                             Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .padding(
-                                    start = TipDimens.ContentPad,
-                                    end = TipDimens.ContentPad,
-                                    top = HomeShelfFit.pageTopOffset,
-                                    bottom = HomeShelfFit.desktopContentPadBottom
+                                .padding(horizontal = TipDimens.ContentPad)
+                                .then(
+                                    if (section == DesktopNavSection.HOME) {
+                                        Modifier
+                                    } else {
+                                        Modifier.padding(
+                                            top = HomeShelfFit.pageTopOffset,
+                                            bottom = HomeShelfFit.desktopContentPadBottom
+                                        )
+                                    }
                                 )
                         ) {
                             when (section) {

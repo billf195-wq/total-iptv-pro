@@ -1,5 +1,6 @@
 package com.totaliptv.pro.ui.home
 
+import androidx.compose.ui.unit.dp
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,7 +13,17 @@ class HomeShelfFitTest {
         // 1920×1080 at 320 dpi (xhdpi) is 540 dp tall.
         assertEquals(540, HomeShelfFit.SHIELD_1080P_HEIGHT_DP)
         assertEquals(446f, HomeShelfFit.desktopThreeRows().value, 0.01f)
+        assertEquals(438f, HomeShelfFit.desktopHomeBlock().value, 0.01f)
+        assertEquals(51f, HomeShelfFit.desktopHomeTopOffset().value, 0.01f)
         assertEquals(486f, HomeShelfFit.classicThreeRows().value, 0.01f)
+        assertEquals(500f, HomeShelfFit.classicHomeArea().value, 0.01f)
+        assertEquals(438f, HomeShelfFit.classicHomeBlock().value, 0.01f)
+        assertEquals(31f, HomeShelfFit.classicHomeTopOffset().value, 0.01f)
+        assertEquals(
+            4f,
+            HomeShelfFit.centeredTopOffset(400.dp, 500.dp, 4.dp).value,
+            0.01f
+        )
         assertTrue(HomeShelfFit.desktopThreeRows().value <= 540f)
         assertTrue(HomeShelfFit.classicThreeRows().value <= 540f)
         assertTrue(HomeShelfFit.fitsOnShield1080p())
@@ -27,11 +38,18 @@ class HomeShelfFitTest {
         assertFalse(pane.contains("PaneTitle(\"Home\")"))
         assertFalse(pane.contains("Continue watching and top picks"))
         assertTrue(pane.contains("HomeShelfFit.desktopPosterImage"))
+        assertTrue(pane.contains("HomeShelfFit.desktopHomeBlock()"))
+        assertTrue(pane.contains("centeredTopOffset"))
+        assertTrue(pane.contains("userScrollEnabled = !centerHome"))
+        assertTrue(root.contains("section == DesktopNavSection.HOME"))
 
         val classic = File("src/tv/java/com/totaliptv/pro/ui/home/HomeScreen.kt").readText()
         val tab = classic.substringAfter("fun HomeTabContent").substringBefore("fun HomeShelfLabel")
         assertFalse(tab.contains("HeroFeatureBanner("))
         assertTrue(tab.contains("HomeShelfFit.classicPosterImage"))
+        assertTrue(tab.contains("centeredTopOffset"))
+        assertTrue(tab.contains("userScrollEnabled = !centerHome"))
+        assertTrue(classic.contains("modifier = Modifier.weight(1f)"))
     }
 
     @Test

@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.totaliptv.pro.ui.home
 
 import android.util.Log
@@ -5,8 +7,11 @@ import android.widget.Toast
 import com.totaliptv.pro.util.SensitiveText
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -80,6 +85,8 @@ import com.totaliptv.pro.ui.components.MovieDetailSheet
 import com.totaliptv.pro.ui.components.LiveChannelCard
 import com.totaliptv.pro.ui.components.PosterCard
 import com.totaliptv.pro.ui.home.HomeShelfFit
+import com.totaliptv.pro.ui.home.NoVerticalHomeScroll
+import com.totaliptv.pro.ui.home.PosterRowBringIntoView
 import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
 import com.totaliptv.pro.ui.player.GameDayPicker
@@ -549,6 +556,7 @@ fun HomeScreen(
                 }
                 hubTab == HubTab.Home -> {
                     HomeTabContent(
+                        modifier = Modifier.weight(1f),
                         newlyAdded = newlyAdded,
                         topPicks = topPicks,
                         continueWatching = continueWatching,
@@ -784,7 +792,8 @@ private fun HomeTabContent(
     onOpenFavorite: (FavoriteRef) -> Unit,
     onOpenLive: () -> Unit,
     onOpenMovies: () -> Unit,
-    onOpenSeries: () -> Unit
+    onOpenSeries: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val homeListState = rememberLazyListState()
     val cwRowState = rememberTvLazyListState()
@@ -792,7 +801,20 @@ private fun HomeTabContent(
     val topRowState = rememberTvLazyListState()
     val favRowState = rememberTvLazyListState()
     val homeScopes = setOf("cw", "new", "top", "fav")
-    LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope) {
+    val posterRows = listOf(
+        continueWatching.isNotEmpty(),
+        newlyAdded.isNotEmpty(),
+        topPicks.isNotEmpty(),
+        favorites.isNotEmpty()
+    ).count { it }
+    BoxWithConstraints(modifier.fillMaxSize()) {
+    val homeBlock = HomeShelfFit.homeBlock(
+        HomeShelfFit.classicRow(),
+        HomeShelfFit.classicRowGap,
+        posterRows
+    )
+    val centerHome = posterRows > 0 && homeBlock <= maxHeight
+    LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope, centerHome) {
         if (!pendingFocusRestore) return@LaunchedEffect
         val scope = restoreFocusScope ?: return@LaunchedEffect
         val id = restoreFocusId ?: return@LaunchedEffect
@@ -819,7 +841,10 @@ private fun HomeTabContent(
                 }
                 else -> 0
             }
-            runCatching { homeListState.scrollToItem(rowOrdinal.coerceAtLeast(0)) }
+            // A centered block is already fully on screen. Scrolling it would undo the inset.
+            if (!centerHome) {
+                runCatching { homeListState.scrollToItem(rowOrdinal.coerceAtLeast(0)) }
+            }
             when (scope) {
                 "cw" -> runCatching { cwRowState.scrollToItem(idx) }
                 "new" -> runCatching { newRowState.scrollToItem(idx) }
@@ -836,20 +861,31 @@ private fun HomeTabContent(
         }
         onRestoreConsumed()
     }
+    val homeTop = HomeShelfFit.centeredTopOffset(
+        maxHeight,
+        homeBlock,
+        HomeShelfFit.classicContentPadTop
+    )
+    val posterBringIntoView = LocalBringIntoViewSpec.current
+    CompositionLocalProvider(
+        LocalBringIntoViewSpec provides if (centerHome) NoVerticalHomeScroll else posterBringIntoView
+    ) {
     LazyColumn(
         state = homeListState,
         modifier = Modifier.fillMaxSize(),
+        userScrollEnabled = !centerHome,
         contentPadding = PaddingValues(
             start = 12.dp,
-            top = HomeShelfFit.classicContentPadTop,
+            top = homeTop,
             end = 12.dp,
-            bottom = HomeShelfFit.classicContentPadBottom
+            bottom = if (centerHome) homeTop else HomeShelfFit.classicContentPadBottom
         ),
         verticalArrangement = Arrangement.spacedBy(HomeShelfFit.classicRowGap)
     ) {
         if (continueWatching.isNotEmpty()) {
             item {
                 HomeShelfLabel("Continue watching")
+                PosterRowBringIntoView(posterBringIntoView) {
                 TvLazyRow(
                     state = cwRowState,
                     horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
@@ -878,11 +914,13 @@ private fun HomeTabContent(
                         )
                     }
                 }
+                }
             }
         }
         if (newlyAdded.isNotEmpty()) {
             item {
                 HomeShelfLabel("Newly added")
+                PosterRowBringIntoView(posterBringIntoView) {
                 TvLazyRow(
                     state = newRowState,
                     horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
@@ -910,11 +948,13 @@ private fun HomeTabContent(
                         )
                     }
                 }
+                }
             }
         }
         if (topPicks.isNotEmpty()) {
             item {
                 HomeShelfLabel("Top picks")
+                PosterRowBringIntoView(posterBringIntoView) {
                 TvLazyRow(
                     state = topRowState,
                     horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
@@ -942,11 +982,13 @@ private fun HomeTabContent(
                         )
                     }
                 }
+                }
             }
         }
         if (favorites.isNotEmpty()) {
             item {
                 HomeShelfLabel("Favorites")
+                PosterRowBringIntoView(posterBringIntoView) {
                 TvLazyRow(
                     state = favRowState,
                     horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
@@ -975,6 +1017,7 @@ private fun HomeTabContent(
                         )
                     }
                 }
+                }
             }
         }
         if (newlyAdded.isEmpty() && topPicks.isEmpty() && continueWatching.isEmpty()) {
@@ -991,6 +1034,8 @@ private fun HomeTabContent(
                 }
             }
         }
+    }
+    }
     }
 }
 

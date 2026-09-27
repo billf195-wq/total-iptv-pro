@@ -70,6 +70,17 @@ object HomeShelfFit {
 
     fun desktopRow(): Dp = desktopRowHeader + desktopPoster()
 
+    /** Three titled rows and the gaps between them, without page padding. */
+    fun desktopHomeBlock(): Dp = desktopRow() * 3 + desktopRowGap * 2
+
+    /**
+     * Desktop Home content column is the full 540 dp window (the side panel
+     * sits beside it). Center that block so the leftover is equal above the
+     * first row and below the third.
+     */
+    fun desktopHomeTopOffset(): Dp =
+        centeredTopOffset(SHIELD_1080P_HEIGHT_DP.dp, desktopHomeBlock(), pageTopOffset)
+
     /** Content column under the removed top bar. The side panel is beside it. */
     fun desktopThreeRows(): Dp =
         desktopContentPadTop + desktopContentPadBottom +
@@ -78,6 +89,30 @@ object HomeShelfFit {
     fun classicPoster(): Dp = classicPosterImage + classicPosterTitle
 
     fun classicRow(): Dp = classicRowHeader + classicPoster()
+
+    /** Area under the classic nav on a 1080p Shield. */
+    fun classicHomeArea(): Dp = SHIELD_1080P_HEIGHT_DP.dp - classicNav
+
+    fun classicHomeBlock(): Dp = classicRow() * 3 + classicRowGap * 2
+
+    /** Gap under the nav when three classic Home rows are centered. */
+    fun classicHomeTopOffset(): Dp =
+        centeredTopOffset(classicHomeArea(), classicHomeBlock(), classicContentPadTop)
+
+    /**
+     * Top inset that centers [block] in [area]. When the block is taller than
+     * the area, Home scrolls and this returns [topWhenTaller] so the first row
+     * starts at the shared page offset.
+     */
+    fun centeredTopOffset(area: Dp, block: Dp, topWhenTaller: Dp): Dp {
+        if (block <= 0.dp || block > area) return topWhenTaller
+        return (area - block) / 2
+    }
+
+    fun homeBlock(row: Dp, gap: Dp, rows: Int): Dp {
+        if (rows <= 0) return 0.dp
+        return row * rows + gap * (rows - 1)
+    }
 
     /** Nav is one short row. The hero banner is not in this stack. */
     fun classicThreeRows(): Dp =
