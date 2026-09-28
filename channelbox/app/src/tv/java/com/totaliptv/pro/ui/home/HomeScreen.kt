@@ -34,6 +34,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -84,6 +85,7 @@ import com.totaliptv.pro.ui.components.FeaturedNowPanel
 import com.totaliptv.pro.ui.components.MovieDetailSheet
 import com.totaliptv.pro.ui.components.LiveChannelCard
 import com.totaliptv.pro.ui.components.PosterCard
+import com.totaliptv.pro.ui.focus.FocusTrace
 import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.home.NoVerticalHomeScroll
 import com.totaliptv.pro.ui.home.PosterRowBringIntoView
@@ -120,6 +122,7 @@ fun HomeScreen(
     onPlayFromStart: (MediaItem) -> Unit = onPlayItem
 ) {
     var hubTab by remember { mutableStateOf(HubTab.Home) }
+    SideEffect { FocusTrace.screen = "classic:${hubTab.name}" }
     var catalogSort by remember { mutableStateOf(CatalogSort.RECENTLY_ADDED) }
     var liveCatCount by remember { mutableIntStateOf(0) }
     var vodCatCount by remember { mutableIntStateOf(0) }

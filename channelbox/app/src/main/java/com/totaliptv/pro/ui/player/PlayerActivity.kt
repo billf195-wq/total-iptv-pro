@@ -55,6 +55,8 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.ui.focus.FocusCrashGuard
+import com.totaliptv.pro.ui.focus.FocusTrace
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.WatchProgress
@@ -497,12 +499,13 @@ class PlayerActivity : ComponentActivity() {
         return false
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean = FocusCrashGuard.guard(this, event) {
+        FocusTrace.screen = "player"
         if (event.action == KeyEvent.ACTION_DOWN) {
             playerView?.showController()
             showOverlayTemporarily()
         }
-        return super.dispatchKeyEvent(event)
+        super.dispatchKeyEvent(event)
     }
 
     private fun showOverlayTemporarily(ms: Long = 4500) {

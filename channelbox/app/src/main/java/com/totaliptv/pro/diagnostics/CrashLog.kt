@@ -57,15 +57,26 @@ object CrashLog {
         writeTo(context.applicationContext.filesDir, thread.name, error, BuildConfig.VERSION_NAME)
     }
 
+    /** Saved like a crash so Settings can show it, without killing the process. */
+    fun recordNonFatal(context: Context, summary: String, error: Throwable) {
+        val body = "Non-fatal: $summary\n" +
+            format("main", error, System.currentTimeMillis(), BuildConfig.VERSION_NAME)
+        writeText(context.applicationContext.filesDir, body)
+    }
+
     fun writeTo(dir: File, threadName: String, error: Throwable, appVersion: String? = null) {
-        dir.mkdirs()
         val text = format(threadName, error, System.currentTimeMillis(), appVersion)
+        writeText(dir, text)
+        DebugLog.appendTo(dir, "Crash", "uncaught on $threadName", error)
+    }
+
+    fun writeText(dir: File, text: String) {
+        dir.mkdirs()
         val out = file(dir)
         FileOutputStream(out).use { stream ->
             stream.write(text.toByteArray(Charsets.UTF_8))
             stream.fd.sync()
         }
-        DebugLog.appendTo(dir, "Crash", "uncaught on $threadName", error)
     }
 
     fun read(context: Context): String = readFrom(context.applicationContext.filesDir)

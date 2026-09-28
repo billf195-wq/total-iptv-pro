@@ -48,6 +48,8 @@ import com.totaliptv.pro.ui.LiveRowKeys
 import com.totaliptv.pro.ui.components.NetworkImage
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.theme.LiveMarker
+import com.totaliptv.pro.ui.focus.FocusTrace
+import com.totaliptv.pro.ui.focus.SafeFocus
 import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.splash.AppBrandName
 import androidx.compose.ui.unit.Dp
@@ -59,13 +61,17 @@ fun TipFocusable(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
+    focusLabel: String? = null,
     content: @Composable (focused: Boolean) -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) FocusTrace.focused = focusLabel ?: "focusable"
+            }
             .clip(RoundedCornerShape(TipDimens.NavCorner))
             .border(
                 width = if (focused) TipDimens.FocusBorder else TipDimens.dp(1),
@@ -101,6 +107,7 @@ fun DesktopPosterCard(
     TipFocusable(
         onClick = onClick,
         modifier = cardMod.focusProperties { this.canFocus = canFocus },
+        focusLabel = "poster:$safeName",
         focusRequester = focusRequester
     ) { focused ->
         Column(
@@ -209,15 +216,20 @@ fun LiveRowItem(
     ) {
         TipFocusable(
             onClick = onClick,
+            focusLabel = "live:${item.name}",
             modifier = Modifier
                 .weight(1f)
                 .then(modifier)
                 .focusRequester(rowFocus)
-                .focusProperties {
-                    if (onRecord != null) right = recFocus
-                    if (upFocus != null) up = upFocus
-                }
                 .onPreviewKeyEvent { e ->
+                    if (e.type == KeyEventType.KeyDown) {
+                        if (e.key == Key.DirectionRight && onRecord != null && SafeFocus.request(recFocus)) {
+                            return@onPreviewKeyEvent true
+                        }
+                        if (e.key == Key.DirectionUp && SafeFocus.request(upFocus)) {
+                            return@onPreviewKeyEvent true
+                        }
+                    }
                     val record = onRecord ?: return@onPreviewKeyEvent false
                     val isOk = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
                     val isMenu = e.key == Key.Menu
@@ -289,9 +301,14 @@ fun LiveRowItem(
         if (onRecord != null) {
             TipFocusable(
                 onClick = onRecord,
+                focusLabel = "live-rec:${item.name}",
                 modifier = Modifier
                     .focusRequester(recFocus)
-                    .focusProperties { left = rowFocus }
+                    .onPreviewKeyEvent { e ->
+                        e.type == KeyEventType.KeyDown &&
+                            e.key == Key.DirectionLeft &&
+                            SafeFocus.request(rowFocus)
+                    }
             ) { recFocused ->
                 Text(
                     if (recordActive) DvrRecordUi.ACTIVE_LABEL else "REC",

@@ -21,6 +21,8 @@ import com.totaliptv.pro.ui.components.DpadSearchField
 import com.totaliptv.pro.ui.home.HomeShelfFit
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import com.totaliptv.pro.ui.focus.FocusTrace
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -73,6 +75,7 @@ fun SearchScreen(
     onBack: () -> Unit,
     onPlayFromStart: (MediaItem) -> Unit = onPlay
 ) {
+    SideEffect { FocusTrace.screen = "search" }
     val catalogRevision by repository.catalogRevision.collectAsState()
     val vodLoading by repository.vodLoading.collectAsState()
     var query by remember { mutableStateOf("") }

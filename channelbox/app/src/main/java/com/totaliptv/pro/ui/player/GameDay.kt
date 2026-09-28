@@ -37,11 +37,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import com.totaliptv.pro.ui.focus.SafeFocus
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -251,7 +256,11 @@ private fun SetupSlots(
                 modifier = Modifier
                     .weight(1f)
                     .focusRequester(leftFocus)
-                    .focusProperties { down = startFocus },
+                    .onPreviewKeyEvent { event ->
+                        event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionDown &&
+                            SafeFocus.request(startFocus)
+                    },
                 onClick = onPickLeft
             )
             SlotCard(
@@ -260,7 +269,11 @@ private fun SetupSlots(
                 modifier = Modifier
                     .weight(1f)
                     .focusRequester(rightFocus)
-                    .focusProperties { down = startFocus },
+                    .onPreviewKeyEvent { event ->
+                        event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionDown &&
+                            SafeFocus.request(startFocus)
+                    },
                 onClick = onPickRight
             )
         }
@@ -277,7 +290,13 @@ private fun SetupSlots(
                 label = "Start",
                 filled = true,
                 enabled = ready,
-                modifier = Modifier.focusRequester(startFocus).focusProperties { up = leftFocus },
+                modifier = Modifier
+                    .focusRequester(startFocus)
+                    .onPreviewKeyEvent { event ->
+                        event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionUp &&
+                            SafeFocus.request(leftFocus)
+                    },
                 onClick = onStart
             )
         }

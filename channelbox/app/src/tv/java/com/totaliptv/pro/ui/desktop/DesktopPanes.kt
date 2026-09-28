@@ -37,6 +37,12 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import com.totaliptv.pro.ui.focus.SafeFocus
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -385,10 +391,17 @@ fun LivePane(
         AmberButton(
             label = "Game Day",
             onClick = { showGameDay = true },
-            modifier = Modifier.focusRequester(gameDayFocus).focusProperties {
-                up = chipFocus
-                if (firstRowFocus != null) down = firstRowFocus
-            }
+            modifier = Modifier
+                .focusRequester(gameDayFocus)
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionUp -> SafeFocus.request(chipFocus)
+                        // firstRowFocus is created before the lazy row item is placed.
+                        Key.DirectionDown -> SafeFocus.request(firstRowFocus)
+                        else -> false
+                    }
+                }
         )
         Spacer(Modifier.height(TipDimens.dp(8)))
         Text("${filtered.size} channels", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
@@ -1113,9 +1126,16 @@ fun FilterBar(
                     onClick = { onCategory(null) },
                     modifier = Modifier
                         .focusRequester(chips)
-                        .focusProperties {
-                            if (showSearch) up = searchFocus
-                            if (belowFocus != null) down = belowFocus
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                // Geometric search is the fallback. Never point focusProperties
+                                // at these requesters: the search field is swapped while editing,
+                                // and a lazy row below may not be composed yet.
+                                Key.DirectionUp -> showSearch && SafeFocus.request(searchFocus)
+                                Key.DirectionDown -> SafeFocus.request(belowFocus)
+                                else -> false
+                            }
                         }
                 )
             }

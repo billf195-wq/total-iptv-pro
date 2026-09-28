@@ -62,6 +62,7 @@ import com.totaliptv.pro.ui.theme.LocalTipColors
 import com.totaliptv.pro.ui.theme.FocusBorder
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
+import com.totaliptv.pro.ui.focus.FocusTrace
 import com.totaliptv.pro.util.YoutubePreview
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -95,6 +96,10 @@ fun MovieDetailSheet(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val playFocus = remember { FocusRequester() }
+    DisposableEffect(item.id) {
+        FocusTrace.focused = "detail:${item.name}"
+        onDispose { }
+    }
     var resolvingPreview by remember { mutableStateOf(false) }
     var enriched by remember(item.id) { mutableStateOf(item) }
     var progress by remember(item.id) { mutableStateOf(watchProgress) }

@@ -50,6 +50,8 @@ import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem as CatalogItem
 import com.totaliptv.pro.diagnostics.DebugLog
+import com.totaliptv.pro.ui.focus.FocusCrashGuard
+import com.totaliptv.pro.ui.focus.FocusTrace
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -173,7 +175,12 @@ class SplitPlayerActivity : ComponentActivity() {
         }
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean = FocusCrashGuard.guard(this, event) {
+        FocusTrace.screen = "split-player"
+        dispatchSplitKey(event)
+    }
+
+    private fun dispatchSplitKey(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) {
             return super.dispatchKeyEvent(event)
         }

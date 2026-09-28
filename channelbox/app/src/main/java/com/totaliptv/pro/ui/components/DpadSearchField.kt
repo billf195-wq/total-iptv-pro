@@ -29,7 +29,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -48,6 +47,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
+import com.totaliptv.pro.ui.focus.FocusTrace
+import com.totaliptv.pro.ui.focus.SafeFocus
 import com.totaliptv.pro.ui.home.HomeShelfFit
 
 /**
@@ -162,13 +163,20 @@ fun DpadSearchField(
                 .fillMaxWidth()
                 .height(HomeShelfFit.searchFieldHeight)
                 .focusRequester(idleFocus)
-                .onFocusChanged { idleFocused = it.isFocused }
-                .focusProperties {
-                    if (downFocus != null) down = downFocus
+                .onFocusChanged {
+                    idleFocused = it.isFocused
+                    if (it.isFocused) FocusTrace.focused = "search-idle"
                 }
                 .background(backgroundColor, shape)
                 .border(2.dp, borderColor, shape)
                 .onPreviewKeyEvent { event ->
+                    if (
+                        event.type == KeyEventType.KeyDown &&
+                        event.key == Key.DirectionDown &&
+                        SafeFocus.request(downFocus)
+                    ) {
+                        return@onPreviewKeyEvent true
+                    }
                     when (event.key) {
                         Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
                             // Key-up, so LatinIME does not treat the OK that opened
@@ -218,8 +226,8 @@ fun DpadSearchField(
                 .fillMaxWidth()
                 .height(HomeShelfFit.searchFieldHeight)
                 .focusRequester(editFocus)
-                .focusProperties {
-                    if (downFocus != null) down = downFocus
+                .onFocusChanged {
+                    if (it.isFocused) FocusTrace.focused = "search-editing"
                 }
                 .background(backgroundColor, shape)
                 .border(2.dp, focusedBorderColor, shape)

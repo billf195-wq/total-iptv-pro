@@ -19,6 +19,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.data.model.ContentKind
+import com.totaliptv.pro.ui.focus.FocusTrace
 import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
@@ -85,6 +87,7 @@ fun DesktopAppRoot(
         var error by remember { mutableStateOf<String?>(null) }
         var showOnboarding by remember { mutableStateOf(false) }
         var section by remember { mutableStateOf(DesktopNavSection.HOME) }
+        SideEffect { FocusTrace.screen = "desktop:${section.name}" }
         var exitArmedAt by remember { mutableLongStateOf(0L) }
         var search by remember { mutableStateOf("") }
         var categoryId by remember { mutableStateOf<String?>(null) }

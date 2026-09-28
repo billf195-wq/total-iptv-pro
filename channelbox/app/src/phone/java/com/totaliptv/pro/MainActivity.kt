@@ -3,6 +3,8 @@ package com.totaliptv.pro
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.view.KeyEvent
+import com.totaliptv.pro.ui.focus.FocusCrashGuard
 import com.totaliptv.pro.util.SensitiveText
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -59,6 +61,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        FocusCrashGuard.guard(this, event) { super.dispatchKeyEvent(event) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as TotalIptvProApp
