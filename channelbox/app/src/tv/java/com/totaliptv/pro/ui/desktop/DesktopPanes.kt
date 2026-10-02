@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -340,6 +341,22 @@ fun LivePane(
     val rowFocuses = remember { mutableMapOf<String, FocusRequester>() }
     fun rowFocus(id: String): FocusRequester = rowFocuses.getOrPut(id) { FocusRequester() }
     val firstRowFocus = filtered.firstOrNull()?.let { rowFocus(it.id) }
+    val liveFocusScope = rememberCoroutineScope()
+    var listHasFocus by remember { mutableStateOf(false) }
+    // Search Down lands on the first channel. Retries until a row really holds focus.
+    fun focusFirstRow(): Boolean {
+        val first = filtered.firstOrNull() ?: return false
+        liveFocusScope.launch {
+            for (attempt in 0 until 12) {
+                if (attempt == 1) runCatching { liveListState.scrollToItem(0) }
+                kotlinx.coroutines.delay(if (attempt == 0) 16L else 50L)
+                SafeFocus.request(rowFocus(first.id))
+                kotlinx.coroutines.yield()
+                if (listHasFocus) break
+            }
+        }
+        return true
+    }
     LaunchedEffect(showGameDay) {
         if (!showGameDay) runCatching { gameDayFocus.requestFocus() }
     }
@@ -384,7 +401,8 @@ fun LivePane(
             sort = null,
             onSort = null,
             chipFocus = chipFocus,
-            belowFocus = gameDayFocus
+            belowFocus = gameDayFocus,
+            onDownToResults = { focusFirstRow() }
         )
         // Directly above the channel list, so Up from the top channel lands here
         // and does not have to cross the search field.
@@ -409,7 +427,10 @@ fun LivePane(
         LazyColumn(
             state = liveListState,
             verticalArrangement = Arrangement.spacedBy(TipDimens.dp(6)),
-            modifier = Modifier.weight(1f).fillMaxWidth()
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .onFocusChanged { listHasFocus = it.hasFocus }
         ) {
             itemsIndexed(filtered, key = { _, it -> it.id }) { index, item ->
                 LiveRowItem(
@@ -539,6 +560,24 @@ fun BrowseGridPane(
         }
         onRestoreConsumed()
     }
+    val gridFocusScope = rememberCoroutineScope()
+    var gridHasFocus by remember { mutableStateOf(false) }
+    // Search field / sort chips Down lands on the first poster. The posters only become
+    // focusable one recomposition after the field leaves edit mode, so retry until one
+    // really holds focus (requestFocus can silently no-op before that).
+    fun focusFirstPoster(): Boolean {
+        val first = filtered.firstOrNull() ?: return false
+        gridFocusScope.launch {
+            for (attempt in 0 until 12) {
+                if (attempt == 1) runCatching { gridState.scrollToItem(0) }
+                delay(if (attempt == 0) 16L else 50L)
+                SafeFocus.request(posterFocus(gridScope, first.id))
+                kotlinx.coroutines.yield()
+                if (gridHasFocus) break
+            }
+        }
+        return true
+    }
     var didInitialGridFocus by remember { mutableStateOf(false) }
     LaunchedEffect(filtered.firstOrNull()?.id) {
         if (didInitialGridFocus || pendingFocusRestore || editingSearch) return@LaunchedEffect
@@ -561,7 +600,8 @@ fun BrowseGridPane(
             onCategory = onCategory,
             sort = sort,
             onSort = onSort,
-            onEditingChange = { editingSearch = it }
+            onEditingChange = { editingSearch = it },
+            onDownToResults = { focusFirstPoster() }
         )
         Text("${filtered.size} titles", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
         Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
@@ -574,7 +614,7 @@ fun BrowseGridPane(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .focusProperties { canFocus = SearchTyping.resultsMayTakeFocus(editingSearch) }
+                .onFocusChanged { gridHasFocus = it.hasFocus }
         ) {
             gridItemsIndexed(filtered, key = { _, it -> it.id }) { index, item ->
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
@@ -1095,7 +1135,8 @@ fun FilterBar(
     showSearch: Boolean = true,
     chipFocus: FocusRequester? = null,
     belowFocus: FocusRequester? = null,
-    onEditingChange: (Boolean) -> Unit = {}
+    onEditingChange: (Boolean) -> Unit = {},
+    onDownToResults: (() -> Boolean)? = null
 ) {
     val searchFocus = remember { FocusRequester() }
     val internalChipFocus = remember { FocusRequester() }
@@ -1114,7 +1155,8 @@ fun FilterBar(
                 shape = RoundedCornerShape(HomeShelfFit.searchFieldCorner),
                 focusRequester = searchFocus,
                 downFocus = chips,
-                onEditingChange = onEditingChange
+                onEditingChange = onEditingChange,
+                onDownToResults = onDownToResults
             )
             Spacer(Modifier.height(TipDimens.dp(8)))
         }
@@ -1133,7 +1175,8 @@ fun FilterBar(
                                 // at these requesters: the search field is swapped while editing,
                                 // and a lazy row below may not be composed yet.
                                 Key.DirectionUp -> showSearch && SafeFocus.request(searchFocus)
-                                Key.DirectionDown -> SafeFocus.request(belowFocus)
+                                Key.DirectionDown -> SafeFocus.request(belowFocus) ||
+                                    (sort == null && onDownToResults?.invoke() == true)
                                 else -> false
                             }
                         }
@@ -1147,7 +1190,16 @@ fun FilterBar(
             Spacer(Modifier.height(TipDimens.dp(12)))
             Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
                 listOf("AZ" to "A–Z", "ZA" to "Z–A", "RECENT" to "Most recent").forEach { (key, label) ->
-                    Chip(label, selected = sort == key, onClick = { onSort(key) })
+                    Chip(
+                        label,
+                        selected = sort == key,
+                        onClick = { onSort(key) },
+                        modifier = Modifier.onPreviewKeyEvent { e ->
+                            e.type == KeyEventType.KeyDown &&
+                                e.key == Key.DirectionDown &&
+                                onDownToResults?.invoke() == true
+                        }
+                    )
                 }
             }
         }

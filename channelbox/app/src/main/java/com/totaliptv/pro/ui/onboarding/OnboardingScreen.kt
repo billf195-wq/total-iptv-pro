@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import com.totaliptv.pro.data.local.SavedLoginStore
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.Dispatchers
@@ -107,6 +108,14 @@ fun OnboardingScreen(
             val user = field("Username")
             val pass = field("Password", password = true)
             val m3u = field("Or M3U URL (optional if using Xtream)")
+            // Last sign-in on this device stays filled in after sign-out or a failed try,
+            // until the user taps Forget. Never logged.
+            val savedLogins = SavedLoginStore(context)
+            savedLogins.load()?.let { saved ->
+                base.setText(saved.baseUrl)
+                if (saved.username.isNotBlank()) user.setText(saved.username)
+                if (saved.password.isNotBlank()) pass.setText(saved.password)
+            }
 
             fun makeButton(text: String, bg: String) = Button(context).apply {
                 this.text = text
@@ -124,6 +133,15 @@ fun OnboardingScreen(
 
             val saveXtream = makeButton("Save Xtream & continue", "#00897B")
             val saveM3u = makeButton("Save M3U & continue", "#1565C0")
+            val forgetLogin = makeButton("Forget saved sign-in", "#37474F")
+            forgetLogin.setOnClickListener {
+                savedLogins.clear()
+                base.setText("")
+                user.setText("")
+                pass.setText("")
+                status.setTextColor(AndroidColor.parseColor("#80CBC4"))
+                status.text = "Saved sign-in deleted from this device."
+            }
 
             fun normalizeBase(raw: String): String {
                 val t = raw.trim().trimEnd('/')
@@ -148,6 +166,8 @@ fun OnboardingScreen(
                 saveM3u.isEnabled = false
                 status.setTextColor(AndroidColor.parseColor("#80CBC4"))
                 status.text = "Saving Xtream…"
+                // Keep the server and username even if this try fails. Password only after success.
+                savedLogins.save(b, u, null)
                 scope.launch {
                     try {
                         withContext(Dispatchers.IO) {
@@ -158,6 +178,7 @@ fun OnboardingScreen(
                             withContext(Dispatchers.IO) {
                                 repository.ensureCatalogLoaded(force = true)
                             }
+                            savedLogins.save(b, u, p)
                         } catch (load: Throwable) {
                             Log.e(TAG, "catalog load failed: ${SensitiveText.redact(load.message)}")
                             status.setTextColor(AndroidColor.parseColor("#FFCC80"))
@@ -224,6 +245,7 @@ fun OnboardingScreen(
             column.addView(label("Password"))
             column.addView(pass)
             column.addView(saveXtream)
+            column.addView(forgetLogin)
             column.addView(label("Or use M3U instead"))
             column.addView(m3u)
             column.addView(saveM3u)

@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import com.totaliptv.pro.ui.focus.FocusTrace
+import com.totaliptv.pro.ui.focus.SafeFocus
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -115,6 +116,7 @@ fun SearchScreen(
     // Results must NOT steal focus while typing. Only enable after explicit Down/Enter/IME Search.
     var resultsNavigable by remember { mutableStateOf(false) }
     var pendingMoveToResults by remember { mutableStateOf(false) }
+    var resultsHaveFocus by remember { mutableStateOf(false) }
 
     // Land on Close, not the search field, so the keyboard stays closed on entry.
     LaunchedEffect(Unit) {
@@ -164,10 +166,15 @@ fun SearchScreen(
     // Explicit navigation only: after Down/Enter enables resultsNavigable, move focus once.
     LaunchedEffect(pendingMoveToResults, resultsNavigable, displayedResults) {
         if (!pendingMoveToResults || !resultsNavigable || displayedResults.isEmpty()) return@LaunchedEffect
-        delay(32) // let canFocus=true apply before requestFocus
-        if (runCatching { firstResultFocus.requestFocus() }.isSuccess) {
-            pendingMoveToResults = false
+        // Rows become focusable one recomposition after resultsNavigable flips, and
+        // requestFocus can silently no-op before that. Retry until a row holds focus.
+        for (attempt in 0 until 12) {
+            delay(if (attempt == 0) 32L else 50L)
+            SafeFocus.request(firstResultFocus)
+            kotlinx.coroutines.yield()
+            if (resultsHaveFocus) break
         }
+        pendingMoveToResults = false
     }
 
     fun goToResults(): Boolean {
@@ -225,7 +232,8 @@ fun SearchScreen(
             focusedBorderColor = FocusBorder,
             idleBorderColor = Hairline,
             shape = RoundedCornerShape(HomeShelfFit.searchFieldCorner),
-            downFocus = if (displayedResults.isNotEmpty()) firstResultFocus else null,
+            downFocus = null,
+            onDownToResults = { goToResults() },
             onEditingChange = { fieldFocused = it },
             onExitEdit = { toNext ->
                 if (toNext) goToResults() else false
@@ -336,8 +344,9 @@ fun SearchScreen(
                         contentPadding = PaddingValues(bottom = 28.dp),
                         modifier = Modifier
                             .fillMaxSize()
-                            // Block accidental focus entry until user presses Down.
-                            .focusProperties { canFocus = resultsNavigable }
+                            // Rows block focus until the user presses Down. The list itself is
+                            // never a focus target, or focus can vanish into it.
+                            .onFocusChanged { resultsHaveFocus = it.hasFocus }
                     ) {
                         itemsIndexed(displayedResults, key = { _, item -> item.id }) { index, item ->
                             val kindLabel = repository.searchKindLabel(item)

@@ -92,7 +92,12 @@ fun DpadSearchField(
     focusRequester: FocusRequester? = null,
     downFocus: FocusRequester? = null,
     onEditingChange: (Boolean) -> Unit = {},
-    onExitEdit: (toNext: Boolean) -> Boolean = { false }
+    onExitEdit: (toNext: Boolean) -> Boolean = { false },
+    /**
+     * Down from the field (idle, or leaving the keyboard) lands on the first result.
+     * Return true when the caller took over focus. Falls back to [downFocus].
+     */
+    onDownToResults: (() -> Boolean)? = null
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
     val view = LocalView.current
@@ -145,6 +150,9 @@ fun DpadSearchField(
         exitToNext = null
         val moved = runCatching { onExitEdit(toNext) }.getOrDefault(false)
         if (moved) return@LaunchedEffect
+        if (toNext && runCatching { onDownToResults?.invoke() == true }.getOrDefault(false)) {
+            return@LaunchedEffect
+        }
         if (toNext && downFocus != null) {
             runCatching { downFocus.requestFocus() }
         } else {
@@ -173,7 +181,7 @@ fun DpadSearchField(
                     if (
                         event.type == KeyEventType.KeyDown &&
                         event.key == Key.DirectionDown &&
-                        SafeFocus.request(downFocus)
+                        (onDownToResults?.invoke() == true || SafeFocus.request(downFocus))
                     ) {
                         return@onPreviewKeyEvent true
                     }
