@@ -63,7 +63,9 @@ import com.totaliptv.pro.data.model.ContentKind
 @OptIn(ExperimentalTvMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean =
-        FocusCrashGuard.guard(this, event) { super.dispatchKeyEvent(event) }
+        // While the playlist-refresh splash is up, keys must not move hidden focus.
+        if (com.totaliptv.pro.data.repo.ManualRefresh.overlayVisible) true
+        else FocusCrashGuard.guard(this, event) { super.dispatchKeyEvent(event) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -169,6 +171,7 @@ class MainActivity : ComponentActivity() {
                 return@setContent
             }
 
+            Box(modifier = Modifier.fillMaxSize()) {
             if (boundLayout == AppLayoutMode.DESKTOP) {
                 DesktopAppRoot(
                     repository = app.repository,
@@ -185,6 +188,8 @@ class MainActivity : ComponentActivity() {
                         onPlayFavorite = playFav
                     )
                 }
+            }
+            com.totaliptv.pro.ui.splash.RefreshSplashOverlay()
             }
         }
     }
@@ -295,6 +300,11 @@ private fun AppRoot(
 ) {
     val sources by repository.sources.collectAsState(initial = emptyList())
     var screen by remember { mutableStateOf<Screen?>(null) }
+    val refreshHomeStart = remember { com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.value }
+    val refreshHomeReq by com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.collectAsState()
+    LaunchedEffect(refreshHomeReq) {
+        if (refreshHomeReq > refreshHomeStart) screen = Screen.Home
+    }
     var prefsReady by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {

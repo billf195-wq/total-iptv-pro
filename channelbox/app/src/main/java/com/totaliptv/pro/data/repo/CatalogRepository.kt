@@ -179,6 +179,17 @@ class CatalogRepository(
      * or turn a live-only success into a hard error.
      */
     suspend fun ensureCatalogLoaded(force: Boolean = false): Pair<List<Category>, List<MediaItem>> {
+        if (!force) return ensureCatalogLoadedInner(false)
+        // Manual reload: the app shows the startup logo splash until this returns.
+        ManualRefresh.begin()
+        try {
+            return ensureCatalogLoadedInner(true)
+        } finally {
+            ManualRefresh.end()
+        }
+    }
+
+    private suspend fun ensureCatalogLoadedInner(force: Boolean): Pair<List<Category>, List<MediaItem>> {
         var scheduleVod: (() -> Unit)? = null
 
         val result = loadMutex.withLock {

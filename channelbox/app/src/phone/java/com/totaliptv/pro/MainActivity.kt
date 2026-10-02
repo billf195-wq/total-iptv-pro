@@ -62,7 +62,9 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean =
-        FocusCrashGuard.guard(this, event) { super.dispatchKeyEvent(event) }
+        // While the playlist-refresh splash is up, keys must not move hidden focus.
+        if (com.totaliptv.pro.data.repo.ManualRefresh.overlayVisible) true
+        else FocusCrashGuard.guard(this, event) { super.dispatchKeyEvent(event) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,11 +73,14 @@ class MainActivity : ComponentActivity() {
             val appearance by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
             val accent by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
             TotalIptvProTheme(appearance = appearance, accent = accent) {
+                androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
                 PhoneAppRoot(
                     repository = app.repository,
                     onPlay = { item -> playResolved(app.repository, item, startOver = false) },
                     onPlayFromStart = { item -> playResolved(app.repository, item, startOver = true) }
                 )
+                com.totaliptv.pro.ui.splash.RefreshSplashOverlay()
+                }
             }
         }
     }
@@ -181,6 +186,14 @@ private fun PhoneAppRoot(
     var showOnboarding by remember { mutableStateOf(false) }
     var tab by remember { mutableStateOf(PhoneTab.Home) }
     var splashDone by remember { mutableStateOf(StartupSplashGate.shownThisProcess) }
+    val refreshHomeStart = remember { com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.value }
+    val refreshHomeReq by com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.collectAsState()
+    LaunchedEffect(refreshHomeReq) {
+        if (refreshHomeReq > refreshHomeStart) {
+            showOnboarding = false
+            tab = PhoneTab.Home
+        }
+    }
 
     LaunchedEffect(Unit) {
         repository.sources.first()

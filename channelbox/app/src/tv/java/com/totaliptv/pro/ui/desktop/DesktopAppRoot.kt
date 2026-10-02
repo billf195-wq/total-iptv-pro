@@ -105,6 +105,16 @@ fun DesktopAppRoot(
         var favorites by remember { mutableStateOf<List<FavoriteRef>>(emptyList()) }
         val scope = rememberCoroutineScope()
         val favoriteIds = remember(favorites) { favorites.map { it.id }.toSet() }
+        val refreshHomeStart = remember { com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.value }
+        val refreshHomeReq by com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.collectAsState()
+        LaunchedEffect(refreshHomeReq) {
+            if (refreshHomeReq > refreshHomeStart) {
+                // Playlist refresh splash finished: land on Home.
+                showOnboarding = false
+                detailItem = null
+                section = DesktopNavSection.HOME
+            }
+        }
 
         fun snapshotMovies() = runCatching { repository.itemsByKind(ContentKind.VOD) }.getOrDefault(emptyList())
         fun snapshotSeries() = runCatching { repository.itemsByKind(ContentKind.SERIES) }.getOrDefault(emptyList())
