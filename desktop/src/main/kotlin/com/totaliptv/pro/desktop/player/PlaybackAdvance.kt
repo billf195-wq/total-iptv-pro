@@ -11,32 +11,52 @@ import com.totaliptv.pro.desktop.data.SeriesPlayback
  */
 object PlaybackAdvance {
     const val MIN_NATURAL_PLAY_MS: Long = 20_000L
+    /** Closing VLC with q, Esc, or the window is a stop unless playback was this close to the end. */
+    const val NEAR_END_MS: Long = 90_000L
 
     const val REASON_AUTO_ADVANCE: String = "auto-advance"
     const val REASON_SKIPPED_SHORT_PLAY: String = "auto-advance-skipped-short-play"
     const val REASON_SKIPPED_EXIT_CODE: String = "auto-advance-skipped-exit-code"
     const val REASON_SKIPPED_LIVE: String = "auto-advance-skipped-live"
+    const val REASON_USER_STOP: String = "user-stop"
     const val REASON_SAME_URL: String = "auto-advance-same-url"
     const val REASON_SKIP_SAME_URL: String = "skip-same-url"
     const val REASON_NO_NEXT: String = "auto-advance-no-next"
+
+    fun nearEnd(positionMs: Long?, lengthMs: Long?, slackMs: Long = NEAR_END_MS): Boolean {
+        if (positionMs == null || lengthMs == null || lengthMs <= 0L || positionMs < 0L) return false
+        return lengthMs - positionMs <= slackMs
+    }
 
     fun shouldAutoAdvance(
         durationMs: Long,
         userRequestedNext: Boolean = false,
         exitCode: Int? = 0,
-        live: Boolean = false
+        live: Boolean = false,
+        positionMs: Long? = null,
+        lengthMs: Long? = null,
+        reachedEof: Boolean = false
     ): Boolean {
         if (userRequestedNext) return true
         if (live) return false
         if (exitCode != null && exitCode != 0) return false
-        return durationMs >= MIN_NATURAL_PLAY_MS
+        if (durationMs < MIN_NATURAL_PLAY_MS) return false
+        return reachedEof || nearEnd(positionMs, lengthMs)
     }
 
-    fun skipReason(durationMs: Long, exitCode: Int?, live: Boolean = false): String {
+    fun skipReason(
+        durationMs: Long,
+        exitCode: Int?,
+        live: Boolean = false,
+        positionMs: Long? = null,
+        lengthMs: Long? = null,
+        reachedEof: Boolean = false
+    ): String {
         if (live) return REASON_SKIPPED_LIVE
         if (exitCode != null && exitCode != 0) return REASON_SKIPPED_EXIT_CODE
         if (durationMs < MIN_NATURAL_PLAY_MS) return REASON_SKIPPED_SHORT_PLAY
-        return REASON_AUTO_ADVANCE
+        if (reachedEof || nearEnd(positionMs, lengthMs)) return REASON_AUTO_ADVANCE
+        return REASON_USER_STOP
     }
 
     /** True when next would relaunch the same episode id or stream URL. */

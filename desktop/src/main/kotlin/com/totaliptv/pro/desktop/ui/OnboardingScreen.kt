@@ -1,6 +1,5 @@
 package com.totaliptv.pro.desktop.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,7 +30,7 @@ fun OnboardingScreen(
     var showPass by remember { mutableStateOf(false) }
 
     Box(
-        Modifier.fillMaxSize().background(TipBg),
+        Modifier.fillMaxSize().tvContentBackground(),
         contentAlignment = Alignment.Center
     ) {
         Column(

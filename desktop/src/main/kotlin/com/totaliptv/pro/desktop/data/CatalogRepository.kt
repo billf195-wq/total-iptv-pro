@@ -113,7 +113,7 @@ class CatalogRepository(
      * M3U listings come from the playlist's XMLTV url, keyed by tvg-id text.
      * Shared xmltv ids are corrected in [LiveEpgBinding].
      */
-    fun loadChannelEpg(prefs: SavedPrefs, streamId: Int, limit: Int = 12): ChannelEpg =
+    fun loadChannelEpg(prefs: SavedPrefs, streamId: Int, limit: Int = GuideSpan.INITIAL_LISTING_LIMIT): ChannelEpg =
         loadChannelEpg(prefs, streamId, epgChannelId = null, channelName = null, limit = limit)
 
     /**
@@ -125,22 +125,22 @@ class CatalogRepository(
         streamId: Int,
         epgChannelId: String?,
         channelName: String?,
-        limit: Int = 12
+        limit: Int = GuideSpan.INITIAL_LISTING_LIMIT
     ): ChannelEpg {
+        val now = GuideTime.nowMs()
         val base = if (prefs.sourceType != SourceType.XTREAM.name) {
             ensureXmltvLoaded()
-            val programs = xmltvPrograms(epgChannelId, channelName).take(limit)
+            val programs = GuideSpan.withinHorizon(xmltvPrograms(epgChannelId, channelName), now)
             ChannelEpg(streamId = streamId, programs = programs)
         } else {
             try {
-                xtreamApi.loadShortEpg(
-                    prefs.xtreamBaseUrl, prefs.xtreamUsername, prefs.xtreamPassword, streamId, limit
-                )
+                xtreamListings(prefs, streamId, limit, now)
             } catch (_: Throwable) {
                 try {
-                    xtreamApi.loadSimpleEpgTable(
+                    val table = xtreamApi.loadSimpleEpgTable(
                         prefs.xtreamBaseUrl, prefs.xtreamUsername, prefs.xtreamPassword, streamId
                     )
+                    table.copy(programs = GuideSpan.withinHorizon(table.programs, now))
                 } catch (_: Throwable) {
                     ChannelEpg(streamId = streamId, programs = emptyList())
                 }
@@ -149,7 +149,34 @@ class CatalogRepository(
         return EpgUserOffset.apply(base, prefs.epgTimeOffsetHours)
     }
 
-    fun loadChannelEpg(prefs: SavedPrefs, item: MediaItem, limit: Int = 12): ChannelEpg {
+    /**
+     * First paint asks [get_short_epg] for about 12 hours. A wider screen or a
+     * scroll into the next day asks for about 24 hours, and falls through to
+     * the full table only when the short list still ends early.
+     */
+    private fun xtreamListings(prefs: SavedPrefs, streamId: Int, limit: Int, now: Long): ChannelEpg {
+        val short = xtreamApi.loadShortEpg(
+            prefs.xtreamBaseUrl, prefs.xtreamUsername, prefs.xtreamPassword, streamId, limit
+        )
+        val wantUntil = now + if (limit >= GuideSpan.EXTENDED_LISTING_LIMIT) {
+            GuideSpan.MAX_AHEAD_MS - 3_600_000L
+        } else {
+            GuideSpan.MIN_AHEAD_MS - 3_600_000L
+        }
+        val chosen = if (GuideSpan.epgReaches(short.programs, wantUntil) || limit < GuideSpan.EXTENDED_LISTING_LIMIT) {
+            short.programs
+        } else {
+            val table = runCatching {
+                xtreamApi.loadSimpleEpgTable(
+                    prefs.xtreamBaseUrl, prefs.xtreamUsername, prefs.xtreamPassword, streamId
+                )
+            }.getOrNull()
+            GuideSpan.preferLonger(short.programs, table?.programs)
+        }
+        return ChannelEpg(streamId = streamId, programs = GuideSpan.withinHorizon(chosen, now))
+    }
+
+    fun loadChannelEpg(prefs: SavedPrefs, item: MediaItem, limit: Int = GuideSpan.INITIAL_LISTING_LIMIT): ChannelEpg {
         val sid = item.xtreamStreamId ?: GuideKeys.of(item) ?: item.id.hashCode()
         return loadChannelEpg(prefs, sid, item.epgChannelId, item.name, limit)
     }

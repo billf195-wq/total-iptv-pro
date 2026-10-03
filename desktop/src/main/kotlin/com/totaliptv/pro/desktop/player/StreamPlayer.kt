@@ -63,6 +63,42 @@ object StreamPlayer {
         "--qt-continue=0",
         "--no-qt-privacy-ask"
     )
+
+    /**
+     * Windows movie/series fullscreen. Qt stays the interface so
+     * `--qt-fullscreen-screennumber` can follow the app's monitor, but the
+     * title, decorations, minimal-view chrome, and fullscreen controller stay
+     * off. No crop, aspect override, or `--no-embedded-video` (that opens a
+     * second window). Default autoscale letterboxes in black.
+     */
+    internal val VLC_WINDOWS_TRUE_FULLSCREEN: List<String> = listOf(
+        "--no-video-title-show",
+        "--no-qt-fs-controller",
+        "--no-video-deco",
+        "--qt-minimal-view",
+        "--no-qt-system-tray",
+        "--no-qt-video-autoresize"
+    )
+
+    /**
+     * Linux movie, series, and live fullscreen. The X11 placer still moves the
+     * window onto the app's monitor before VLC is fullscreen (GNOME will not
+     * move a window that is already fullscreen on another output). These flags
+     * hide the title and the fullscreen controller once `fullscreen on` is sent
+     * over RC. Not used for Game Day: that path is `--intf=dummy` and has no Qt chrome.
+     */
+    internal val VLC_LINUX_TRUE_FULLSCREEN: List<String> = listOf(
+        "--no-video-title-show",
+        "--no-qt-fs-controller",
+        "--qt-minimal-view"
+    )
+
+    /** VLC RC: force fullscreen. `fullscreen` alone toggles; `on` stays on. */
+    internal const val LINUX_VLC_FULLSCREEN_RC = "fullscreen on"
+
+    /** Omit when the monitor index is unknown so VLC uses the screen it opens on. */
+    internal fun qtFullscreenScreenArg(screen: Int): String? =
+        if (screen >= 0) "--qt-fullscreen-screennumber=$screen" else null
     /** mpv language preference order when multiple audio tracks exist. */
     internal const val MPV_AUDIO_LANGUAGE = "--alang=eng,en,english"
     /** Brief pause after taskkill so Windows releases VLC's one-instance mutex. */
@@ -85,6 +121,18 @@ object StreamPlayer {
     @Volatile
     var lastPlaybackDurationMs: Long = 0L
         private set
+    /** Last VLC `get_time`, milliseconds. Zero until a sample arrives. */
+    @Volatile
+    var lastPositionMs: Long = 0L
+        private set
+    /** Last VLC `get_length`, milliseconds. Zero until a sample arrives. */
+    @Volatile
+    var lastLengthMs: Long = 0L
+        private set
+    /** True once RC status reported `( state ended )`. */
+    @Volatile
+    var lastReachedEof: Boolean = false
+        private set
 
     @Volatile
     var splitSession: SplitSession? = null
@@ -93,7 +141,7 @@ object StreamPlayer {
     @Volatile
     private var progressJob: Job? = null
 
-    private const val PROGRESS_RC_PORT = 4214
+    internal const val PROGRESS_RC_PORT = 4214
 
     /** Windows Quit: kill every player image we launch, not only the last binary. */
     internal val WINDOWS_QUIT_IMAGES: List<String> = listOf("vlc.exe", "mpv.exe", "ffplay.exe")
@@ -133,7 +181,25 @@ object StreamPlayer {
         stopProcessOnly()
         val treatLive = live || isLiveStreamUrl(clean.first())
         val resumeAt = if (treatLive) null else startPositionSeconds
-        val resolved = resolvePlayerCommand(clean, preferredPlayer, treatLive, resumeAt, fullscreen)
+        val x11Fullscreen = useX11MonitorFullscreen(
+            AppPaths.isWindows,
+            fullscreen,
+            !System.getenv("DISPLAY").isNullOrBlank()
+        )
+        val win32Fullscreen = useWin32MonitorFullscreen(AppPaths.isWindows, fullscreen)
+        val fullscreenScreen = if (fullscreen) {
+            WindowPositioner.qtFullscreenScreenNumber()
+        } else {
+            -1
+        }
+        val resolved = resolvePlayerCommand(
+            clean,
+            preferredPlayer,
+            treatLive,
+            resumeAt,
+            fullscreen,
+            fullscreenScreen
+        )
             ?: error(
                 if (AppPaths.isWindows) {
                     "No media player found. Install VLC (recommended), or add mpv/ffplay to PATH."
@@ -143,26 +209,55 @@ object StreamPlayer {
             )
         lastLaunchWasPlaylist = resolved.playlist
         lastBinary = resolved.command.first()
+        val launchCommand = vlcCommandForMonitorFullscreen(resolved.command, x11Fullscreen || win32Fullscreen)
         if (AppPaths.isWindows) {
             killWindowsPlayerTree(resolved.command.first())
         }
         markLaunch()
-        val proc = ProcessBuilder(resolved.command)
+        val proc = ProcessBuilder(launchCommand)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .start()
         current = proc
+        if (x11Fullscreen && scope != null && launchCommand.none { it == "--fullscreen" }) {
+            val monitor = WindowPositioner.linuxPlaybackMonitor()
+            val rcPort = linuxRcPort(launchCommand)
+            LinuxX11WindowPlacer.fullscreenOnMonitorAsync(
+                scope,
+                proc,
+                proc.pid(),
+                monitor,
+                onCoveringMonitor = {
+                    if (rcPort != null) enterLinuxVlcFullscreen(scope, proc, rcPort)
+                }
+            )
+        }
+        // Win32 snap is not used for single play: it fights VLC fullscreen and
+        // leaves a bordered window over the taskbar. Game Day still snaps.
+        if (win32Fullscreen && scope != null && launchCommand.none { it == "--fullscreen" }) {
+            WindowPositioner.fullscreenOnAppMonitorAsync(scope, proc, proc.pid())
+        }
+        armWindowsPlaybackMenu(launchCommand, proc, fullscreen)
         if (onProgress != null && scope != null && !treatLive && resolved.command.first().contains("vlc", ignoreCase = true)) {
             progressJob = scope.launch(Dispatchers.IO) {
                 delay(2000)
                 while (proc.isAlive) {
                     val prog = VlcControl.queryProgress(PROGRESS_RC_PORT)
-                    if (prog != null && prog.totalLengthSeconds > 0) {
-                        onProgress(
-                            prog.currentTimeSeconds * 1000L,
-                            prog.totalLengthSeconds * 1000L,
-                            prog.percent
+                    if (prog != null) {
+                        notePlaybackSample(
+                            positionMs = prog.currentTimeSeconds * 1000L,
+                            lengthMs = prog.totalLengthSeconds * 1000L
                         )
+                        if (prog.totalLengthSeconds > 0) {
+                            onProgress(
+                                prog.currentTimeSeconds * 1000L,
+                                prog.totalLengthSeconds * 1000L,
+                                prog.percent
+                            )
+                        }
+                    }
+                    if (VlcControl.queryEnded(PROGRESS_RC_PORT)) {
+                        notePlaybackSample(lastPositionMs, lastLengthMs, ended = true)
                     }
                     delay(2000)
                 }
@@ -198,7 +293,11 @@ object StreamPlayer {
         stop()
         stoppedByUser = false
 
-        val bounds = WindowPositioner.getPrimaryScreenBounds()
+        val bounds = if (AppPaths.isWindows) {
+            WindowPositioner.windowsSplitBounds()
+        } else {
+            WindowPositioner.linuxPlaybackMonitor()
+        }
         val (leftHalf, rightHalf) = WindowPositioner.splitHalves(bounds)
 
         val leftCmd = splitSideCommand(
@@ -227,6 +326,18 @@ object StreamPlayer {
             rightProcess = rightProc
         )
         splitSession = session
+        scope.launch(Dispatchers.IO) {
+            watchSplitPartner(session)
+        }
+        if (AppPaths.isWindows) {
+            WindowPositioner.watchSplitFocus(scope, leftProc, rightProc) { side ->
+                switchSplitAudio(side)
+            }
+        } else {
+            LinuxX11WindowPlacer.watchSplitInput(scope, leftProc, rightProc) { side ->
+                switchSplitAudio(side)
+            }
+        }
         WindowPositioner.snapWindowAsync(
             scope, leftProc, leftProc.pid(), leftHalf.x, leftHalf.y, leftHalf.width, leftHalf.height
         )
@@ -267,6 +378,30 @@ object StreamPlayer {
         splitSession = null
     }
 
+    /**
+     * When either Game Day VLC exits (q, Esc, Ctrl+Q, or the app stopping one
+     * side), kill the partner so both sides go together.
+     */
+    private suspend fun watchSplitPartner(session: SplitSession) {
+        while (splitSession === session) {
+            val leftAlive = session.leftProcess?.isAlive == true
+            val rightAlive = session.rightProcess?.isAlive == true
+            if (splitPartnerShouldStop(leftAlive, rightAlive)) {
+                if (splitSession === session) {
+                    session.leftProcess?.destroyForcibly()
+                    session.rightProcess?.destroyForcibly()
+                    if (splitSession === session) splitSession = null
+                }
+                return
+            }
+            delay(200)
+        }
+    }
+
+    /** True when either side has exited, so the other Game Day VLC must be killed. */
+    internal fun splitPartnerShouldStop(leftAlive: Boolean, rightAlive: Boolean): Boolean =
+        !leftAlive || !rightAlive
+
     fun stop() {
         stoppedByUser = true
         progressJob?.cancel()
@@ -279,8 +414,20 @@ object StreamPlayer {
     }
 
     private fun stopProcessOnly() {
+        WindowsPlaybackMenu.disarm()
         current?.destroyForcibly()
         current = null
+    }
+
+    /** Right-click menu for Windows VLC fullscreen. Game Day and Linux are left alone. */
+    private fun armWindowsPlaybackMenu(command: List<String>, proc: Process, fullscreen: Boolean) {
+        if (!AppPaths.isWindows || !fullscreen || isSplitActive()) return
+        val name = command.firstOrNull()
+            ?.substringAfterLast('\\')
+            ?.substringAfterLast('/')
+            ?.lowercase()
+        if (name != "vlc" && name != "vlc.exe") return
+        WindowsPlaybackMenu.arm(proc)
     }
 
     private fun currentBinaryHint(): String? = lastBinary
@@ -308,6 +455,15 @@ object StreamPlayer {
         lastLaunchAtMs = nowMs
         lastExitCode = null
         lastPlaybackDurationMs = 0L
+        lastPositionMs = 0L
+        lastLengthMs = 0L
+        lastReachedEof = false
+    }
+
+    internal fun notePlaybackSample(positionMs: Long, lengthMs: Long, ended: Boolean = false) {
+        if (positionMs >= 0L) lastPositionMs = positionMs
+        if (lengthMs > 0L) lastLengthMs = lengthMs
+        if (ended) lastReachedEof = true
     }
 
     internal fun markExit(exitCode: Int, nowMs: Long = System.currentTimeMillis()) {
@@ -351,7 +507,8 @@ object StreamPlayer {
         preferred: String,
         live: Boolean = false,
         startPositionSeconds: Long? = null,
-        fullscreen: Boolean = true
+        fullscreen: Boolean = true,
+        fullscreenScreen: Int = -1
     ): ResolvedCommand? {
         val pref = preferred.trim().lowercase()
         val ordered = when (pref) {
@@ -367,7 +524,8 @@ object StreamPlayer {
                 urls,
                 live = treatLive,
                 startPositionSeconds = startPositionSeconds,
-                fullscreen = fullscreen
+                fullscreen = fullscreen,
+                fullscreenScreen = fullscreenScreen
             )?.let { return it }
         }
         return null
@@ -379,13 +537,14 @@ object StreamPlayer {
         windows: Boolean = AppPaths.isWindows,
         live: Boolean = false,
         startPositionSeconds: Long? = null,
-        fullscreen: Boolean = true
+        fullscreen: Boolean = true,
+        fullscreenScreen: Int = -1
     ): ResolvedCommand? {
         return when (name) {
             "vlc" -> {
                 val vlc = resolveVlcBinary() ?: return null
                 ResolvedCommand(
-                    vlcCommand(vlc, urls, windows, live, startPositionSeconds, fullscreen),
+                    vlcCommand(vlc, urls, windows, live, startPositionSeconds, fullscreen, fullscreenScreen),
                     playlist = treatsLaunchAsPlaylist("vlc", urls.size, windows)
                 )
             }
@@ -415,6 +574,69 @@ object StreamPlayer {
     internal fun treatsLaunchAsPlaylist(player: String, urlCount: Int, windows: Boolean): Boolean = false
 
     /**
+     * Linux VLC fullscreen follows the app's monitor via the X11 placer.
+     * `--fullscreen` would open on the primary output and GNOME will not move it.
+     * No DISPLAY means there is nothing to place, so the flag stays.
+     * Windows keeps `--fullscreen` and does not use this placer.
+     */
+    internal fun useX11MonitorFullscreen(
+        windows: Boolean,
+        fullscreen: Boolean,
+        displayAvailable: Boolean
+    ): Boolean = !windows && fullscreen && displayAvailable
+
+    /**
+     * Always false. Snapping a normal VLC window onto the monitor leaves the
+     * taskbar, title bar, and borders. Windows single play uses VLC
+     * `--fullscreen` plus [VLC_WINDOWS_TRUE_FULLSCREEN] instead. Game Day
+     * still places its own halves.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    internal fun useWin32MonitorFullscreen(windows: Boolean, fullscreen: Boolean): Boolean = false
+
+    /** Drop `--fullscreen` from a VLC argv that the OS placer will put on the app's monitor. */
+    internal fun vlcCommandForMonitorFullscreen(command: List<String>, enabled: Boolean): List<String> {
+        if (!enabled) return command
+        val name = command.firstOrNull()
+            ?.substringAfterLast('\\')
+            ?.substringAfterLast('/')
+            ?.lowercase()
+            ?: return command
+        if (name != "vlc" && name != "vlc.exe") return command
+        return command.filterNot { it == "--fullscreen" }
+    }
+
+    /** Port from `--rc-host=127.0.0.1:4214`, if this launch can take an RC command. */
+    internal fun linuxRcPort(command: List<String>): Int? {
+        val host = command.firstOrNull { it.startsWith("--rc-host=") } ?: return null
+        return host.substringAfterLast(':').toIntOrNull()?.takeIf { it in 1..65535 }
+    }
+
+    /**
+     * Ask VLC to enter its own fullscreen after the window already covers the
+     * app's monitor. `_NET_WM_STATE_FULLSCREEN` alone leaves the Qt menu and
+     * seek bar up. Retries cover RC not listening yet; `fullscreen on` does not toggle.
+     * The series banner is a separate always-on-top window and is not touched here.
+     */
+    private fun enterLinuxVlcFullscreen(scope: CoroutineScope, process: Process, port: Int) {
+        scope.launch(Dispatchers.IO) {
+            var sent = 0
+            repeat(8) {
+                if (!process.isAlive) return@launch
+                if (VlcControl.sendCommand(port, LINUX_VLC_FULLSCREEN_RC)) {
+                    sent++
+                    PlaybackDebugLog.note("playback-x11: sent ${LINUX_VLC_FULLSCREEN_RC} via rc :$port")
+                    if (sent >= 2) return@launch
+                }
+                delay(400)
+            }
+            if (sent == 0) {
+                PlaybackDebugLog.note("playback-x11: fullscreen on rc :$port did not connect")
+            }
+        }
+    }
+
+    /**
      * **First URL only** on Linux and Windows.
      * VOD/series: `--play-and-exit` + `--no-repeat` so the process ends at EOF
      * and AppRoot can auto-advance.
@@ -422,6 +644,11 @@ object StreamPlayer {
      * live window (often 5–12s of segments) as a finished item and quits 0.
      * Windows also uses `--ignore-config` so installer vlcrc one-instance cannot
      * override `--no-one-instance` (1.2.1 still replayed the same episode).
+     *
+     * `--rc-quiet` is compiled only into Windows VLC (it hides the DOS RC
+     * console). Linux VLC 3.0 rejects the option and exits immediately, so it
+     * is passed only when [windows] is true. `--extraintf=rc` and `--rc-host`
+     * stay on both platforms so resume progress still works.
      */
     internal fun vlcCommand(
         binary: String,
@@ -429,20 +656,37 @@ object StreamPlayer {
         windows: Boolean = AppPaths.isWindows,
         live: Boolean = false,
         startPositionSeconds: Long? = null,
-        fullscreen: Boolean = true
+        fullscreen: Boolean = true,
+        fullscreenScreen: Int = -1
     ): List<String> {
         val args = mutableListOf(binary)
         if (windows) {
             args += "--ignore-config"
         }
-        if (fullscreen) args += "--fullscreen"
+        if (fullscreen) {
+            args += "--fullscreen"
+            if (windows) {
+                args += VLC_WINDOWS_TRUE_FULLSCREEN
+                qtFullscreenScreenArg(fullscreenScreen)?.let { args += it }
+            } else {
+                // Stripped again by the X11 placer. The screen number stays so
+                // the later RC `fullscreen on` does not follow a saved screen.
+                args += VLC_LINUX_TRUE_FULLSCREEN
+                qtFullscreenScreenArg(fullscreenScreen)?.let { args += it }
+            }
+        }
         args += VLC_QT_QUIET
         args += VLC_AUDIO_LANGUAGE
         if (!live) {
             args += "--play-and-exit"
             args += "--extraintf=rc"
             args += "--rc-host=127.0.0.1:$PROGRESS_RC_PORT"
-            args += "--rc-quiet"
+            if (windows) args += "--rc-quiet"
+        } else if (!windows && fullscreen) {
+            // Live has no resume poll, but Linux still needs RC to enter VLC fullscreen
+            // after the window is on the app's monitor. No `--rc-quiet` (Linux rejects it).
+            args += "--extraintf=rc"
+            args += "--rc-host=127.0.0.1:$PROGRESS_RC_PORT"
         }
         args += "--no-one-instance"
         args += "--no-playlist-enqueue"
@@ -467,11 +711,14 @@ object StreamPlayer {
     }
 
     /**
-     * One Game Day window. Same Qt quiet flags as [vlcCommand], without fullscreen.
-     * `--no-video-deco` and `--no-embedded-video` drop the title bar and the Qt
-     * frame. `--qt-minimal-view` hides the menu and playback controls so only
-     * the picture shows; audio and Stop stay in this app. Windows then snaps
-     * the visible DWM frame onto [x]/[width]; Linux uses these coordinates directly.
+     * One Game Day window.
+     * Windows: Qt minimal view, then [WindowPositioner] snaps the DWM frame.
+     * Linux: `--intf=dummy` so there is no Qt control window (GNOME was stacking
+     * those on the left monitor). `--zoom=0.5` keeps a 1080p stream from opening
+     * at full-monitor size, which GNOME auto-maximizes. `--extraintf=rc` and
+     * `--rc-host` stay so audio switching still works. `--control=hotkeys` loads
+     * the hotkeys module (dummy does not), with q and Esc bound to quit.
+     * Placement is X11, not `--video-x` (XWayland ignores it).
      */
     internal fun splitSideCommand(
         binary: String,
@@ -484,6 +731,9 @@ object StreamPlayer {
         port: Int,
         title: String
     ): List<String> {
+        if (!windows) {
+            return linuxSplitSideCommand(binary, url, x, y, width, height, port, title)
+        }
         val args = mutableListOf(binary)
         if (windows) args += "--ignore-config"
         args += "--no-one-instance"
@@ -501,11 +751,60 @@ object StreamPlayer {
         args += "--video-y=$y"
         args += "--extraintf=rc"
         args += "--rc-host=127.0.0.1:$port"
-        args += "--rc-quiet"
+        // Same Windows-only RC flag as [vlcCommand]. Linux keeps the RC socket.
+        if (windows) args += "--rc-quiet"
+        // Qt already loads hotkeys. Esc is leave-fullscreen unless that binding is cleared.
+        args += "--key-leave-fullscreen=Unset"
+        args += "--key-quit=$LINUX_SPLIT_QUIT_KEYS"
         args += "--meta-title=$title"
         args += url
         return args
     }
+
+    /**
+     * Linux Game Day argv. No Qt interface flags: dummy has no control window,
+     * and a VLC build without the Qt plugin would reject those options.
+     */
+    private fun linuxSplitSideCommand(
+        binary: String,
+        url: String,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        port: Int,
+        title: String
+    ): List<String> {
+        val args = mutableListOf(binary)
+        args += "--intf=dummy"
+        args += "--no-one-instance"
+        args += "--no-playlist-enqueue"
+        args += "--no-video-title-show"
+        args += "--no-video-deco"
+        args += "--zoom=0.5"
+        args += VLC_AUDIO_LANGUAGE
+        args += "--width=$width"
+        args += "--height=$height"
+        args += "--video-x=$x"
+        args += "--video-y=$y"
+        args += "--extraintf=rc"
+        // VLC joins `control` onto extraintf with ':'. A comma is one module name
+        // and would not load hotkeys. Dummy has no key handler without this.
+        args += "--control=hotkeys"
+        // leave-fullscreen is registered before quit and owns Esc. Unset frees Esc.
+        args += "--key-leave-fullscreen=Unset"
+        args += "--key-quit=$LINUX_SPLIT_QUIT_KEYS"
+        args += "--rc-host=127.0.0.1:$port"
+        args += "--meta-title=$title"
+        args += url
+        return args
+    }
+
+    /**
+     * Keys that quit a Linux Game Day window. Tab-separated, matching VLC's
+     * `init_action` parser. Ctrl+q stays so the default quit chord still works.
+     */
+    internal const val LINUX_SPLIT_QUIT_KEYS = "q\tEsc\tCtrl+q"
 
     @Suppress("UNUSED_PARAMETER")
     internal fun mpvCommand(

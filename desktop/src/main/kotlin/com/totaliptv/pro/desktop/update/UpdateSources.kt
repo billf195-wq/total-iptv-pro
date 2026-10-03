@@ -10,7 +10,13 @@ import java.nio.file.Path
 object UpdateSources {
     const val GITHUB_REPO = "billf195-wq/total-iptv-pro"
     const val GITHUB_LATEST_API = "https://api.github.com/repos/$GITHUB_REPO/releases/latest"
+    const val GITHUB_RELEASES_API = "https://api.github.com/repos/$GITHUB_REPO/releases"
     const val GITHUB_RELEASES_PAGE = "https://github.com/$GITHUB_REPO/releases/latest"
+    const val GITHUB_RELEASES_PER_PAGE = 30
+    const val GITHUB_RELEASE_LIST_PAGES = 3
+
+    fun releasesListUrl(page: Int): String =
+        "$GITHUB_RELEASES_API?per_page=$GITHUB_RELEASES_PER_PAGE&page=$page"
 
     fun isPrivateLan(url: String): Boolean {
         val host = runCatching { URI(url.trim()).host?.lowercase() }.getOrNull() ?: return false

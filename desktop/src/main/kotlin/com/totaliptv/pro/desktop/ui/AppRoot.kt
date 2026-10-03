@@ -1,6 +1,5 @@
 package com.totaliptv.pro.desktop.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -42,10 +41,12 @@ import com.totaliptv.pro.desktop.player.PlaybackDebugLog
 import com.totaliptv.pro.desktop.player.SplitSession
 import com.totaliptv.pro.desktop.player.SplitSide
 import com.totaliptv.pro.desktop.player.StreamPlayer
+import com.totaliptv.pro.desktop.player.WindowsPlaybackMenu
 import com.totaliptv.pro.desktop.update.AppUpdateManager
 import com.totaliptv.pro.desktop.util.AppPaths
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicInteger
@@ -72,6 +73,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
 
     var epgByStreamId by remember { mutableStateOf<Map<Int, ChannelEpg>>(emptyMap()) }
     var epgLoadingIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var epgFetchedLimit by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+    var epgWantedLimit by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
     var resumeEntries by remember { mutableStateOf(ResumeStore.load()) }
     var splitSession by remember { mutableStateOf<SplitSession?>(null) }
     var splitDialogOpen by remember { mutableStateOf(false) }
@@ -216,6 +219,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 vodError = null
                 epgByStreamId = emptyMap()
                 epgLoadingIds = emptySet()
+                epgFetchedLimit = emptyMap()
+                epgWantedLimit = emptyMap()
             } catch (t: Throwable) {
                 error = t.message ?: t.javaClass.simpleName
                 statusMessage = null
@@ -459,6 +464,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                             if (seq == playSeq.get()) {
                                 playingTitle = null
                                 playingItem = null
+                                seriesNextHost?.onPlayerExited()
                                 setSeriesSession(null)
                             }
                         }
@@ -528,7 +534,10 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         seriesName = plan.seriesName.ifBlank { sessionNow?.seriesName ?: lastSeriesName },
                         seriesId = plan.seriesId ?: sessionNow?.seriesId ?: lastSeriesId,
                         durationMs = durationMs,
-                        exitCode = exitCode
+                        exitCode = exitCode,
+                        positionMs = StreamPlayer.lastPositionMs.takeIf { it > 0L },
+                        lengthMs = StreamPlayer.lastLengthMs.takeIf { it > 0L },
+                        reachedEof = StreamPlayer.lastReachedEof
                     )
                     PlaybackDebugLog.record(
                         episodeId = plan.currentEpisode?.id ?: startWithSeries.id,
@@ -558,11 +567,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                                 if (seq == playSeq.get()) {
                                     playingTitle = null
                                     playingItem = null
-                                    if (outcome.reason == PlaybackAdvance.REASON_SAME_URL ||
-                                        outcome.reason == PlaybackAdvance.REASON_NO_NEXT
-                                    ) {
-                                        setSeriesSession(null)
-                                    }
+                                    seriesNextHost?.onPlayerExited()
+                                    setSeriesSession(null)
                                 }
                             }
                         }
@@ -636,6 +642,27 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         setSeriesSession(null)
     }
 
+    LaunchedEffect(splitSession != null) {
+        if (splitSession == null) return@LaunchedEffect
+        // The player mutates one session object. Remember the side we last
+        // showed, or a click in VLC never changes the highlighted button.
+        var displayed = splitSession?.activeAudio
+        while (isActive) {
+            val playerSession = StreamPlayer.splitSession
+            if (playerSession == null) {
+                stopPlayback()
+                break
+            }
+            val live = playerSession.activeAudio
+            if (live != displayed) {
+                displayed = live
+                val current = splitSession ?: break
+                splitSession = current.copy(activeAudio = live)
+            }
+            delay(250)
+        }
+    }
+
     fun playSplit(left: MediaItem, right: MediaItem) {
         scope.launch {
             try {
@@ -656,7 +683,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
 
     fun switchSplitAudio(side: SplitSide) {
         StreamPlayer.switchSplitAudio(side)
-        splitSession = StreamPlayer.splitSession
+        val current = splitSession
+        splitSession = if (current != null) current.copy(activeAudio = side) else StreamPlayer.splitSession
     }
 
     fun playRecording(entry: RecordingEntry) {
@@ -736,19 +764,27 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         }
     }
 
-    fun needEpg(item: MediaItem) {
+    fun needEpg(item: MediaItem, limit: Int = com.totaliptv.pro.desktop.data.GuideSpan.INITIAL_LISTING_LIMIT) {
         val sid = GuideKeys.of(item) ?: return
-        if (sid in epgByStreamId || sid in epgLoadingIds) return
+        val wanted = maxOf(epgWantedLimit[sid] ?: 0, limit)
+        epgWantedLimit = epgWantedLimit + (sid to wanted)
+        if ((epgFetchedLimit[sid] ?: 0) >= wanted) return
+        if (sid in epgLoadingIds) return
         scope.launch {
             epgLoadingIds = epgLoadingIds + sid
+            val fetchLimit = epgWantedLimit[sid] ?: wanted
             try {
                 val saved = PreferencesStore.load()
-                val epg = withContext(Dispatchers.IO) { repo.loadChannelEpg(saved, item) }
+                val epg = withContext(Dispatchers.IO) { repo.loadChannelEpg(saved, item, fetchLimit) }
                 epgByStreamId = epgByStreamId + (sid to epg)
+                epgFetchedLimit = epgFetchedLimit + (sid to fetchLimit)
             } catch (_: Throwable) {
                 epgByStreamId = epgByStreamId + (sid to ChannelEpg(sid, emptyList()))
+                epgFetchedLimit = epgFetchedLimit + (sid to fetchLimit)
             } finally {
                 epgLoadingIds = epgLoadingIds - sid
+                val still = epgWantedLimit[sid] ?: 0
+                if (still > (epgFetchedLimit[sid] ?: 0)) needEpg(item, still)
             }
         }
     }
@@ -792,19 +828,18 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         }
     }
 
-    LaunchedEffect(seriesSession) {
-        val session = seriesSession ?: return@LaunchedEffect
-        val mode = LastEpisodeBanner.overlayMode(
-            session.episodes,
-            session.current.season,
-            session.current.episodeNum,
-            session.current.id,
-            session.current.streamUrl
+    SideEffect {
+        WindowsPlaybackMenu.bind(
+            hasNextEpisode = { seriesSessionRef.get()?.next != null },
+            onStop = {
+                seriesNextHost?.dismiss("stop")
+                stopPlayback()
+            },
+            onNext = {
+                seriesNextHost?.dismiss("next")
+                skipToNextEpisode()
+            }
         )
-        if (mode != LastEpisodeBanner.Mode.LAST_BRIEF) return@LaunchedEffect
-        val key = "${session.seriesId}|${session.current.id}|${session.current.streamUrl}"
-        delay(LastEpisodeBanner.AUTO_DISMISS_MS)
-        seriesNextHost?.dismissLastIfMatching(key)
     }
 
     SideEffect {
@@ -817,8 +852,14 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         host.sync(
             session = seriesSession,
             darkTheme = prefs.themeMode != "light",
-            onNext = { skipToNextEpisode() },
-            onStop = { stopPlayback() },
+            onNext = {
+                seriesNextHost?.dismiss("next")
+                skipToNextEpisode()
+            },
+            onStop = {
+                seriesNextHost?.dismiss("stop")
+                stopPlayback()
+            },
             onRecord = {
                 val item = playingItem
                 if (item != null && item.streamUrl.isNotBlank()) {
@@ -831,6 +872,11 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     }
 
     TipTheme(darkTheme = prefs.themeMode != "light") {
+        com.totaliptv.pro.desktop.artwork.ArtworkSettings.apply(
+            sharp = prefs.sharpPosters,
+            prefKey = prefs.tmdbApiKey,
+            ratings = prefs.tmdbRatings
+        )
         if (showSplash) {
             SplashScreen()
             return@TipTheme
@@ -845,7 +891,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 )
             }
             loading && catalog == null -> {
-                Box(Modifier.fillMaxSize().background(TipBg), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().tvContentBackground(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = TipBlue)
                         Spacer(Modifier.height(16.dp))
@@ -855,7 +901,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 }
             }
             catalog == null && error != null -> {
-                Box(Modifier.fillMaxSize().background(TipBg), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().tvContentBackground(), contentAlignment = Alignment.Center) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.padding(24.dp)
@@ -920,12 +966,14 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                     onStopSplit = { stopPlayback() },
                     onOpenSeries = { openSeries(it) },
                     onCloseSeries = {
+                        if (splitSession != null) stopPlayback()
                         seriesDetail = null
                         seriesError = null
                         seriesLoading = false
                     },
                     onOpenVod = { openVod(it) },
                     onCloseVod = {
+                        if (splitSession != null) stopPlayback()
                         vodDetail = null
                         vodError = null
                         vodLoading = false
@@ -943,13 +991,15 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         seriesDetail = null
                         vodDetail = null
                         epgByStreamId = emptyMap()
+                        epgFetchedLimit = emptyMap()
+                        epgWantedLimit = emptyMap()
                         persist(prefs.copy(onboarded = false))
                         showOnboarding = true
                         error = null
                         statusMessage = null
                     },
                     onSavePrefs = { persist(it) },
-                    onNeedEpg = { needEpg(it) },
+                    onNeedEpg = { item, limit -> needEpg(item, limit) },
                     onResumeEntry = { entry, media -> resumeEntry(entry, media) },
                     onRecordNow = { item, title, endMs -> recordNow(item, title, endMs) },
                     onStopRecording = { stopRecording() },
@@ -975,7 +1025,7 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 }
             }
             else -> {
-                Box(Modifier.fillMaxSize().background(TipBg), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().tvContentBackground(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = TipBlue)
                 }
             }

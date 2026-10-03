@@ -333,47 +333,67 @@ class AppUpdateManager {
 
     private fun checkGithub(localCode: Int, localName: String, baseNorm: String): UpdateUiState {
         return try {
-            val body = httpGetString(UpdateSources.GITHUB_LATEST_API)
-                ?: return UpdateUiState(
-                    phase = UpdatePhase.Error,
-                    message = "Could not reach GitHub Releases",
-                    localVersionName = localName,
-                    localVersionCode = localCode,
-                    shelfBaseUrl = baseNorm
-                )
-            val remote = GithubRelease.parse(body, localName, localCode)
-                ?: return UpdateUiState(
-                    phase = UpdatePhase.Error,
-                    message = "Latest GitHub release has no desktop package yet",
-                    localVersionName = localName,
-                    localVersionCode = localCode,
-                    shelfBaseUrl = baseNorm
-                )
-            if (remote.versionCode > localCode || UpdateSources.isNewerName(remote.versionName, localName)) {
-                UpdateUiState(
-                    phase = UpdatePhase.Available,
-                    message = "Update available: ${remote.versionName} (${remote.versionCode})",
-                    localVersionName = localName,
-                    localVersionCode = localCode,
-                    remote = remote,
-                    shelfBaseUrl = baseNorm
-                )
-            } else {
-                UpdateUiState(
-                    phase = UpdatePhase.UpToDate,
-                    message = "Up to date — $localName ($localCode)",
-                    localVersionName = localName,
-                    localVersionCode = localCode,
-                    remote = remote,
-                    shelfBaseUrl = baseNorm
-                )
+            val windows = AppPaths.isWindows
+            val pages = ArrayList<String>(UpdateSources.GITHUB_RELEASE_LIST_PAGES)
+            for (page in 1..UpdateSources.GITHUB_RELEASE_LIST_PAGES) {
+                val body = httpGetString(UpdateSources.releasesListUrl(page))
+                if (body == null) {
+                    if (pages.isEmpty()) {
+                        return UpdateUiState(
+                            phase = UpdatePhase.Error,
+                            message = "Could not reach GitHub Releases",
+                            localVersionName = localName,
+                            localVersionCode = localCode,
+                            shelfBaseUrl = baseNorm
+                        )
+                    }
+                    break
+                }
+                pages += body
+                val remote = GithubRelease.select(listOf(body), windows, localName, localCode)
+                if (remote != null) return githubVersionState(remote, localCode, localName, baseNorm)
+                if (GithubRelease.pageEnded(body)) break
             }
+            UpdateUiState(
+                phase = UpdatePhase.Error,
+                message = "Latest GitHub release has no desktop package yet",
+                localVersionName = localName,
+                localVersionCode = localCode,
+                shelfBaseUrl = baseNorm
+            )
         } catch (t: Throwable) {
             UpdateUiState(
                 phase = UpdatePhase.Error,
                 message = "Check failed: ${t.message ?: t.javaClass.simpleName}",
                 localVersionName = localName,
                 localVersionCode = localCode,
+                shelfBaseUrl = baseNorm
+            )
+        }
+    }
+
+    private fun githubVersionState(
+        remote: RemoteVersion,
+        localCode: Int,
+        localName: String,
+        baseNorm: String
+    ): UpdateUiState {
+        return if (remote.versionCode > localCode || UpdateSources.isNewerName(remote.versionName, localName)) {
+            UpdateUiState(
+                phase = UpdatePhase.Available,
+                message = "Update available: ${remote.versionName} (${remote.versionCode})",
+                localVersionName = localName,
+                localVersionCode = localCode,
+                remote = remote,
+                shelfBaseUrl = baseNorm
+            )
+        } else {
+            UpdateUiState(
+                phase = UpdatePhase.UpToDate,
+                message = "Up to date — $localName ($localCode)",
+                localVersionName = localName,
+                localVersionCode = localCode,
+                remote = remote,
                 shelfBaseUrl = baseNorm
             )
         }

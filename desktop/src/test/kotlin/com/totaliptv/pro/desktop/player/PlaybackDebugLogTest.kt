@@ -78,4 +78,43 @@ class PlaybackDebugLogTest {
         assertTrue(line.contains("eps=40"), line)
         assertTrue(line.contains("idx=39"), line)
     }
+
+    @Test
+    fun formatStackKeepsTheExceptionTypeAndFrames() {
+        val error = IllegalStateException("comparison contract")
+        val text = PlaybackDebugLog.formatStack("tmdb-ratings-fetch", error)
+        assertTrue(text.contains("uncaught thread=tmdb-ratings-fetch"), text)
+        assertTrue(text.contains("IllegalStateException"), text)
+        assertTrue(text.contains("comparison contract"), text)
+        assertTrue(text.contains("formatStackKeepsTheExceptionTypeAndFrames"), text)
+        assertTrue(text.contains("\n"), text)
+        assertTrue(text.length <= PlaybackDebugLog.MAX_STACK_CHARS)
+    }
+
+    @Test
+    fun uncaughtHandlerWritesTheStackAndChainsThePreviousHandler() {
+        val original = Thread.getDefaultUncaughtExceptionHandler()
+        val recorded = mutableListOf<String>()
+        val chained = mutableListOf<String>()
+        try {
+            UncaughtLog.writeStack = { name, error ->
+                recorded += PlaybackDebugLog.formatStack(name, error)
+            }
+            Thread.setDefaultUncaughtExceptionHandler { _, error ->
+                chained += error.javaClass.name
+            }
+            UncaughtLog.install()
+            UncaughtLog.install()
+            val handler = Thread.getDefaultUncaughtExceptionHandler()
+            handler?.uncaughtException(Thread.currentThread(), IllegalStateException("comparison contract"))
+            assertEquals(1, recorded.size)
+            assertTrue(recorded[0].contains("IllegalStateException"), recorded[0])
+            assertTrue(recorded[0].contains("comparison contract"), recorded[0])
+            assertTrue(recorded[0].contains("\n"), recorded[0])
+            assertEquals(listOf(IllegalStateException::class.java.name), chained)
+        } finally {
+            UncaughtLog.resetForTests()
+            Thread.setDefaultUncaughtExceptionHandler(original)
+        }
+    }
 }

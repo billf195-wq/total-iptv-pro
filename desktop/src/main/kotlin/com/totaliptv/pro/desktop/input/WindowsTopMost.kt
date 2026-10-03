@@ -11,6 +11,7 @@ import java.awt.Window
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import javax.swing.SwingUtilities
 
 /**
  * Keep the Next-episode overlay above fullscreen VLC without stealing focus
@@ -47,7 +48,12 @@ internal object WindowsTopMost {
     fun startRaisePump(window: Window): AutoCloseable {
         if (!AppPaths.isWindows) {
             runCatching { window.isAlwaysOnTop = true }
-            return AutoCloseable { }
+            return AutoCloseable {
+                val drop = {
+                    runCatching { window.isAlwaysOnTop = false }
+                }
+                if (SwingUtilities.isEventDispatchThread()) drop() else SwingUtilities.invokeLater { drop() }
+            }
         }
         val hwndRef = AtomicReference<WinDef.HWND?>(null)
         runCatching {

@@ -20,11 +20,19 @@ object SeriesAdvance {
         seriesId: Int?,
         durationMs: Long,
         exitCode: Int?,
-        userRequestedNext: Boolean = false
+        userRequestedNext: Boolean = false,
+        positionMs: Long? = null,
+        lengthMs: Long? = null,
+        reachedEof: Boolean = false
     ): Outcome {
         val live = start.kind == ContentKind.LIVE
-        if (!userRequestedNext && !PlaybackAdvance.shouldAutoAdvance(durationMs, false, exitCode, live)) {
-            return Outcome.Stop(PlaybackAdvance.skipReason(durationMs, exitCode, live))
+        if (!userRequestedNext && !PlaybackAdvance.shouldAutoAdvance(
+                durationMs, false, exitCode, live, positionMs, lengthMs, reachedEof
+            )
+        ) {
+            return Outcome.Stop(
+                PlaybackAdvance.skipReason(durationMs, exitCode, live, positionMs, lengthMs, reachedEof)
+            )
         }
         return resolveDistinctNext(
             start = start,

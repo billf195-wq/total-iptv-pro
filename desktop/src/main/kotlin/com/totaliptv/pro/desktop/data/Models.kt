@@ -46,7 +46,16 @@ data class SavedPrefs(
      * Optional recordings folder on **this** machine only. Blank = OS default
      * (Windows %LOCALAPPDATA%\TotalIptvPro\Recordings, Linux ~/Videos/TotalIptvPro/Recordings).
      */
-    val recordingsDir: String = ""
+    val recordingsDir: String = "",
+    /**
+     * HD movie/series artwork. On by default so Bill can turn it off to compare load time.
+     * TMDB network lookups still require an API key (env TMDB_API_KEY or tmdb-api-key.txt).
+     */
+    val sharpPosters: Boolean = true,
+    /** TMDB v3 API key or v4 read access token. Blank falls back to TMDB_API_KEY. */
+    val tmdbApiKey: String = "",
+    /** Use TMDB vote_average when a key is available. Default on. */
+    val tmdbRatings: Boolean = true
 )
 
 data class Category(
@@ -94,7 +103,9 @@ data class MediaItem(
     val parentSeriesId: Int? = null,
     val parentSeriesName: String? = null,
     val season: Int? = null,
-    val episodeNum: Int? = null
+    val episodeNum: Int? = null,
+    /** Provider TMDB id when Xtream sent one. Used only if a TMDB API key is configured. */
+    val tmdbId: String? = null
 ) {
     fun artworkUrl(): String? =
         posterUrl?.takeIf { it.isNotBlank() }
@@ -149,7 +160,8 @@ data class SeriesDetail(
     val rating: String? = null,
     val year: Int? = null,
     val genre: String? = null,
-    val episodes: List<SeriesEpisode> = emptyList()
+    val episodes: List<SeriesEpisode> = emptyList(),
+    val tmdbId: String? = null
 )
 
 /** VOD / movie detail from Xtream get_vod_info (description + cast before play). */
@@ -165,7 +177,8 @@ data class VodDetail(
     val backdropUrl: String? = null,
     val streamUrl: String = "",
     val catalogId: String = "",
-    val categoryId: String? = null
+    val categoryId: String? = null,
+    val tmdbId: String? = null
 ) {
     fun toMediaItem(): MediaItem = MediaItem(
         id = catalogId.ifBlank { "vod-$streamId" },
@@ -181,7 +194,8 @@ data class VodDetail(
         year = year,
         plot = plot,
         genre = genre,
-        cast = cast
+        cast = cast,
+        tmdbId = tmdbId
     )
 }
 

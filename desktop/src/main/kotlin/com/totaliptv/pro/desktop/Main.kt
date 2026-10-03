@@ -24,13 +24,18 @@ import com.totaliptv.pro.desktop.data.PreferencesStore
 import com.totaliptv.pro.desktop.input.SeriesNextHotkeys
 import com.totaliptv.pro.desktop.input.WindowsTopMost
 import com.totaliptv.pro.desktop.player.StreamPlayer
+import com.totaliptv.pro.desktop.player.UncaughtLog
+import com.totaliptv.pro.desktop.player.WindowPositioner
+import com.totaliptv.pro.desktop.util.AppPaths
 import com.totaliptv.pro.desktop.ui.AppRoot
 import com.totaliptv.pro.desktop.ui.SeriesNextHost
 import com.totaliptv.pro.desktop.ui.SplashBranding
 import com.totaliptv.pro.desktop.ui.TextInputFocus
 import java.awt.Dimension
 
-fun main() = application(exitProcessOnExit = true) {
+fun main() {
+    UncaughtLog.install()
+    application(exitProcessOnExit = true) {
     val seriesNextHost = remember { SeriesNextHost() }
     var windowsOpen by remember { mutableStateOf(true) }
     val initialPrefs = remember { PreferencesStore.load() }
@@ -52,6 +57,19 @@ fun main() = application(exitProcessOnExit = true) {
 
     fun quit() {
         windowsOpen = false
+        runCatching {
+            val cur = PreferencesStore.load()
+            val absolute = state.position as? WindowPosition.Absolute
+            PreferencesStore.save(
+                cur.copy(
+                    windowWidth = state.size.width.value.toInt().coerceAtLeast(960),
+                    windowHeight = state.size.height.value.toInt().coerceAtLeast(600),
+                    windowX = absolute?.x?.value?.toInt(),
+                    windowY = absolute?.y?.value?.toInt(),
+                    windowMaximized = state.placement == WindowPlacement.Maximized
+                )
+            )
+        }
         AppShutdown.requestQuit(
             disposeOverlay = { seriesNextHost.disposeOverlay() },
             stopHotkeys = { SeriesNextHotkeys.shutdown() },
@@ -69,22 +87,7 @@ fun main() = application(exitProcessOnExit = true) {
     // second `Window {}` here would keep the JVM alive after this frame closes.
     if (windowsOpen && !AppShutdown.isExiting()) {
         Window(
-            onCloseRequest = {
-                runCatching {
-                    val cur = PreferencesStore.load()
-                    val absolute = state.position as? WindowPosition.Absolute
-                    PreferencesStore.save(
-                        cur.copy(
-                            windowWidth = state.size.width.value.toInt().coerceAtLeast(960),
-                            windowHeight = state.size.height.value.toInt().coerceAtLeast(600),
-                            windowX = absolute?.x?.value?.toInt(),
-                            windowY = absolute?.y?.value?.toInt(),
-                            windowMaximized = state.placement == WindowPlacement.Maximized
-                        )
-                    )
-                }
-                quit()
-            },
+            onCloseRequest = { quit() },
             title = SplashBranding.windowTitle(AppVersion.VERSION_NAME),
             state = state,
             icon = appIcon,
@@ -104,11 +107,22 @@ fun main() = application(exitProcessOnExit = true) {
                         SeriesNextHotkeys.requestNext()
                         true
                     }
+                    keyDown && event.key == Key.Escape && seriesNextHost.isBannerShowing() -> {
+                        seriesNextHost.dismiss("esc")
+                        true
+                    }
                     keyDown && event.key == Key.F11 -> {
                         state.placement = if (state.placement == WindowPlacement.Fullscreen) {
                             WindowPlacement.Floating
                         } else {
                             WindowPlacement.Fullscreen
+                        }
+                        true
+                    }
+                    keyDown && event.key == Key.Escape && StreamPlayer.isSplitActive() -> {
+                        StreamPlayer.stop()
+                        if (state.placement == WindowPlacement.Fullscreen) {
+                            state.placement = WindowPlacement.Floating
                         }
                         true
                     }
@@ -125,7 +139,9 @@ fun main() = application(exitProcessOnExit = true) {
             }
         ) {
             window.minimumSize = Dimension(960, 600)
+            WindowPositioner.attachAppWindow(window)
             AppRoot(seriesNextHost, onQuit = { quit() })
         }
+    }
     }
 }

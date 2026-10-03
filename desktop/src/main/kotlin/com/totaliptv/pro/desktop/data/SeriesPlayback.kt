@@ -1,5 +1,8 @@
 package com.totaliptv.pro.desktop.data
 
+import com.totaliptv.pro.desktop.player.PlaybackDebugLog
+import java.util.Comparator
+
 /**
  * Shared series season / next-episode logic for Live desktop (Linux + Windows).
  * Order is always season then episode number — never list index.
@@ -7,8 +10,27 @@ package com.totaliptv.pro.desktop.data
 object SeriesPlayback {
     const val LAST_EPISODE_MESSAGE = "Last episode of this series"
 
-    fun sortedEpisodes(episodes: List<SeriesEpisode>): List<SeriesEpisode> =
-        episodes.sortedWith(compareBy({ it.season }, { it.episodeNum }, { it.id }))
+    private data class EpisodeKey(val season: Int, val episodeNum: Int, val id: String)
+
+    private val episodeOrder: Comparator<EpisodeKey> =
+        Comparator.comparingInt(EpisodeKey::season)
+            .thenComparingInt(EpisodeKey::episodeNum)
+            .thenComparing({ key: EpisodeKey -> key.id }, Comparator.nullsLast(Comparator.naturalOrder()))
+
+    fun sortedEpisodes(episodes: List<SeriesEpisode>): List<SeriesEpisode> {
+        if (episodes.size <= 1) return episodes
+        val keyed = episodes.map { episode ->
+            episode to EpisodeKey(episode.season, episode.episodeNum, episode.id)
+        }
+        return try {
+            val copy = keyed.toTypedArray()
+            copy.sortWith { left, right -> episodeOrder.compare(left.second, right.second) }
+            copy.map { it.first }
+        } catch (t: Exception) {
+            PlaybackDebugLog.note("series sort failed: ${t.javaClass.simpleName}: ${t.message}")
+            episodes
+        }
+    }
 
     fun seasonNumbers(episodes: List<SeriesEpisode>): List<Int> =
         episodes.map { it.season }.distinct().sorted()

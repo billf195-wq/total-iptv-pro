@@ -35,28 +35,56 @@ val TipOnAmber = Color(0xFF1A1200)
 val TipRecordActive = Color(0xFFE53935)
 val TipOnRecordActive = Color(0xFFFFFFFF)
 
+// Dark screen fill. Flat black, same as the content. Cards stay on DarkTipSurface.
+val DarkTipBg = Color(0xFF000000)
+val DarkTipSurface = Color(0xFF141A22)
+val DarkTipSurfaceAlt = Color(0xFF1C2430)
+/** Light-theme top bar and sidebar. Dark theme uses flat black instead. */
+private val TipChromeLight = Color(0xFFFFFFFF)
+
+/** Flat black behind Live TV, Movies, and Series. No gradient. */
+val TipContentBlack = Color(0xFF000000)
+private val TipContentLightPage = Color(0xFFF4F7FB)
+
 // Mutable palette driven by theme mode (defaults = dark + gold type)
-var TipBg = Color(0xFF0B0F14)
+var TipBg = DarkTipBg
     private set
-var TipSurface = Color(0xFF141A22)
+var TipSurface = DarkTipSurface
     private set
-var TipSurfaceAlt = Color(0xFF1C2430)
+var TipSurfaceAlt = DarkTipSurfaceAlt
     private set
 var TipOnBg = TipGoldText
     private set
 var TipMuted = TipGoldMuted
     private set
+var tipContentDark = true
+    private set
+
+/** Browsing-panel fill. Dark theme is one flat black; light theme stays the page color. */
+fun tvContentColor(darkTheme: Boolean): Color =
+    if (darkTheme) TipContentBlack else TipContentLightPage
+
+/**
+ * Top bar and left nav panel. Dark theme matches the content black so the
+ * window is one surface. Light theme keeps the white card surface.
+ */
+fun tvChromeColor(darkTheme: Boolean): Color =
+    if (darkTheme) TipContentBlack else TipChromeLight
+
+fun Modifier.tvContentBackground(): Modifier = background(tvContentColor(tipContentDark))
+
+fun Modifier.tvChromeBackground(): Modifier = background(tvChromeColor(tipContentDark))
 
 private val DarkColors = darkColorScheme(
     primary = TipBlue,
     onPrimary = TipOnAmber,
     secondary = TipAccent,
     onSecondary = TipOnAmber,
-    background = Color(0xFF0B0F14),
+    background = TipContentBlack,
     onBackground = TipGoldText,
-    surface = Color(0xFF141A22),
+    surface = DarkTipSurface,
     onSurface = TipGoldText,
-    surfaceVariant = Color(0xFF1C2430),
+    surfaceVariant = DarkTipSurfaceAlt,
     onSurfaceVariant = TipGoldMuted,
     outline = Color(0xFF2A3544)
 )
@@ -89,11 +117,12 @@ private fun tipTypography(onBg: Color) = Typography(
 fun TipTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
     val onBg: Color
     if (darkTheme) {
-        TipBg = Color(0xFF0B0F14)
-        TipSurface = Color(0xFF141A22)
-        TipSurfaceAlt = Color(0xFF1C2430)
+        TipBg = TipContentBlack
+        TipSurface = DarkTipSurface
+        TipSurfaceAlt = DarkTipSurfaceAlt
         TipOnBg = TipGoldText
         TipMuted = TipGoldMuted
+        tipContentDark = true
         onBg = TipGoldText
     } else {
         TipBg = Color(0xFFF4F7FB)
@@ -101,6 +130,7 @@ fun TipTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
         TipSurfaceAlt = Color(0xFFE8EEF6)
         TipOnBg = Color(0xFF101820)
         TipMuted = Color(0xFF5A6A7A)
+        tipContentDark = false
         onBg = Color(0xFF101820)
     }
     MaterialTheme(

@@ -12,7 +12,24 @@ class PlaybackAdvanceTest {
         assertFalse(PlaybackAdvance.shouldAutoAdvance(durationMs = 5_000, userRequestedNext = false, exitCode = 0))
         assertFalse(PlaybackAdvance.shouldAutoAdvance(durationMs = 15_000, userRequestedNext = false, exitCode = 0))
         assertFalse(PlaybackAdvance.shouldAutoAdvance(durationMs = 19_999, userRequestedNext = false, exitCode = 0))
-        assertTrue(PlaybackAdvance.shouldAutoAdvance(durationMs = 20_000, userRequestedNext = false, exitCode = 0))
+        assertFalse(PlaybackAdvance.shouldAutoAdvance(durationMs = 76_000, userRequestedNext = false, exitCode = 0))
+        assertTrue(
+            PlaybackAdvance.shouldAutoAdvance(
+                durationMs = 76_000,
+                userRequestedNext = false,
+                exitCode = 0,
+                positionMs = 2_400_000,
+                lengthMs = 2_450_000
+            )
+        )
+        assertTrue(
+            PlaybackAdvance.shouldAutoAdvance(
+                durationMs = 76_000,
+                userRequestedNext = false,
+                exitCode = 0,
+                reachedEof = true
+            )
+        )
         assertTrue(PlaybackAdvance.shouldAutoAdvance(durationMs = 3_000, userRequestedNext = true, exitCode = 0))
     }
 
@@ -34,9 +51,14 @@ class PlaybackAdvanceTest {
             PlaybackAdvance.skipReason(durationMs = 8_000, exitCode = 0)
         )
         assertEquals(
-            PlaybackAdvance.REASON_AUTO_ADVANCE,
-            PlaybackAdvance.skipReason(durationMs = 45_000, exitCode = 0)
+            PlaybackAdvance.REASON_USER_STOP,
+            PlaybackAdvance.skipReason(durationMs = 76_000, exitCode = 0, positionMs = 76_000, lengthMs = 2_400_000)
         )
+        assertEquals(
+            PlaybackAdvance.REASON_AUTO_ADVANCE,
+            PlaybackAdvance.skipReason(durationMs = 45_000, exitCode = 0, positionMs = 40_000, lengthMs = 50_000)
+        )
+        assertEquals(90_000L, PlaybackAdvance.NEAR_END_MS)
     }
 
     @Test
@@ -54,7 +76,9 @@ class PlaybackAdvanceTest {
                 durationMs = 45_000,
                 userRequestedNext = false,
                 exitCode = 0,
-                live = false
+                live = false,
+                positionMs = 40_000,
+                lengthMs = 50_000
             )
         )
         assertEquals(
