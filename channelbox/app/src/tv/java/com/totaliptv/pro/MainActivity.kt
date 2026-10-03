@@ -83,6 +83,8 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(StartupSplashGate.shownThisProcess)
             }
             var boundLayout by remember { mutableStateOf(AppLayoutMode.CLASSIC) }
+            // First run (no saved source): no splash, straight to sign-in.
+            var startupChecked by remember { mutableStateOf(StartupSplashGate.shownThisProcess) }
             val appearance by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
             val accent by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
 
@@ -107,8 +109,20 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 if (StartupSplashGate.shownThisProcess) {
                     splashCatalogReady = true
+                    startupChecked = true
                     return@LaunchedEffect
                 }
+                val hasSources = runCatching {
+                    withContext(Dispatchers.IO) { app.preferences.getSources().isNotEmpty() }
+                }.getOrDefault(true)
+                if (com.totaliptv.pro.ui.onboarding.SignInForm.skipStartupSplash(hasSources)) {
+                    StartupSplashGate.shownThisProcess = true
+                    splashDone = true
+                    splashCatalogReady = true
+                    startupChecked = true
+                    return@LaunchedEffect
+                }
+                startupChecked = true
                 runCatching {
                     withContext(Dispatchers.IO) {
                         val sources = app.preferences.getSources()
@@ -132,6 +146,15 @@ class MainActivity : ComponentActivity() {
                         logoUrl = fav.logoUrl
                     )
                 )
+            }
+
+            if (!startupChecked && !switchingLayout) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(androidx.compose.ui.graphics.Color(0xFF000000))
+                )
+                return@setContent
             }
 
             if (!splashDone && !switchingLayout) {
@@ -332,7 +355,7 @@ private fun AppRoot(
         return
     }
 
-    val route = screen ?: if (sources.isEmpty()) Screen.Onboarding else Screen.Home
+    val route = screen ?: if (sources.isEmpty() || com.totaliptv.pro.ui.onboarding.SignInForm.active) Screen.Onboarding else Screen.Home
 
     val backContext = LocalContext.current
     var exitArmedAt by remember { mutableLongStateOf(0L) }

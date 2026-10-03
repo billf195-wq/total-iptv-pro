@@ -189,13 +189,15 @@ fun DesktopAppRoot(
             repository.favorites.collectLatest { favorites = it }
         }
 
-        LaunchedEffect(sources) {
+        LaunchedEffect(sources, com.totaliptv.pro.ui.onboarding.SignInForm.active) {
             if (sources.isEmpty()) {
                 showOnboarding = true
                 ready = true
                 loading = false
                 return@LaunchedEffect
             }
+            // Sign-in still loading the playlist behind its splash: stay on the sign-in screen.
+            if (com.totaliptv.pro.ui.onboarding.SignInForm.active) return@LaunchedEffect
             showOnboarding = false
             // After Classic <-> Desktop recreate the Application (and catalog cache) survive.
             // Skip a full-screen blank "Loading catalog" frame when data is already warm.

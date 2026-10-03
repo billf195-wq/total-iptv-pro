@@ -196,11 +196,16 @@ private fun PhoneAppRoot(
     }
 
     LaunchedEffect(Unit) {
-        repository.sources.first()
+        val initial = repository.sources.first()
+        // First run (no saved source): no splash, straight to sign-in.
+        if (com.totaliptv.pro.ui.onboarding.SignInForm.skipStartupSplash(initial.isNotEmpty())) {
+            StartupSplashGate.shownThisProcess = true
+            splashDone = true
+        }
         prefsReady = true
     }
 
-    if (!splashDone) {
+    if (!splashDone && prefsReady) {
         LogoBannerSplash(
             ready = prefsReady,
             statusMessage = if (prefsReady) null else "Starting…",
@@ -219,7 +224,7 @@ private fun PhoneAppRoot(
         return
     }
 
-    if (sources.isEmpty() || showOnboarding) {
+    if (sources.isEmpty() || showOnboarding || com.totaliptv.pro.ui.onboarding.SignInForm.active) {
         OnboardingScreen(
             repository = repository,
             onDone = {
