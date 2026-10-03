@@ -19,6 +19,12 @@ IPTV player for **Android TV / phone** and **Desktop** (Linux & Windows).
 - **Android TV / Shield (1.4.89):** [TotalIPTVPro-ShieldTV.apk](https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-ShieldTV.apk)
 - **Android phone (1.4.66):** [TotalIPTVPro-Phone.apk](https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-Phone.apk)
 
+### Easy install with the Downloader app
+- **Shield / Fire TV / Android TV:** code **1144079** (https://aftv.news/1144079)
+- **Phone:** code **4864629** (https://aftv.news/4864629)
+
+On a TV box, open the Downloader app and type the number into its URL box. On a phone, open the aftv.news link in your browser. The codes always get the newest release.
+
 
 
 ## Repos layout
