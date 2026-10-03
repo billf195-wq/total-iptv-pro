@@ -6,9 +6,9 @@ package com.totaliptv.pro.ui.player
  */
 object PlayerOverlayTiming {
     /** Title/info banner shown on its own when playback starts. */
-    const val AUTO_MS = 2_500L
+    const val AUTO_MS = 3_000L
     /** Banner after a remote key press. */
-    const val KEY_MS = 4_500L
+    const val KEY_MS = 3_000L
     /** A key within this window counts as "user asked for the banner". */
     const val KEY_WINDOW_MS = 1_500L
     /** Split screen instruction bar after switching screens. */

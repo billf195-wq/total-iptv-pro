@@ -460,8 +460,12 @@ fun LogoBannerSplash(
                 )
             }
 
+            // Spinner + "Loading EPG / VOD / Series" directly under the gold title.
+            Spacer(Modifier.height(14.dp))
+            SplashLoadingLine(modifier = Modifier.alpha(titleAlpha.value))
+
             if (!statusMessage.isNullOrBlank()) {
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(10.dp))
                 Text(
                     text = statusMessage,
                     color = Color(0xFF90A4AE),

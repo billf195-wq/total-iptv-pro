@@ -522,30 +522,36 @@ class PlayerActivity : ComponentActivity() {
         hideOverlayJob?.cancel()
         hideOverlayJob = scope.launch {
             delay(ms)
-            if (aButtonIsFocused()) {
+            // Hide after the hold even when a button has focus; any key brings it back.
+            if (overlayBlockedByStatus()) {
                 showOverlayTemporarily(ms)
                 return@launch
             }
-            val busy = statusView?.text?.isNotBlank() == true && statusView?.isVisible == true
-            if (!busy) {
-                overlay?.isVisible = false
-                playerView?.hideController()
-            }
+            hideOverlayNow()
         }
     }
 
     /** Hide title/controls when the ExoPlayer OSD hides (unless buffering/error). */
     private fun hideOverlayIfIdle() {
-        if (aButtonIsFocused()) {
-            showOverlayTemporarily()
-            return
-        }
+        if (overlayBlockedByStatus()) return
         hideOverlayJob?.cancel()
-        val busy = statusView?.text?.isNotBlank() == true && statusView?.isVisible == true
-        if (!busy) {
-            overlay?.isVisible = false
-            playNextButton?.isVisible = false
-        }
+        hideOverlayNow()
+        playNextButton?.isVisible = false
+    }
+
+    /** Keep the banner only for a real problem (not playing and a status shown). */
+    private fun overlayBlockedByStatus(): Boolean {
+        val playing = runCatching { player?.isPlaying == true }.getOrDefault(false)
+        if (playing) return false
+        return statusView?.text?.isNotBlank() == true && statusView?.isVisible == true
+    }
+
+    private fun hideOverlayNow() {
+        val playing = runCatching { player?.isPlaying == true }.getOrDefault(false)
+        if (playing) statusView?.isVisible = false
+        if (aButtonIsFocused()) playerView?.requestFocus()
+        overlay?.isVisible = false
+        playerView?.hideController()
     }
 
     /**

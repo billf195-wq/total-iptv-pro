@@ -24,9 +24,8 @@ class Guide1485Test {
 
     @Test
     fun bannersAreShorter() {
-        assertEquals(2_500L, PlayerOverlayTiming.holdMs(10_000L, 0L))
-        assertEquals(4_500L, PlayerOverlayTiming.holdMs(10_000L, 9_500L))
-        assertEquals(2_500L, PlayerOverlayTiming.holdMs(10_000L, 5_000L))
+        assertEquals(3_000L, PlayerOverlayTiming.holdMs(10_000L, 0L))
+        assertEquals(3_000L, PlayerOverlayTiming.holdMs(10_000L, 9_500L))
         assertTrue(PlayerOverlayTiming.SPLIT_CONTROLS_MS <= 3_000L)
     }
 }
