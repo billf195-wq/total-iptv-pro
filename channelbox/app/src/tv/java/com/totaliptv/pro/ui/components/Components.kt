@@ -1,7 +1,6 @@
 package com.totaliptv.pro.ui.components
 
 import androidx.compose.foundation.background
-import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.R
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
@@ -42,6 +41,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -52,7 +52,8 @@ import androidx.tv.material3.Text
 import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
 import coil.compose.AsyncImage
-import coil.compose.AsyncImagePainter
+import com.totaliptv.pro.ui.home.HomeShelfFit
+import com.totaliptv.pro.ui.splash.AppBrandName
 import com.totaliptv.pro.ui.splash.SplashBranding
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.ClassicDimens
@@ -598,7 +599,9 @@ fun PosterCard(
     rating: String? = null,
     /** 1–99 watch progress percent; shows badge + thin bar (Continue watching / in-progress). */
     progressPercent: Int? = null,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    imageHeight: Dp? = null,
+    titleSlotHeight: Dp? = null
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(10.dp)
@@ -628,7 +631,10 @@ fun PosterCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(2f / 3f)
+                    .then(
+                        if (imageHeight != null) Modifier.height(imageHeight)
+                        else Modifier.aspectRatio(2f / 3f)
+                    )
                     .background(Color(0xFF0C1018)),
                 contentAlignment = Alignment.Center
             ) {
@@ -724,7 +730,11 @@ fun PosterCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)
+                modifier = if (titleSlotHeight != null) {
+                    Modifier.height(titleSlotHeight).padding(horizontal = 6.dp, vertical = 2.dp)
+                } else {
+                    Modifier.padding(horizontal = 6.dp, vertical = 5.dp)
+                }
             )
             if (!subtitle.isNullOrBlank()) {
                 Text(
@@ -899,46 +909,34 @@ fun NetworkImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
-    placeholderLabel: String = "?"
+    placeholderLabel: String = "?",
+    decodeWidth: Int = 220,
+    decodeHeight: Int = 330
 ) {
-    if (url.isNullOrBlank()) {
-        Box(modifier = modifier.background(Color(0xFF151C28)), contentAlignment = Alignment.Center) {
-            Text(
-                text = placeholderLabel,
-                color = OnCinemaMuted,
-                style = MaterialTheme.typography.titleMedium
-            )
-        }
-        return
-    }
-    var failed by remember(url) { mutableStateOf(false) }
-    if (failed) {
-        Box(modifier = modifier.background(Color(0xFF151C28)), contentAlignment = Alignment.Center) {
-            Text(
-                text = placeholderLabel,
-                color = OnCinemaMuted,
-                style = MaterialTheme.typography.titleMedium
-            )
-        }
-    } else {
-        val context = LocalContext.current
-        // Decode near Classic poster cell size — full-res posters during LazyVerticalGrid scroll cause jank/OOM.
-        val model = remember(url) {
-            ImageRequest.Builder(context)
-                .data(url)
-                .size(220, 330)
-                .crossfade(false)
-                .build()
-        }
-        AsyncImage(
-            model = model,
-            contentDescription = contentDescription,
-            modifier = modifier,
-            contentScale = contentScale,
-            onState = { state ->
-                if (state is AsyncImagePainter.State.Error) failed = true
-            }
+    Box(modifier = modifier.background(Color(0xFF151C28)), contentAlignment = Alignment.Center) {
+        Text(
+            text = placeholderLabel,
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.titleMedium
         )
+        if (!url.isNullOrBlank()) {
+            val context = LocalContext.current
+            val model = remember(url, decodeWidth, decodeHeight) {
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .size(decodeWidth, decodeHeight)
+                    .addHeader("User-Agent", com.totaliptv.pro.data.LogoUrls.USER_AGENT)
+                    .allowHardware(false)
+                    .crossfade(false)
+                    .build()
+            }
+            AsyncImage(
+                model = model,
+                contentDescription = contentDescription,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = contentScale
+            )
+        }
     }
 }
 
@@ -956,6 +954,40 @@ fun ErrorText(message: String, modifier: Modifier = Modifier) {
 }
 
 
+/**
+ * Name row shared by classic pages that are not inside [AppTopNav].
+ * Same height as the hub nav, so every classic page starts at the same offset.
+ */
+@Composable
+fun ClassicBrandBar(modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(HomeShelfFit.classicNav)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        AppBrandName(
+            color = OnCinema,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/** Single-line page title used under [ClassicBrandBar]. Matches classic Home row headers. */
+@Composable
+fun ClassicPageTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        color = OnCinema,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier.height(HomeShelfFit.classicRowHeader)
+    )
+}
+
 /** Global top nav: brand + Search/Home/Live/Movies/Series + settings (TIP chrome). */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -970,58 +1002,27 @@ fun AppTopNav(
     userBadge: String? = null,
     sourceKind: String? = null,
     focusRequester: FocusRequester? = null,
-    modifier: Modifier = Modifier,
-    versionName: String = BuildConfig.VERSION_NAME
+    modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .height(HomeShelfFit.classicNav)
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            modifier = Modifier
-                .width(210.dp)
-                .padding(end = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Image(
-                painter = painterResource(R.drawable.app_banner),
-                contentDescription = brandTitle,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .clip(RoundedCornerShape(8.dp)),
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.CenterStart
-            )
-            Row(
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = brandTitle.ifBlank { SplashBranding.APP_TITLE },
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = OnCinema,
-                    maxLines = 1
-                )
-                Text(
-                    text = SplashBranding.versionLabel(versionName),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Medium,
-                    color = OnCinemaMuted,
-                    fontSize = 11.sp,
-                    maxLines = 1
-                )
-            }
-            Text(
-                text = clockText,
-                style = MaterialTheme.typography.labelSmall,
-                color = OnCinemaMuted,
-                maxLines = 1
-            )
-        }
+        AppBrandName(
+            color = OnCinema,
+            text = brandTitle.ifBlank { SplashBranding.APP_TITLE },
+            modifier = Modifier.widthIn(max = 200.dp)
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = clockText,
+            style = MaterialTheme.typography.labelSmall,
+            color = OnCinemaMuted,
+            maxLines = 1
+        )
         Spacer(Modifier.weight(0.35f))
         Row(
             horizontalArrangement = Arrangement.spacedBy(4.dp),

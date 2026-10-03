@@ -15,8 +15,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -29,9 +33,16 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.totaliptv.pro.ui.home.HomeShelfFit
+import com.totaliptv.pro.ui.nav.TvBack
 import androidx.compose.ui.text.font.FontWeight
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.data.model.ContentKind
+import com.totaliptv.pro.ui.focus.FocusTrace
 import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
@@ -76,6 +87,8 @@ fun DesktopAppRoot(
         var error by remember { mutableStateOf<String?>(null) }
         var showOnboarding by remember { mutableStateOf(false) }
         var section by remember { mutableStateOf(DesktopNavSection.HOME) }
+        SideEffect { FocusTrace.screen = "desktop:${section.name}" }
+        var exitArmedAt by remember { mutableLongStateOf(0L) }
         var search by remember { mutableStateOf("") }
         var categoryId by remember { mutableStateOf<String?>(null) }
         var browseSort by remember { mutableStateOf("AZ") }
@@ -92,6 +105,16 @@ fun DesktopAppRoot(
         var favorites by remember { mutableStateOf<List<FavoriteRef>>(emptyList()) }
         val scope = rememberCoroutineScope()
         val favoriteIds = remember(favorites) { favorites.map { it.id }.toSet() }
+        val refreshHomeStart = remember { com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.value }
+        val refreshHomeReq by com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.collectAsState()
+        LaunchedEffect(refreshHomeReq) {
+            if (refreshHomeReq > refreshHomeStart) {
+                // Playlist refresh splash finished: land on Home.
+                showOnboarding = false
+                detailItem = null
+                section = DesktopNavSection.HOME
+            }
+        }
 
         fun snapshotMovies() = runCatching { repository.itemsByKind(ContentKind.VOD) }.getOrDefault(emptyList())
         fun snapshotSeries() = runCatching { repository.itemsByKind(ContentKind.SERIES) }.getOrDefault(emptyList())
@@ -130,6 +153,26 @@ fun DesktopAppRoot(
             pendingFocusRestore = false
         }
 
+        val lifecycleOwner = LocalLifecycleOwner.current
+        DisposableEffect(lifecycleOwner) {
+            val obs = LifecycleEventObserver { _, event ->
+                if (event != Lifecycle.Event.ON_RESUME) return@LifecycleEventObserver
+                if (restoreFocusId == null || detailItem != null) return@LifecycleEventObserver
+                val homeScopes = setOf("desk-cw", "desk-movies", "desk-series")
+                val matches = when (section) {
+                    DesktopNavSection.HOME -> restoreFocusScope in homeScopes
+                    DesktopNavSection.MOVIES -> restoreFocusScope == "desk-movies-grid"
+                    DesktopNavSection.SERIES -> restoreFocusScope == "desk-series-grid"
+                    DesktopNavSection.FAVORITES -> restoreFocusScope == "desk-fav"
+                    DesktopNavSection.LIVE -> restoreFocusScope == "desk-live"
+                    else -> false
+                }
+                if (matches) pendingFocusRestore = true
+            }
+            lifecycleOwner.lifecycle.addObserver(obs)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+        }
+
         fun toggleFavoriteToast(item: MediaItem) {
             val wasFav = item.id in favoriteIds
             scope.launch {
@@ -146,13 +189,15 @@ fun DesktopAppRoot(
             repository.favorites.collectLatest { favorites = it }
         }
 
-        LaunchedEffect(sources) {
+        LaunchedEffect(sources, com.totaliptv.pro.ui.onboarding.SignInForm.active) {
             if (sources.isEmpty()) {
                 showOnboarding = true
                 ready = true
                 loading = false
                 return@LaunchedEffect
             }
+            // Sign-in still loading the playlist behind its splash: stay on the sign-in screen.
+            if (com.totaliptv.pro.ui.onboarding.SignInForm.active) return@LaunchedEffect
             showOnboarding = false
             // After Classic <-> Desktop recreate the Application (and catalog cache) survive.
             // Skip a full-screen blank "Loading catalog" frame when data is already warm.
@@ -164,7 +209,7 @@ fun DesktopAppRoot(
             if (!warm) loading = true
             error = null
             runCatching { repository.ensureCatalogLoaded(force = false) }
-                .onFailure { error = it.message ?: it.javaClass.simpleName }
+                .onFailure { error = SensitiveText.forUser(it) }
             ready = true
             loading = false
         }
@@ -175,7 +220,7 @@ fun DesktopAppRoot(
             if (section != DesktopNavSection.HOME) return@LaunchedEffect
             yield()
             resume = withContext(Dispatchers.IO) {
-                runCatching { app?.watchProgress?.continueWatching(24).orEmpty() }.getOrDefault(emptyList())
+                runCatching { app?.watchProgress?.continueWatching().orEmpty() }.getOrDefault(emptyList())
             }
         }
 
@@ -216,7 +261,7 @@ fun DesktopAppRoot(
                             scope.launch {
                                 refreshing = true
                                 runCatching { repository.ensureCatalogLoaded(force = true) }
-                                    .onFailure { error = it.message }
+                                    .onFailure { error = SensitiveText.forUser(it) }
                                     .onSuccess { error = null }
                                 refreshing = false
                             }
@@ -248,8 +293,21 @@ fun DesktopAppRoot(
                 }
 
                 Box(Modifier.fillMaxSize().background(TipBg)) {
+                BackHandler(enabled = detailItem == null) {
+                    val atHome = section == DesktopNavSection.HOME
+                    when (TvBack.action(atHome, exitArmedAt, System.currentTimeMillis())) {
+                        TvBack.Action.GO_HOME -> {
+                            exitArmedAt = 0L
+                            section = DesktopNavSection.HOME
+                        }
+                        TvBack.Action.ARM_EXIT -> {
+                            exitArmedAt = System.currentTimeMillis()
+                            Toast.makeText(context, "Press Back again to exit", Toast.LENGTH_SHORT).show()
+                        }
+                        TvBack.Action.EXIT -> (context as? android.app.Activity)?.finish()
+                    }
+                }
                 Column(Modifier.fillMaxSize()) {
-                    TopBanner()
                     Row(Modifier.weight(1f).fillMaxWidth()) {
                         DesktopSidebar(
                             section = section,
@@ -281,8 +339,8 @@ fun DesktopAppRoot(
                                             error = null
                                         }
                                         .onFailure {
-                                            statusMessage = it.message
-                                            error = it.message
+                                            statusMessage = SensitiveText.forUser(it)
+                                            error = SensitiveText.forUser(it)
                                         }
                                     refreshing = false
                                 }
@@ -291,23 +349,24 @@ fun DesktopAppRoot(
                             modifier = Modifier
                                 .width(TipDimens.SidebarWidth)
                                 .fillMaxHeight()
-                                .background(TipSurface)
+                                .background(TipBg)
                         )
                         Column(
                             Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
+                                .padding(horizontal = TipDimens.ContentPad)
                                 .then(
-                                    if (section == DesktopNavSection.GUIDE) Modifier
-                                    else Modifier.padding(TipDimens.ContentPad)
+                                    if (section == DesktopNavSection.HOME) {
+                                        Modifier
+                                    } else {
+                                        Modifier.padding(
+                                            top = HomeShelfFit.pageTopOffset,
+                                            bottom = HomeShelfFit.desktopContentPadBottom
+                                        )
+                                    }
                                 )
                         ) {
-                            statusMessage?.let {
-                                Text(it, color = TipAccent, fontSize = TipDimens.BodyMediumSp, modifier = Modifier.padding(bottom = TipDimens.dp(8)))
-                            }
-                            if (vodLoading) {
-                                Text("Loading movies & series…", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
-                            }
                             when (section) {
                                 DesktopNavSection.HOME -> HomePane(
                                     movies = movies,
@@ -334,8 +393,19 @@ fun DesktopAppRoot(
                                     categoryId = categoryId,
                                     onSearch = { search = it },
                                     onCategory = { categoryId = it },
-                                    onPlay = onPlay,
-                                    onRecord = { com.totaliptv.pro.dvr.DvrActions.recordNow(context, it) }
+                                    onPlay = { item ->
+                                        val index = live.indexOfFirst { it.id == item.id }
+                                        restoreFocusId = item.id
+                                        restoreFocusIndex = index
+                                        restoreFocusScope = "desk-live"
+                                        pendingFocusRestore = false
+                                        onPlay(item)
+                                    },
+                                    onRecord = { com.totaliptv.pro.dvr.DvrActions.recordNow(context, it) },
+                                    restoreFocusId = restoreFocusId,
+                                    restoreFocusIndex = restoreFocusIndex,
+                                    pendingFocusRestore = pendingFocusRestore && restoreFocusScope == "desk-live",
+                                    onRestoreConsumed = { consumeFocusRestore() }
                                 )
                                 DesktopNavSection.MOVIES -> BrowseGridPane(
                                     title = "Movies",
@@ -403,7 +473,8 @@ fun DesktopAppRoot(
                                     ) {
                                         com.totaliptv.pro.ui.dvr.RecordingsScreen(
                                             onPlay = onPlay,
-                                            onBack = { section = DesktopNavSection.HOME }
+                                            onBack = { section = DesktopNavSection.HOME },
+                                            applyPageInset = false
                                         )
                                     }
                                 }
@@ -419,7 +490,8 @@ fun DesktopAppRoot(
                                             onPlay = onPlay,
                                             onBack = { section = DesktopNavSection.HOME },
                                             initialCategoryId = categoryId,
-                                            onCategoryChange = { categoryId = it }
+                                            onCategoryChange = { categoryId = it },
+                                            applyPageInset = false
                                         )
                                     }
                                 }
@@ -512,12 +584,15 @@ private fun DesktopSidebar(
     Column(
         modifier
             .focusProperties { canFocus = focusEnabled }
-            .padding(TipDimens.SidebarPad),
+            .padding(
+                start = TipDimens.SidebarPad,
+                top = HomeShelfFit.pageTopOffset,
+                end = TipDimens.SidebarPad,
+                bottom = TipDimens.SidebarPad
+            ),
         verticalArrangement = Arrangement.spacedBy(TipDimens.NavGap)
     ) {
-        Text("TOTAL IPTV PRO", color = TipAmber, fontWeight = FontWeight.Bold, fontSize = TipDimens.TitleMediumSp)
-        Text("Android TV", color = TipGoldMuted, fontSize = TipDimens.SubBrandSp)
-        Spacer(Modifier.height(TipDimens.dp(12)))
+        SidebarBrand()
         items.forEach { (sec, label) ->
             val selected = section == sec
             TipFocusable(

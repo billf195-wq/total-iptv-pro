@@ -1,12 +1,17 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.totaliptv.pro.ui.desktop
 
 import android.app.Activity
+import android.widget.EditText
 import android.widget.Toast
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,6 +24,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.tv.foundation.lazy.list.TvLazyRow
+import androidx.tv.foundation.lazy.list.itemsIndexed as tvItemsIndexed
+import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -27,11 +35,21 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import com.totaliptv.pro.ui.focus.SafeFocus
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -41,13 +59,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.diagnostics.CrashLog
+import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.LiveChannelMapping
 import com.totaliptv.pro.data.local.AppLayoutMode
 import com.totaliptv.pro.data.local.AppPreferences
@@ -60,9 +80,18 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.dvr.DvrRecordUi
+import com.totaliptv.pro.ui.home.HomeShelfFit
+import com.totaliptv.pro.ui.home.NoVerticalHomeScroll
+import com.totaliptv.pro.ui.home.PosterRowBringIntoView
+import com.totaliptv.pro.ui.components.DpadSearchField
+import com.totaliptv.pro.ui.components.SearchTyping
+import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.data.update.AppUpdateChecker
+import com.totaliptv.pro.data.update.installLabel
 import com.totaliptv.pro.data.update.UpdateCheckResult
+import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.launch
@@ -113,11 +142,15 @@ fun HomePane(
         topSeries = ranked.second
     }
     val homeListState = rememberLazyListState()
-    val resumeRowState = rememberLazyListState()
-    val moviesRowState = rememberLazyListState()
-    val seriesRowState = rememberLazyListState()
+    val resumeRowState = rememberTvLazyListState()
+    val moviesRowState = rememberTvLazyListState()
+    val seriesRowState = rememberTvLazyListState()
     val homeScopes = setOf("desk-cw", "desk-movies", "desk-series")
-    LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope) {
+    var didInitialHomeFocus by remember { mutableStateOf(false) }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val homeBlock = HomeShelfFit.desktopHomeBlock()
+    val centerHome = homeBlock <= maxHeight
+    LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope, centerHome) {
         if (!pendingFocusRestore) return@LaunchedEffect
         val scope = restoreFocusScope
         val id = restoreFocusId
@@ -130,12 +163,15 @@ fun HomePane(
         var focused = false
         for (attempt in 0 until 8) {
             val rowOrdinal = when (scope) {
-                "desk-cw" -> 1
-                "desk-movies" -> 2
-                "desk-series" -> 3
+                "desk-cw" -> 0
+                "desk-movies" -> 1
+                "desk-series" -> 2
                 else -> 0
             }
-            runCatching { homeListState.scrollToItem(rowOrdinal) }
+            // A centered block is already fully on screen. Scrolling it would undo the inset.
+            if (!centerHome) {
+                runCatching { homeListState.scrollToItem(rowOrdinal) }
+            }
             when (scope) {
                 "desk-cw" -> runCatching { resumeRowState.scrollToItem(idx) }
                 "desk-movies" -> runCatching { moviesRowState.scrollToItem(idx) }
@@ -152,21 +188,42 @@ fun HomePane(
         }
         onRestoreConsumed()
     }
+    LaunchedEffect(resume.firstOrNull()?.id, top.items.firstOrNull()?.id, pendingFocusRestore) {
+        if (didInitialHomeFocus || pendingFocusRestore) return@LaunchedEffect
+        val target = when {
+            resume.isNotEmpty() -> "desk-cw" to resume.first().id
+            top.items.isNotEmpty() -> "desk-movies" to top.items.first().id
+            else -> return@LaunchedEffect
+        }
+        delay(80)
+        if (pendingFocusRestore) return@LaunchedEffect
+        val focused = runCatching {
+            posterFocus(target.first, target.second).requestFocus()
+            true
+        }.getOrDefault(false)
+        if (focused) didInitialHomeFocus = true
+    }
+    val homeTop = HomeShelfFit.centeredTopOffset(
+        maxHeight,
+        homeBlock,
+        HomeShelfFit.pageTopOffset
+    )
+    val posterBringIntoView = LocalBringIntoViewSpec.current
+    CompositionLocalProvider(
+        LocalBringIntoViewSpec provides if (centerHome) NoVerticalHomeScroll else posterBringIntoView
+    ) {
     LazyColumn(
         state = homeListState,
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(TipDimens.dp(20))
+        userScrollEnabled = !centerHome,
+        contentPadding = PaddingValues(
+            top = homeTop,
+            bottom = if (centerHome) homeTop else HomeShelfFit.desktopContentPadBottom
+        ),
+        verticalArrangement = Arrangement.spacedBy(HomeShelfFit.desktopRowGap)
     ) {
         item {
-            PaneTitle("Home")
-            Text(
-                "Continue watching and top picks from your catalog",
-                color = TipGoldMuted,
-                fontSize = TipDimens.BodyMediumSp
-            )
-        }
-        item {
-            SectionHeader("Continue watching")
+            HomeShelfHeader("Continue watching")
             if (resume.isEmpty()) {
                 Box(
                     Modifier
@@ -181,63 +238,78 @@ fun HomePane(
                     )
                 }
             } else {
-                LazyRow(
+                PosterRowBringIntoView(posterBringIntoView) {
+                TvLazyRow(
                     state = resumeRowState,
                     horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
                 ) {
-                    itemsIndexed(resume.take(24), key = { _, it -> it.id }) { index, entry ->
+                    tvItemsIndexed(resume, key = { _, it -> it.id }) { index, entry ->
                         DesktopPosterCard(
                             entry.toMediaItem(),
                             onClick = { onResume(entry, index) },
-                            focusRequester = posterFocus("desk-cw", entry.id)
+                            focusRequester = posterFocus("desk-cw", entry.id),
+                            imageHeight = HomeShelfFit.desktopPosterImage,
+                            titleSlotHeight = HomeShelfFit.desktopPosterTitle
                         )
                     }
+                }
                 }
             }
         }
         item {
-            SectionHeader(top.title)
+            HomeShelfHeader(top.title)
             if (top.items.isEmpty()) {
                 Text("No movies in catalog yet.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
             } else {
-                LazyRow(
+                PosterRowBringIntoView(posterBringIntoView) {
+                TvLazyRow(
                     state = moviesRowState,
                     horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
                 ) {
-                    itemsIndexed(top.items, key = { _, it -> it.id }) { index, item ->
+                    tvItemsIndexed(top.items, key = { _, it -> it.id }) { index, item ->
                         DesktopPosterCard(
                             item,
                             onClick = { onPlay(item, index) },
-                            focusRequester = posterFocus("desk-movies", item.id)
+                            focusRequester = posterFocus("desk-movies", item.id),
+                            imageHeight = HomeShelfFit.desktopPosterImage,
+                            titleSlotHeight = HomeShelfFit.desktopPosterTitle
                         )
                     }
+                }
                 }
             }
         }
         item {
-            SectionHeader(topSeries.title)
+            HomeShelfHeader(topSeries.title)
             if (topSeries.items.isEmpty()) {
                 Text("No series in catalog yet.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
             } else {
-                LazyRow(
+                PosterRowBringIntoView(posterBringIntoView) {
+                TvLazyRow(
                     state = seriesRowState,
                     horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
                 ) {
-                    itemsIndexed(topSeries.items, key = { _, it -> it.id }) { index, item ->
+                    tvItemsIndexed(topSeries.items, key = { _, it -> it.id }) { index, item ->
                         DesktopPosterCard(
                             item,
                             onClick = { onOpenSeries(item, index) },
-                            focusRequester = posterFocus("desk-series", item.id)
+                            focusRequester = posterFocus("desk-series", item.id),
+                            imageHeight = HomeShelfFit.desktopPosterImage,
+                            titleSlotHeight = HomeShelfFit.desktopPosterTitle
                         )
                     }
                 }
+                }
             }
         }
-        if (!warning.isNullOrBlank()) {
-            item { Text(warning, color = TipAccent, fontSize = TipDimens.sp(12)) }
-        }
-        item { Spacer(Modifier.height(TipDimens.dp(24))) }
     }
+    }
+    }
+}
+
+@Composable
+private fun HomeShelfHeader(text: String) {
+    PaneTitle(text)
 }
 
 @Composable
@@ -249,7 +321,11 @@ fun LivePane(
     onSearch: (String) -> Unit,
     onCategory: (String?) -> Unit,
     onPlay: (MediaItem) -> Unit,
-    onRecord: (MediaItem) -> Unit = {}
+    onRecord: (MediaItem) -> Unit = {},
+    restoreFocusId: String? = null,
+    restoreFocusIndex: Int = -1,
+    pendingFocusRestore: Boolean = false,
+    onRestoreConsumed: () -> Unit = {}
 ) {
     val filtered = remember(items, search, categoryId) {
         LiveChannelMapping.filterLiveChannels(items, categoryId, search)
@@ -258,7 +334,64 @@ fun LivePane(
     val dvrSnap by remember(context) {
         (context.applicationContext as TotalIptvProApp).dvr.snapshot
     }.collectAsState()
-    Column(Modifier.fillMaxSize()) {
+    var showGameDay by remember { mutableStateOf(false) }
+    val gameDayFocus = remember { FocusRequester() }
+    val chipFocus = remember { FocusRequester() }
+    val liveListState = rememberLazyListState()
+    val rowFocuses = remember { mutableMapOf<String, FocusRequester>() }
+    fun rowFocus(id: String): FocusRequester = rowFocuses.getOrPut(id) { FocusRequester() }
+    val firstRowFocus = filtered.firstOrNull()?.let { rowFocus(it.id) }
+    val liveFocusScope = rememberCoroutineScope()
+    var listHasFocus by remember { mutableStateOf(false) }
+    // Search Down lands on the first channel. Retries until a row really holds focus.
+    fun focusFirstRow(): Boolean {
+        val first = filtered.firstOrNull() ?: return false
+        liveFocusScope.launch {
+            for (attempt in 0 until 12) {
+                if (attempt == 1) runCatching { liveListState.scrollToItem(0) }
+                kotlinx.coroutines.delay(if (attempt == 0) 16L else 50L)
+                SafeFocus.request(rowFocus(first.id))
+                kotlinx.coroutines.yield()
+                if (listHasFocus) break
+            }
+        }
+        return true
+    }
+    LaunchedEffect(showGameDay) {
+        if (!showGameDay) runCatching { gameDayFocus.requestFocus() }
+    }
+    LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex) {
+        if (!pendingFocusRestore) return@LaunchedEffect
+        val id = restoreFocusId
+        if (id == null) {
+            onRestoreConsumed()
+            return@LaunchedEffect
+        }
+        val idx = restoreFocusIndex.coerceAtLeast(0)
+        for (attempt in 0 until 8) {
+            val found = filtered.indexOfFirst { it.id == id }
+            val scrollTo = when {
+                found >= 0 -> found
+                idx < filtered.size -> idx
+                else -> -1
+            }
+            if (scrollTo >= 0) runCatching { liveListState.scrollToItem(scrollTo) }
+            kotlinx.coroutines.yield()
+            kotlinx.coroutines.delay(if (attempt == 0) 40L else 60L)
+            val focused = runCatching {
+                rowFocus(id).requestFocus()
+                true
+            }.getOrDefault(false)
+            if (focused) break
+        }
+        onRestoreConsumed()
+    }
+    Box(Modifier.fillMaxSize()) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .focusProperties { canFocus = !showGameDay }
+    ) {
         FilterBar(
             search = search,
             onSearch = onSearch,
@@ -266,23 +399,58 @@ fun LivePane(
             categoryId = categoryId,
             onCategory = onCategory,
             sort = null,
-            onSort = null
+            onSort = null,
+            chipFocus = chipFocus,
+            belowFocus = gameDayFocus,
+            onDownToResults = { focusFirstRow() }
         )
+        // Directly above the channel list, so Up from the top channel lands here
+        // and does not have to cross the search field.
+        AmberButton(
+            label = "Game Day",
+            onClick = { showGameDay = true },
+            modifier = Modifier
+                .focusRequester(gameDayFocus)
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionUp -> SafeFocus.request(chipFocus)
+                        // firstRowFocus is created before the lazy row item is placed.
+                        Key.DirectionDown -> SafeFocus.request(firstRowFocus)
+                        else -> false
+                    }
+                }
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
         Text("${filtered.size} channels", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
         Spacer(Modifier.height(TipDimens.dp(8)))
         LazyColumn(
+            state = liveListState,
             verticalArrangement = Arrangement.spacedBy(TipDimens.dp(6)),
-            modifier = Modifier.weight(1f).fillMaxWidth()
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .onFocusChanged { listHasFocus = it.hasFocus }
         ) {
-            items(filtered, key = { it.id }) { item ->
+            itemsIndexed(filtered, key = { _, it -> it.id }) { index, item ->
                 LiveRowItem(
                     item,
                     onClick = { onPlay(item) },
                     onRecord = { onRecord(item) },
-                    recordActive = DvrRecordUi.matches(dvrSnap.active, item.id, item.streamUrl)
+                    recordActive = DvrRecordUi.matches(dvrSnap.active, item.id, item.streamUrl),
+                    upFocus = if (index == 0) gameDayFocus else null,
+                    focusRequester = rowFocus(item.id)
                 )
             }
         }
+    }
+    if (showGameDay) {
+        GameDayPicker(
+            channels = items,
+            initialLeft = null,
+            onDismiss = { showGameDay = false }
+        )
+    }
     }
 }
 
@@ -334,11 +502,18 @@ fun BrowseGridPane(
     onClick: (MediaItem, index: Int) -> Unit
 ) {
     val gridState = rememberLazyGridState()
+    var editingSearch by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf(search) }
+    LaunchedEffect(search) {
+        if (search == query) return@LaunchedEffect
+        delay(SearchTyping.DEBOUNCE_MS)
+        query = search
+    }
     LaunchedEffect(categoryId, sort, title) {
         gridState.scrollToItem(0)
     }
 
-    val filtered = remember(items, search, categoryId, sort) {
+    val filtered = remember(items, query, categoryId, sort) {
         // Synthetic Newly added categories have no real item.categoryId matches -
         // resolve like CatalogRepository.itemsForCategory instead of filtering to empty.
         val isNewlyAdded = categoryId == CatalogRepository.NEWLY_ADDED_VOD_CATEGORY_ID ||
@@ -349,7 +524,7 @@ fun BrowseGridPane(
             categoryId == null -> items
             else -> items.filter { it.categoryId == categoryId }
         }
-        list = list.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
+        list = list.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
         list = when (sort) {
             "ZA" -> list.sortedByDescending { it.name.lowercase() }
             "RECENT" -> sortDesktopRecentlyAdded(list)
@@ -385,8 +560,38 @@ fun BrowseGridPane(
         }
         onRestoreConsumed()
     }
+    val gridFocusScope = rememberCoroutineScope()
+    var gridHasFocus by remember { mutableStateOf(false) }
+    // Search field / sort chips Down lands on the first poster. The posters only become
+    // focusable one recomposition after the field leaves edit mode, so retry until one
+    // really holds focus (requestFocus can silently no-op before that).
+    fun focusFirstPoster(): Boolean {
+        val first = filtered.firstOrNull() ?: return false
+        gridFocusScope.launch {
+            for (attempt in 0 until 12) {
+                if (attempt == 1) runCatching { gridState.scrollToItem(0) }
+                delay(if (attempt == 0) 16L else 50L)
+                SafeFocus.request(posterFocus(gridScope, first.id))
+                kotlinx.coroutines.yield()
+                if (gridHasFocus) break
+            }
+        }
+        return true
+    }
+    var didInitialGridFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(filtered.firstOrNull()?.id) {
+        if (didInitialGridFocus || pendingFocusRestore || editingSearch) return@LaunchedEffect
+        if (!SearchTyping.resultsMayTakeFocus(editingSearch)) return@LaunchedEffect
+        val first = filtered.firstOrNull() ?: return@LaunchedEffect
+        delay(80)
+        if (pendingFocusRestore || editingSearch) return@LaunchedEffect
+        val focused = runCatching {
+            posterFocus(gridScope, first.id).requestFocus()
+            true
+        }.getOrDefault(false)
+        if (focused) didInitialGridFocus = true
+    }
     Column(Modifier.fillMaxSize()) {
-        PaneTitle(title)
         FilterBar(
             search = search,
             onSearch = onSearch,
@@ -394,24 +599,30 @@ fun BrowseGridPane(
             categoryId = categoryId,
             onCategory = onCategory,
             sort = sort,
-            onSort = onSort
+            onSort = onSort,
+            onEditingChange = { editingSearch = it },
+            onDownToResults = { focusFirstPoster() }
         )
         Text("${filtered.size} titles", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
-        Spacer(Modifier.height(TipDimens.dp(12)))
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
         LazyVerticalGrid(
             columns = GridCells.Fixed(AppPreferences.normalizePosterColumns(columns)),
             state = gridState,
             horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap),
             verticalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap),
             contentPadding = PaddingValues(bottom = TipDimens.dp(24)),
-            modifier = Modifier.weight(1f).fillMaxWidth()
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .onFocusChanged { gridHasFocus = it.hasFocus }
         ) {
             gridItemsIndexed(filtered, key = { _, it -> it.id }) { index, item ->
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                     DesktopPosterCard(
                         item,
                         onClick = { onClick(item, index) },
-                        focusRequester = posterFocus(gridScope, item.id)
+                        focusRequester = posterFocus(gridScope, item.id),
+                        canFocus = SearchTyping.resultsMayTakeFocus(editingSearch)
                     )
                 }
             }
@@ -477,15 +688,26 @@ fun FavoritesPane(
         }
         onRestoreConsumed()
     }
+    var didInitialFavFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(resolved.firstOrNull()?.second?.id) {
+        if (didInitialFavFocus || pendingFocusRestore) return@LaunchedEffect
+        val first = resolved.firstOrNull()?.second ?: return@LaunchedEffect
+        delay(80)
+        if (pendingFocusRestore) return@LaunchedEffect
+        val focused = runCatching {
+            posterFocus(gridScope, first.id).requestFocus()
+            true
+        }.getOrDefault(false)
+        if (focused) didInitialFavFocus = true
+    }
     Column(Modifier.fillMaxSize()) {
-        PaneTitle("Favorites")
         Text(
             if (favorites.isEmpty()) "Long-press a poster or Favorite while watching to save titles here."
             else "${favorites.size} saved",
             color = TipGoldMuted,
             fontSize = TipDimens.BodyMediumSp
         )
-        Spacer(Modifier.height(TipDimens.dp(12)))
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
         if (favorites.isEmpty()) {
             Box(
                 Modifier
@@ -551,7 +773,8 @@ fun GuidePane(
         onPlay = onPlay,
         onBack = onBack,
         initialCategoryId = categoryId,
-        onCategoryChange = onCategory
+        onCategoryChange = onCategory,
+        applyPageInset = false
     )
 }
 
@@ -574,11 +797,20 @@ fun DesktopSettingsPane(
         .collectAsState(initial = AppPreferences.DEFAULT_UPDATE_BASE_URL)
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var updateBusy by remember { mutableStateOf(false) }
+    var updateCheckDone by remember { mutableStateOf(0) }
+    val updateFocus = remember { FocusRequester() }
+    LaunchedEffect(updateCheckDone) {
+        if (updateCheckDone == 0) return@LaunchedEffect
+        runCatching { updateFocus.requestFocus() }
+    }
     var pendingInstall by remember { mutableStateOf<UpdateCheckResult.Available?>(null) }
     val sources by repository.sources.collectAsState(initial = emptyList())
 
+    val settingsFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        runCatching { settingsFocus.requestFocus() }
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        PaneTitle("Settings")
         Text(
             "Live $liveCount · Movies $movieCount · Series $seriesCount",
             color = TipGoldText,
@@ -587,7 +819,7 @@ fun DesktopSettingsPane(
         sources.firstOrNull()?.let { src ->
             Text("Source: ${src.name} (${src.type})", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
         }
-        Spacer(Modifier.height(TipDimens.dp(16)))
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
 
         val appearance by (app?.preferences?.appearanceMode ?: kotlinx.coroutines.flow.flowOf(AppearanceMode.DARK))
             .collectAsState(initial = AppearanceMode.DARK)
@@ -606,6 +838,11 @@ fun DesktopSettingsPane(
         Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
             AppLayoutMode.entries.forEach { mode ->
                 TipFocusable(
+                    modifier = if (mode == AppLayoutMode.entries.first()) {
+                        Modifier.focusRequester(settingsFocus)
+                    } else {
+                        Modifier
+                    },
                     onClick = {
                         scope.launch {
                             app?.preferences?.setAppLayoutMode(mode)
@@ -736,7 +973,44 @@ fun DesktopSettingsPane(
             color = TipGoldMuted,
             fontSize = TipDimens.BodyMediumSp
         )
-        Text("Shelf: $updateBaseUrl", color = TipGoldMuted, fontSize = TipDimens.sp(12))
+        Text(
+            if (updateBaseUrl.isBlank()) "Checks GitHub Releases" else "Checks GitHub Releases, then your shelf",
+            color = TipGoldMuted,
+            fontSize = TipDimens.sp(12)
+        )
+        Text(
+            "Shelf address (optional). Leave blank to use GitHub only. A saved address stays after updates.",
+            color = TipGoldMuted,
+            fontSize = TipDimens.sp(12)
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        val shelfField = remember { mutableStateOf<EditText?>(null) }
+        AndroidView(
+            factory = { ctx ->
+                EditText(ctx).apply {
+                    setSingleLine(true)
+                    hint = "https://example.test/updates/"
+                    setText(updateBaseUrl)
+                    setTextColor(0xFFF5F5F5.toInt())
+                    setHintTextColor(0xFFB0B0B0.toInt())
+                    shelfField.value = this
+                }
+            },
+            update = { edit ->
+                if (!edit.isFocused && edit.text?.toString() != updateBaseUrl) {
+                    edit.setText(updateBaseUrl)
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        AmberButton("Save shelf address", onClick = {
+            val typed = shelfField.value?.text?.toString().orEmpty()
+            scope.launch {
+                app?.preferences?.setUpdateBaseUrl(typed)
+                Toast.makeText(context, "Shelf address saved", Toast.LENGTH_SHORT).show()
+            }
+        })
         Spacer(Modifier.height(TipDimens.dp(10)))
         AmberButton(
             label = when {
@@ -745,6 +1019,7 @@ fun DesktopSettingsPane(
                 pendingInstall != null -> "Install update ${pendingInstall?.manifest?.versionName ?: ""}"
                 else -> "Check for update"
             },
+            modifier = Modifier.focusRequester(updateFocus),
             onClick = {
                 if (updateBusy) return@AmberButton
                 val activity = context as? Activity
@@ -763,10 +1038,11 @@ fun DesktopSettingsPane(
                             updateStatus = "Opening installer…"
                             AppUpdateChecker.launchInstaller(context, file)
                         } catch (t: Throwable) {
-                            updateStatus = "Download failed: ${t.message ?: t.javaClass.simpleName}"
+                            updateStatus = "Download failed: ${SensitiveText.forUser(t)}"
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         } finally {
                             updateBusy = false
+                            updateCheckDone += 1
                         }
                         return@launch
                     }
@@ -780,8 +1056,7 @@ fun DesktopSettingsPane(
                         }
                         is UpdateCheckResult.Available -> {
                             pendingInstall = result
-                            updateStatus =
-                                "Update available: ${result.manifest.versionName}. Tap to install."
+                            updateStatus = result.installLabel()
                             Toast.makeText(
                                 context,
                                 "Update ${result.manifest.versionName} available",
@@ -789,11 +1064,12 @@ fun DesktopSettingsPane(
                             ).show()
                         }
                         is UpdateCheckResult.Failed -> {
-                            updateStatus = "Check failed: ${result.message}"
+                            updateStatus = "Check failed: ${SensitiveText.forUser(result.message)}"
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         }
                     }
                     updateBusy = false
+                    updateCheckDone += 1
                 }
             }
         )
@@ -803,6 +1079,40 @@ fun DesktopSettingsPane(
         }
 
                 Spacer(Modifier.height(TipDimens.dp(24)))
+        SectionHeader("Last crash")
+        val crashText = remember {
+            CrashLog.labelForSettings(CrashLog.read(context), BuildConfig.VERSION_NAME)
+        }
+        val debugText = remember { DebugLog.read(context) }
+        Text(
+            crashText.ifBlank { "No crash recorded." },
+            color = TipGoldMuted,
+            fontSize = TipDimens.sp(12)
+        )
+        if (debugText.isNotBlank()) {
+            Spacer(Modifier.height(TipDimens.dp(8)))
+            Text(
+                "Debug log\n$debugText",
+                color = TipGoldMuted,
+                fontSize = TipDimens.sp(12)
+            )
+        }
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        AmberButton(
+            label = "Share last crash",
+            onClick = {
+                if (CrashLog.read(context).isBlank()) {
+                    Toast.makeText(context, "No crash recorded", Toast.LENGTH_SHORT).show()
+                } else if (!runCatching { CrashLog.share(context) }.getOrDefault(false)) {
+                    Toast.makeText(
+                        context,
+                        "Couldn't open a share app. The crash text is above.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
+        Spacer(Modifier.height(TipDimens.dp(24)))
         SectionHeader("About")
         Text("Developed by Bill Foster", color = TipGoldText, fontSize = TipDimens.BodyLargeSp, fontWeight = FontWeight.SemiBold)
         Text("\u00A9 2026 Bill Foster. All rights reserved.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
@@ -822,30 +1132,55 @@ fun FilterBar(
     onCategory: (String?) -> Unit,
     sort: String?,
     onSort: ((String) -> Unit)?,
-    showSearch: Boolean = true
+    showSearch: Boolean = true,
+    chipFocus: FocusRequester? = null,
+    belowFocus: FocusRequester? = null,
+    onEditingChange: (Boolean) -> Unit = {},
+    onDownToResults: (() -> Boolean)? = null
 ) {
+    val searchFocus = remember { FocusRequester() }
+    val internalChipFocus = remember { FocusRequester() }
+    val chips = chipFocus ?: internalChipFocus
     Column(Modifier.fillMaxWidth().padding(bottom = TipDimens.dp(12))) {
         if (showSearch) {
-            BasicTextField(
+            DpadSearchField(
                 value = search,
                 onValueChange = onSearch,
-                singleLine = true,
-                textStyle = TextStyle(color = TipGoldText, fontSize = TipDimens.BodyLargeSp),
-                cursorBrush = SolidColor(TipAmber),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(TipSurface, RoundedCornerShape(TipDimens.PosterCorner))
-                    .padding(TipDimens.dp(12)),
-                decorationBox = { inner ->
-                    if (search.isEmpty()) Text("Search…", color = TipGoldMuted)
-                    inner()
-                }
+                placeholder = "Search…",
+                textStyle = TextStyle(color = TipGoldText, fontSize = 16.sp),
+                placeholderColor = TipGoldMuted,
+                cursorColor = TipAmber,
+                backgroundColor = TipSurface,
+                focusedBorderColor = TipAmber,
+                shape = RoundedCornerShape(HomeShelfFit.searchFieldCorner),
+                focusRequester = searchFocus,
+                downFocus = chips,
+                onEditingChange = onEditingChange,
+                onDownToResults = onDownToResults
             )
             Spacer(Modifier.height(TipDimens.dp(8)))
         }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
             item {
-                Chip("All", selected = categoryId == null, onClick = { onCategory(null) })
+                Chip(
+                    "All",
+                    selected = categoryId == null,
+                    onClick = { onCategory(null) },
+                    modifier = Modifier
+                        .focusRequester(chips)
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                // Geometric search is the fallback. Never point focusProperties
+                                // at these requesters: the search field is swapped while editing,
+                                // and a lazy row below may not be composed yet.
+                                Key.DirectionUp -> showSearch && SafeFocus.request(searchFocus)
+                                Key.DirectionDown -> SafeFocus.request(belowFocus) ||
+                                    (sort == null && onDownToResults?.invoke() == true)
+                                else -> false
+                            }
+                        }
+                )
             }
             items(categories, key = { it.id }) { cat ->
                 Chip(cat.name, selected = categoryId == cat.id, onClick = { onCategory(cat.id) })
@@ -855,7 +1190,16 @@ fun FilterBar(
             Spacer(Modifier.height(TipDimens.dp(12)))
             Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
                 listOf("AZ" to "A–Z", "ZA" to "Z–A", "RECENT" to "Most recent").forEach { (key, label) ->
-                    Chip(label, selected = sort == key, onClick = { onSort(key) })
+                    Chip(
+                        label,
+                        selected = sort == key,
+                        onClick = { onSort(key) },
+                        modifier = Modifier.onPreviewKeyEvent { e ->
+                            e.type == KeyEventType.KeyDown &&
+                                e.key == Key.DirectionDown &&
+                                onDownToResults?.invoke() == true
+                        }
+                    )
                 }
             }
         }
@@ -863,8 +1207,13 @@ fun FilterBar(
 }
 
 @Composable
-private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
-    TipFocusable(onClick = onClick) { focused ->
+private fun Chip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    TipFocusable(onClick = onClick, modifier = modifier) { focused ->
         Text(
             label,
             color = when {

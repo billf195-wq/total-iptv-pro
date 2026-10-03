@@ -1,48 +1,173 @@
 package com.totaliptv.pro.ui.epg
 
 import com.totaliptv.pro.data.model.EpgChannelRow
+import com.totaliptv.pro.data.model.EpgProgram
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlin.math.max
 
 /**
- * Desktop loads EPG per selected/visible channel ([needEpg]). Android TV used
- * to `awaitAll()` every `get_short_epg` in the category before painting blocks.
- *
- * 1.4.53 tried a Channel + [Dispatchers.IO] collector gated on Compose
- * `guideLoadGen`; snapshot reads / child failure cancelled the whole scope so
- * **no blocks ever applied**. Launch on Main, fetch on IO, apply on Main.
+ * The guide used to queue every channel in the category after the visible
+ * rows, which fired thousands of get_short_epg calls on a large lineup.
+ * Only the rows on screen, plus a short buffer, are fetched.
  */
 object GuideEpgLoad {
-    /** In-flight cap; CatalogRepository semaphore matches this. */
-    const val PARALLEL = 10
+    /** In-flight cap. A 4,000-channel lineup must not open more than this. */
+    const val PARALLEL = 2
 
-    /** Visible rows plus a small prefetch so DPAD-down is already filled. */
-    const val VISIBLE_PREFETCH = 20
+    /** Coalesce row paints so one fetch does not recompose the whole grid. */
+    const val UI_BATCH_MS = 150L
+
+    /** Extra rows past the viewport so moving down is already filled. */
+    const val BUFFER_ROWS = 4
+
+    /** Reopening the guide within this window reuses listings. */
+    const val CACHE_TTL_MS = 30L * 60L * 1000L
+
+    /** How long to wait after the last scroll move before fetching. */
+    const val SCROLL_DEBOUNCE_MS = 400L
 
     fun fetchOrder(
         channelIds: List<String>,
         firstVisibleIndex: Int,
+        visibleCount: Int,
         focusedId: String?,
-        alreadyStarted: Set<String>
+        alreadyStarted: Set<String>,
+        buffer: Int = BUFFER_ROWS
     ): List<Int> {
         if (channelIds.isEmpty()) return emptyList()
         val last = channelIds.lastIndex
         val start = firstVisibleIndex.coerceIn(0, last)
-        val focusedIdx = focusedId?.let { id -> channelIds.indexOf(id) }?.takeIf { it >= 0 }
-        val visibleEnd = (start + VISIBLE_PREFETCH).coerceAtMost(channelIds.size)
+        val span = visibleCount.coerceAtLeast(1) + buffer.coerceAtLeast(0)
+        val visibleEnd = (start + span).coerceAtMost(channelIds.size)
+        val focusedIdx = focusedId?.let { id -> channelIds.indexOf(id) }?.takeIf { it in start until visibleEnd }
         return buildList {
             focusedIdx?.let { add(it) }
             addAll(start until visibleEnd)
-            addAll(channelIds.indices)
         }.distinct().filter { idx -> channelIds[idx] !in alreadyStarted }
     }
 
     fun nextBatch(
         channelIds: List<String>,
         firstVisibleIndex: Int,
+        visibleCount: Int,
         focusedId: String?,
         alreadyStarted: Set<String>,
         limit: Int = PARALLEL
-    ): List<Int> = fetchOrder(channelIds, firstVisibleIndex, focusedId, alreadyStarted).take(limit)
+    ): List<Int> = fetchOrder(
+        channelIds, firstVisibleIndex, visibleCount, focusedId, alreadyStarted
+    ).take(limit)
 
     fun applyRow(rows: List<EpgChannelRow>, filled: EpgChannelRow): List<EpgChannelRow> =
         rows.map { if (it.channel.id == filled.channel.id) filled else it }
+
+    fun cacheFresh(cachedAtMs: Long, nowMs: Long, ttlMs: Long = CACHE_TTL_MS): Boolean =
+        cachedAtMs > 0L && nowMs - cachedAtMs < ttlMs
+
+    /**
+     * Short EPG is the fallback. Skip it when xmltv already covers the channel,
+     * a request is in flight, the 30-minute cache is fresh (including an empty
+     * listing), or the bulk download has not finished yet.
+     */
+    fun shouldFetchShort(
+        cachedAtMs: Long,
+        nowMs: Long,
+        bulkCovers: Boolean,
+        inFlight: Boolean,
+        shortAllowed: Boolean
+    ): Boolean {
+        if (!shortAllowed || bulkCovers || inFlight) return false
+        return !cacheFresh(cachedAtMs, nowMs)
+    }
+}
+
+/**
+ * Moves a time cursor across programs and keeps Up/Down on the same column.
+ */
+object GuideCursor {
+    fun programAt(programs: List<EpgProgram>, cursorMs: Long): EpgProgram? {
+        if (programs.isEmpty()) return null
+        return programs.firstOrNull { cursorMs in it.startMs until it.endMs }
+            ?: programs.minByOrNull { kotlin.math.abs(it.startMs - cursorMs) }
+    }
+
+    fun step(programs: List<EpgProgram>, cursorMs: Long, direction: Int, windowStart: Long, windowEnd: Long): Long {
+        val ordered = programs.filter { it.endMs > windowStart && it.startMs < windowEnd }.sortedBy { it.startMs }
+        val hour = 60L * 60L * 1000L
+        if (ordered.isEmpty()) {
+            return (cursorMs + direction.coerceIn(-1, 1) * hour).coerceIn(windowStart, (windowEnd - 1).coerceAtLeast(windowStart))
+        }
+        val idx = ordered.indexOfLast { it.startMs <= cursorMs }.let { if (it < 0) 0 else it }
+        val next = (idx + direction.coerceIn(-1, 1)).coerceIn(0, ordered.lastIndex)
+        return ordered[next].startMs.coerceIn(windowStart, (windowEnd - 1).coerceAtLeast(windowStart))
+    }
+
+    fun scrollOffsetPx(programStartMs: Long, windowStartMs: Long, windowMs: Long, totalWidthPx: Int): Int {
+        if (windowMs <= 0L || totalWidthPx <= 0) return 0
+        val frac = (programStartMs - windowStartMs).toFloat() / windowMs.toFloat()
+        return (totalWidthPx * frac).toInt().coerceIn(0, totalWidthPx)
+    }
+}
+
+/**
+ * Caps concurrent EPG calls and pauses the whole guide after HTTP 429.
+ */
+class EpgRequestGate(
+    val maxInFlight: Int = GuideEpgLoad.PARALLEL,
+    private val now: () -> Long = { System.currentTimeMillis() },
+    private val sleeper: suspend (Long) -> Unit = { delay(it) }
+) {
+    private val mutex = Mutex()
+    private var inFlight = 0
+    private var pauseUntilMs = 0L
+    private var backoffMs = BACKOFF_START_MS
+
+    var peakInFlight: Int = 0
+        private set
+    var started: Int = 0
+        private set
+
+    suspend fun acquire() {
+        while (true) {
+            val waitMs = mutex.withLock {
+                val pause = pauseUntilMs - now()
+                when {
+                    pause > 0L -> pause
+                    inFlight >= maxInFlight -> 40L
+                    else -> {
+                        inFlight++
+                        started++
+                        peakInFlight = max(peakInFlight, inFlight)
+                        0L
+                    }
+                }
+            }
+            if (waitMs == 0L) return
+            sleeper(waitMs)
+        }
+    }
+
+    suspend fun release() {
+        mutex.withLock {
+            if (inFlight > 0) inFlight--
+        }
+    }
+
+    suspend fun onRateLimited() {
+        mutex.withLock {
+            val stamp = now()
+            pauseUntilMs = stamp + backoffMs
+            backoffMs = (backoffMs * 2).coerceAtMost(BACKOFF_MAX_MS)
+        }
+    }
+
+    suspend fun onSuccess() {
+        mutex.withLock { backoffMs = BACKOFF_START_MS }
+    }
+
+    companion object {
+        const val BACKOFF_START_MS = 8_000L
+        const val BACKOFF_MAX_MS = 120_000L
+    }
 }

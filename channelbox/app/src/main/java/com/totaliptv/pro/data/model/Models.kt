@@ -58,7 +58,9 @@ data class MediaItem(
     /** Xtream youtube_trailer — video id or URL; null = no preview. */
     val youtubeTrailer: String? = null,
     /** Plot / synopsis from get_vod_info / get_series_info when resolved. */
-    val plot: String? = null
+    val plot: String? = null,
+    /** Series poster id (series-123) when [id] is an episode leaf (series-ep-…). */
+    val seriesCatalogId: String? = null
 ) {
     /** Best available artwork for browse grids / logos. */
     fun artworkUrl(): String? = posterUrl?.takeIf { it.isNotBlank() } ?: logoUrl?.takeIf { it.isNotBlank() }
@@ -150,7 +152,8 @@ data class WatchProgress(
         categoryId = null,
         kind = kind,
         logoUrl = logoUrl,
-        posterUrl = logoUrl
+        posterUrl = logoUrl,
+        seriesCatalogId = catalogId
     )
 }
 

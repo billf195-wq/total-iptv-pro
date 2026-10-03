@@ -3,6 +3,7 @@ package com.totaliptv.pro.dvr
 import android.content.Context
 import android.os.Environment
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.util.SensitiveText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
@@ -21,9 +22,14 @@ class DvrRecorder(
     )
 
     private val store = DvrStore(File(DvrPaths.metadataDir(appContext.filesDir.absolutePath)))
+
+    // Declared before any use. An init block above this field ran reconcileStale
+    // while activeRef was still null and crashed every launch (1.4.75).
     private val activeRef = AtomicReference<Active?>(null)
     private val schedulerStarted = AtomicBoolean(false)
-    private val _snapshot = MutableStateFlow(readSnapshot())
+    private val _snapshot = MutableStateFlow(
+        Snapshot(active = null, recordings = emptyList(), schedules = emptyList(), recordingsDir = "")
+    )
     val snapshot: StateFlow<Snapshot> = _snapshot
     @Volatile
     var lastMessage: String? = null
@@ -89,10 +95,15 @@ class DvrRecorder(
         )
         store.upsert(entry)
         val thread = Thread({
+            var failed = false
+            var storageFailure = false
             try {
                 DvrCapture.capture(streamUrl, file, stop)
+            } catch (t: Throwable) {
+                failed = true
+                storageFailure = SensitiveText.isStorageFailure(t)
             } finally {
-                finishActive(stopped = stop.get())
+                finishActive(stopped = stop.get(), failed = failed, storageFailure = storageFailure)
             }
         }, "dvr-android").apply {
             isDaemon = true
@@ -158,8 +169,20 @@ class DvrRecorder(
         if (entry != null && entry.filePath.isNotBlank()) {
             runCatching { File(entry.filePath).delete() }
         }
+        if (entry != null) {
+            (appContext.applicationContext as? TotalIptvProApp)?.watchProgress
+                ?.clearRecording(entry.id, entry.filePath)
+        }
         lastMessage = "Deleted recording"
         publish()
+    }
+
+    /**
+     * Mark leftover "recording" rows from a previous process. Disk I/O — call off the main thread.
+     * There is no init block: property initializers must finish before this runs.
+     */
+    fun reconcileInterrupted() {
+        reconcileStale()
     }
 
     fun ensureScheduler() {
@@ -198,7 +221,7 @@ class DvrRecorder(
                     due.contentKind,
                     DvrStartReason.SCHEDULE_DUE
                 )
-            }.onFailure { lastMessage = it.message }
+            }.onFailure { lastMessage = SensitiveText.forUser(it) }
             publish()
             return
         }
@@ -208,27 +231,39 @@ class DvrRecorder(
         publish()
     }
 
-    private fun finishActive(stopped: Boolean) {
+    private fun reconcileStale() {
+        store.recordings().forEach { entry ->
+            val file = File(entry.filePath)
+            if (file.isFile && RecordingFile.isTransportStream(entry.filePath)) {
+                runCatching { RecordingFile.trimToWholePackets(file) }
+            }
+        }
+        val fixed = RecordingReconcile.interrupted(store.recordings(), activeRef.get()?.entry?.id) { path ->
+            runCatching { File(path).length() }.getOrDefault(0L)
+        }
+        if (fixed.isEmpty()) return
+        fixed.forEach { store.upsert(it) }
+        publish()
+    }
+
+    private fun finishActive(stopped: Boolean, failed: Boolean, storageFailure: Boolean) {
         val current = activeRef.getAndSet(null) ?: return
         val file = File(current.entry.filePath)
         val size = if (file.exists()) file.length() else 0L
         val now = System.currentTimeMillis()
-        val status = when {
-            stopped -> RecordingStatus.STOPPED
-            size > 0L -> RecordingStatus.COMPLETED
-            else -> RecordingStatus.FAILED
-        }
+        val status = recordingFinishStatus(stopped, size, failed)
+        val errorMessage = recordingErrorMessage(status, storageFailure, failed, size)
         store.upsert(
             current.entry.copy(
                 durationMs = (now - current.entry.startMs).coerceAtLeast(0L),
                 status = status.name,
-                errorMessage = if (status == RecordingStatus.FAILED) "No data written" else null
+                errorMessage = errorMessage
             )
         )
         lastMessage = when (status) {
             RecordingStatus.COMPLETED -> "Saved ${current.entry.title}"
             RecordingStatus.STOPPED -> "Stopped ${current.entry.title}"
-            else -> "Recording failed (empty file)"
+            else -> errorMessage ?: "Recording failed"
         }
         DvrRecordingService.stop(appContext)
         publish()
@@ -249,6 +284,31 @@ class DvrRecorder(
     }
 
     companion object {
+        /** A capture error is a failure even when some bytes were already written. */
+        fun recordingFinishStatus(stopped: Boolean, bytesWritten: Long, failed: Boolean): RecordingStatus {
+            return when {
+                bytesWritten <= 0L -> RecordingStatus.FAILED
+                failed && !stopped -> RecordingStatus.FAILED
+                stopped -> RecordingStatus.STOPPED
+                else -> RecordingStatus.COMPLETED
+            }
+        }
+
+        fun recordingErrorMessage(
+            status: RecordingStatus,
+            storageFailure: Boolean,
+            failed: Boolean,
+            bytesWritten: Long = 0L
+        ): String? {
+            if (status != RecordingStatus.FAILED) return null
+            return when {
+                storageFailure -> "Not enough storage to keep recording"
+                bytesWritten <= 0L -> "No video saved"
+                failed -> "Recording failed"
+                else -> "No video saved"
+            }
+        }
+
         fun from(context: Context): DvrRecorder {
             val app = context.applicationContext as TotalIptvProApp
             return app.dvr

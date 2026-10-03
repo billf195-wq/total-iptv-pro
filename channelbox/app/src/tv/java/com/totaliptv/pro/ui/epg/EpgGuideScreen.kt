@@ -32,18 +32,26 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
@@ -70,9 +78,12 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.dvr.DvrRecordUi
+import com.totaliptv.pro.ui.components.ClassicBrandBar
 import com.totaliptv.pro.ui.components.NetworkImage
 import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
+import com.totaliptv.pro.ui.player.GameDayPicker
+import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.CinemaBg
 import com.totaliptv.pro.ui.theme.CinemaSurfaceHigh
@@ -82,19 +93,19 @@ import com.totaliptv.pro.ui.theme.Hairline
 import com.totaliptv.pro.ui.theme.SoftOverlay
 import com.totaliptv.pro.ui.theme.LiveMarker
 import com.totaliptv.pro.ui.theme.OnCinema
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.max
 
-private const val WINDOW_HOURS = 4
-private val PX_PER_HOUR = 220.dp
+private val PX_PER_HOUR = GuideWindow.DP_PER_HOUR.dp
 private val CHANNEL_COL = 168.dp
 private val ROW_H = 56.dp
 private const val GUIDE_ALL_ID = "__all_live__"
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, kotlinx.coroutines.FlowPreview::class)
 @Composable
 fun EpgGuideScreen(
     repository: CatalogRepository,
@@ -103,7 +114,9 @@ fun EpgGuideScreen(
     initialCategoryId: String? = null,
     onCategoryChange: (String?) -> Unit = {},
     onRecordNow: ((MediaItem) -> Unit)? = null,
-    onSchedule: ((MediaItem, EpgProgram) -> Unit)? = null
+    onSchedule: ((MediaItem, EpgProgram) -> Unit)? = null,
+    /** False when a parent shell already applied [HomeShelfFit.pageTopOffset]. */
+    applyPageInset: Boolean = true
 ) {
     BackHandler { onBack() }
 
@@ -130,11 +143,13 @@ fun EpgGuideScreen(
     var focusedChannelId by remember { mutableStateOf<String?>(null) }
     val timeFmt = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
     val nowMs = remember { System.currentTimeMillis() }
-    val windowStart = remember(nowMs) {
-        // Snap to previous half-hour for denser grid
-        nowMs - (nowMs % (30 * 60 * 1000L)) - (30 * 60 * 1000L)
-    }
-    val windowEnd = windowStart + WINDOW_HOURS * 60 * 60 * 1000L
+    var cursorMs by remember { mutableLongStateOf(nowMs) }
+    val windowStart = remember(nowMs) { GuideWindow.snapStart(nowMs) }
+    val timelineWidthDp = (
+        LocalConfiguration.current.screenWidthDp - CHANNEL_COL.value - 32f
+    ).coerceAtLeast(GuideWindow.DP_PER_HOUR)
+    val hourCount = GuideWindow.totalHours(timelineWidthDp)
+    val windowEnd = GuideWindow.windowEndMs(windowStart, hourCount)
     val scroll = rememberScrollState()
     val listState = rememberLazyListState()
 
@@ -152,9 +167,12 @@ fun EpgGuideScreen(
     val recordLook = DvrRecordUi.appearance(dvrSnap.active, focusedChannel?.id, focusedChannel?.streamUrl)
     // Bumps on every category load so a stale click from a prior category cannot play.
     var guideLoadGen by remember { mutableStateOf(0) }
+    var showGameDay by remember { mutableStateOf(false) }
+    var bulkSettled by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedCategoryId) {
         // Always rebind EPG for the visible channel set on category chip change.
+        bulkSettled = false
         val myGen = guideLoadGen + 1
         guideLoadGen = myGen
         status = "Loading guide… | $selectedCategoryName"
@@ -171,16 +189,20 @@ fun EpgGuideScreen(
                 "No channels in $selectedCategoryName."
             }
             loading = false
+            bulkSettled = true
             return@LaunchedEffect
         }
 
         // Paint rows immediately (cache hits already have blocks). Play is allowed.
-        rows = channels.map { repository.peekCachedGuideRow(it) ?: EpgChannelRow(channel = it) }
+        rows = withContext(Dispatchers.Default) {
+            channels.map { repository.peekCachedGuideRow(it) ?: EpgChannelRow(channel = it) }
+        }
         loading = false
         if (guideLoadGen != myGen) return@LaunchedEffect
 
         if (!repository.hasXtreamEpg()) {
             status = "EPG requires an Xtream source. Showing channel list only. | $selectedCategoryName"
+            bulkSettled = true
             return@LaunchedEffect
         }
 
@@ -192,80 +214,151 @@ fun EpgGuideScreen(
             "Loading programming… | $selectedCategoryName"
         }
 
-        val ids = channels.map { it.id }
-        val alreadyCached = channels.mapNotNull { ch ->
-            ch.id.takeIf { repository.peekCachedGuideRow(ch) != null }
-        }.toSet()
-        val order = GuideEpgLoad.fetchOrder(
-            channelIds = ids,
-            firstVisibleIndex = listState.firstVisibleItemIndex.coerceAtLeast(0),
-            focusedId = focusedChannelId,
-            alreadyStarted = alreadyCached
-        )
-
-        // Fetch on IO, apply rows on Main. supervisorScope: one failure must not cancel the rest.
-        // Do not read Compose state or send a Channel from Dispatchers.IO (1.4.53 dropped all updates).
-        supervisorScope {
-            for (idx in order) {
-                val ch = channels[idx]
-                launch {
-                    val filled = withContext(Dispatchers.IO) {
-                        try {
-                            repository.loadGuideRow(ch)
-                        } catch (ce: CancellationException) {
-                            throw ce
-                        } catch (_: Throwable) {
-                            EpgChannelRow(channel = ch)
-                        }
-                    }
-                    if (!isActive || guideLoadGen != myGen) return@launch
-                    rows = GuideEpgLoad.applyRow(rows, filled)
-                    val n = withDataCount()
-                    status = "Timeline | $n / ${channels.size} | $selectedCategoryName | ${timeFmt.format(Date())}"
-                    Log.i(
-                        "TotalIPTV.Guide",
-                        "guideRowApplied name=${filled.channel.name} id=${filled.channel.id} " +
-                            "sid=${filled.channel.xtreamStreamId} programs=${filled.programs.size} " +
-                            "n=$n/${channels.size}"
-                    )
-                }
-            }
+        withContext(Dispatchers.IO) {
+            runCatching { repository.prepareBulkGuideEpg(context.cacheDir) }
         }
-
         if (guideLoadGen != myGen) return@LaunchedEffect
+        rows = withContext(Dispatchers.Default) {
+            channels.map { repository.peekCachedGuideRow(it) ?: EpgChannelRow(channel = it) }
+        }
         val n = withDataCount()
         status = if (n == 0) {
-            "Server returned no EPG data. Showing channels only. | $selectedCategoryName"
+            "Timeline | $selectedCategoryName | loading visible rows…"
         } else {
             "Timeline | $n channels | $selectedCategoryName | ${timeFmt.format(Date())}"
         }
+        bulkSettled = true
     }
 
+    LaunchedEffect(selectedCategoryId, listState, bulkSettled) {
+        if (!bulkSettled || !repository.hasXtreamEpg()) return@LaunchedEffect
+        var batch: kotlinx.coroutines.Job? = null
+        snapshotFlow {
+            val first = listState.firstVisibleItemIndex.coerceAtLeast(0)
+            val visible = listState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(8)
+            first to visible
+        }
+            .distinctUntilChanged()
+            .debounce(GuideEpgLoad.SCROLL_DEBOUNCE_MS)
+            .collect { (first, visible) ->
+                val gen = guideLoadGen
+                val channels = rows.map { it.channel }
+                if (channels.isEmpty() || gen == 0) return@collect
+                val already = channels.mapNotNull { ch ->
+                    ch.id.takeIf { repository.peekCachedGuideRow(ch) != null }
+                }.toSet()
+                val order = GuideEpgLoad.fetchOrder(
+                    channelIds = channels.map { it.id },
+                    firstVisibleIndex = first,
+                    visibleCount = visible,
+                    focusedId = focusedChannelId,
+                    alreadyStarted = already
+                )
+                if (order.isEmpty()) return@collect
+                batch?.cancel()
+                batch = launch {
+                    val pending = ArrayDeque<EpgChannelRow>()
+                    fun drain(): List<EpgChannelRow> = synchronized(pending) {
+                        if (pending.isEmpty()) emptyList() else pending.toList().also { pending.clear() }
+                    }
+                    fun paint(snap: List<EpgChannelRow>) {
+                        if (snap.isEmpty() || guideLoadGen != gen) return
+                        var next = rows
+                        for (filled in snap) next = GuideEpgLoad.applyRow(next, filled)
+                        rows = next
+                        val n = rows.count { it.programs.isNotEmpty() || it.nowNext.now != null }
+                        status = "Timeline | $n / ${channels.size} | $selectedCategoryName"
+                    }
+                    val flusher = launch {
+                        while (isActive) {
+                            delay(GuideEpgLoad.UI_BATCH_MS)
+                            paint(drain())
+                        }
+                    }
+                    supervisorScope {
+                        for (idx in order) {
+                            val ch = channels.getOrNull(idx) ?: continue
+                            launch {
+                                val filled = withContext(Dispatchers.IO) {
+                                    try {
+                                        repository.loadGuideRow(ch)
+                                    } catch (ce: CancellationException) {
+                                        throw ce
+                                    } catch (_: Throwable) {
+                                        EpgChannelRow(channel = ch)
+                                    }
+                                }
+                                if (!isActive || guideLoadGen != gen) return@launch
+                                val nowFirst = listState.firstVisibleItemIndex.coerceAtLeast(0)
+                                val nowVisible = listState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(8)
+                                val stillNear = idx in nowFirst until (nowFirst + nowVisible + GuideEpgLoad.BUFFER_ROWS)
+                                if (!stillNear) return@launch
+                                synchronized(pending) { pending.add(filled) }
+                            }
+                        }
+                    }
+                    flusher.cancel()
+                    paint(drain())
+                }
+            }
+    }
+
+    // A background xmltv download finished: repaint rows from the cache.
+    val bulkRevision by repository.guideBulkRevision.collectAsState()
+    LaunchedEffect(bulkRevision) {
+        if (bulkRevision == 0 || rows.isEmpty()) return@LaunchedEffect
+        val gen = guideLoadGen
+        val current = rows
+        val next = withContext(Dispatchers.Default) {
+            current.map { r -> repository.peekCachedGuideRow(r.channel) ?: r }
+        }
+        if (gen == guideLoadGen && rows === current) rows = next
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(CinemaBg)
     ) {
+        if (applyPageInset) {
+            ClassicBrandBar()
+        }
         Row(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+            modifier = Modifier.padding(
+                start = if (applyPageInset) 12.dp else 0.dp,
+                top = if (applyPageInset) HomeShelfFit.pageTopOffset else 0.dp,
+                end = if (applyPageInset) 12.dp else 0.dp
+            ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TopBarChip(label = "← Back", onClick = onBack, emphasized = true)
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Spacer(Modifier.width(12.dp))
+            status?.let {
                 Text(
-                    "Live TV Guide",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = OnCinema
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OnCinemaMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                status?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = OnCinemaMuted
-                    )
-                }
+            }
+            run {
+                    val row = rows.find { it.channel.id == focusedChannelId }
+                    val programs = row?.let {
+                        if (it.programs.isNotEmpty()) it.programs
+                        else listOfNotNull(it.nowNext.now, it.nowNext.next)
+                    }.orEmpty()
+                    val prog = GuideCursor.programAt(programs, cursorMs)
+                    if (prog != null) {
+                        Text(
+                            "${prog.title}  ${timeFmt.format(Date(prog.startMs))}–${timeFmt.format(Date(prog.endMs))}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OnCinema,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
             }
             TopBarChip(
                 label = recordLook.label,
@@ -291,6 +384,12 @@ fun EpgGuideScreen(
             )
             Spacer(Modifier.width(8.dp))
             TopBarChip(
+                label = "Split",
+                emphasized = true,
+                onClick = { showGameDay = true }
+            )
+            Spacer(Modifier.width(8.dp))
+            TopBarChip(
                 label = "Schedule",
                 onClick = {
                     val row = rows.find { it.channel.id == focusedChannelId }
@@ -308,19 +407,13 @@ fun EpgGuideScreen(
                     }
                 }
             )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = "${WINDOW_HOURS}h window",
-                style = MaterialTheme.typography.labelLarge,
-                color = BrandBlue
-            )
         }
 
         // Live category picker (same categories as Live TV hub)
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
+                .padding(horizontal = if (applyPageInset) 16.dp else 0.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
         ) {
@@ -363,8 +456,7 @@ fun EpgGuideScreen(
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Spacer(Modifier.width(CHANNEL_COL))
                     Row(modifier = Modifier.horizontalScroll(scroll)) {
-                        val hours = WINDOW_HOURS
-                        for (h in 0 until hours) {
+                        for (h in 0 until hourCount) {
                             val t = windowStart + h * 60 * 60 * 1000L
                             Text(
                                 text = timeFmt.format(Date(t)),
@@ -387,12 +479,15 @@ fun EpgGuideScreen(
                     items(rows, key = { "${selectedCategoryId}:${it.channel.id}" }) { row ->
                         TimelineRow(
                             row = row,
+                            hourCount = hourCount,
                             windowStart = windowStart,
                             windowEnd = windowEnd,
                             nowMs = nowMs,
                             timeFmt = timeFmt,
                             scrollState = scroll,
                             isFocusedRow = focusedChannelId == row.channel.id,
+                            cursorMs = cursorMs,
+                            onMoveCursor = { cursorMs = it },
                             onFocused = { id, focused ->
                                 if (focused) focusedChannelId = id
                                 else if (focusedChannelId == id) focusedChannelId = null
@@ -425,7 +520,7 @@ fun EpgGuideScreen(
                                         Log.i(
                                             "TotalIPTV.Guide",
                                             "guidePlay src=$source displayed=${channel.name} id=${playable.id} " +
-                                                "sid=${playable.xtreamStreamId} num=${playable.channelNum} url=${playable.streamUrl}"
+                                                "sid=${playable.xtreamStreamId} num=${playable.channelNum} url=${SensitiveText.redact(playable.streamUrl)}"
                                         )
                                     }
                                     latestOnPlay(playable)
@@ -437,18 +532,29 @@ fun EpgGuideScreen(
             }
         }
     }
+    if (showGameDay) {
+        GameDayPicker(
+            channels = repository.liveItems(),
+            initialLeft = focusedChannel,
+            onDismiss = { showGameDay = false }
+        )
+    }
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TimelineRow(
     row: EpgChannelRow,
+    hourCount: Int,
     windowStart: Long,
     windowEnd: Long,
     nowMs: Long,
     timeFmt: SimpleDateFormat,
     scrollState: androidx.compose.foundation.ScrollState,
     isFocusedRow: Boolean,
+    cursorMs: Long,
+    onMoveCursor: (Long) -> Unit,
     onFocused: (id: String, focused: Boolean) -> Unit,
     onPlayChannel: (channel: MediaItem, source: String) -> Unit
 ) {
@@ -463,6 +569,9 @@ private fun TimelineRow(
     val focused = locallyFocused || isFocusedRow
     val latestPlay by rememberUpdatedState(onPlayChannel)
     val latestFocus by rememberUpdatedState(onFocused)
+    val latestCursor by rememberUpdatedState(onMoveCursor)
+    val rowScope = rememberCoroutineScope()
+    val density = LocalDensity.current
     var lastClickMs by remember(channelId) { mutableStateOf(0L) }
 
     fun firePlay(source: String) {
@@ -485,7 +594,7 @@ private fun TimelineRow(
         else -> listOfNotNull(row.nowNext.now, row.nowNext.next)
     }
     val windowMs = (windowEnd - windowStart).coerceAtLeast(1L)
-    val totalWidthDp = PX_PER_HOUR * WINDOW_HOURS
+    val totalWidthDp = PX_PER_HOUR * hourCount.coerceAtLeast(1)
     val nowFraction = ((nowMs - windowStart).toFloat() / windowMs.toFloat()).coerceIn(0f, 1f)
 
     // NO TV Surface(onClick) — that API plays the *focused* neighbor on emulator mouse.
@@ -507,13 +616,27 @@ private fun TimelineRow(
             }
             .focusable()
             .onKeyEvent { e ->
+                val dir = when (e.key) {
+                    Key.DirectionLeft, Key.MediaRewind, Key.MediaSkipBackward -> -1
+                    Key.DirectionRight, Key.MediaFastForward, Key.MediaSkipForward -> 1
+                    else -> 0
+                }
+                if (dir != 0 && e.type == KeyEventType.KeyDown) {
+                    val next = GuideCursor.step(programs, cursorMs, dir, windowStart, windowEnd)
+                    latestCursor(next)
+                    val widthPx = with(density) { totalWidthDp.toPx() }.toInt().coerceAtLeast(1)
+                    val px = GuideCursor.scrollOffsetPx(next, windowStart, windowMs, widthPx)
+                    rowScope.launch {
+                        scrollState.scrollTo(px.coerceAtMost(scrollState.maxValue.coerceAtLeast(0)))
+                    }
+                    return@onKeyEvent true
+                }
                 if (e.type != KeyEventType.KeyUp) return@onKeyEvent false
                 val isActivate =
                     e.key == Key.DirectionCenter ||
                         e.key == Key.Enter ||
                         e.key == Key.NumPadEnter
                 if (!isActivate) return@onKeyEvent false
-                // Use this row's own id from composition state — not parent focus steal.
                 firePlay("dpad")
                 true
             }
@@ -546,11 +669,13 @@ private fun TimelineRow(
                     contentAlignment = Alignment.Center
                 ) {
                     NetworkImage(
-                        url = row.channel.logoUrl,
+                        url = com.totaliptv.pro.data.LogoUrls.forPlayback(row.channel.streamUrl, row.channel.logoUrl),
                         contentDescription = row.channel.name,
                         modifier = Modifier.fillMaxSize().padding(3.dp),
                         contentScale = ContentScale.Fit,
-                        placeholderLabel = row.channel.name.take(1).uppercase()
+                        placeholderLabel = row.channel.name.take(1).uppercase(),
+                        decodeWidth = 96,
+                        decodeHeight = 96
                     )
                 }
                 Spacer(Modifier.width(8.dp))
@@ -584,6 +709,10 @@ private fun TimelineRow(
                         val leftFrac = (start - windowStart).toFloat() / windowMs
                         val widthFrac = (end - start).toFloat() / windowMs
                         val isLive = prog.contains(nowMs)
+                        val selected = focused &&
+                            GuideCursor.programAt(programs, cursorMs)?.let {
+                                it.startMs == prog.startMs && it.endMs == prog.endMs
+                            } == true
                         Box(
                             modifier = Modifier
                                 .offset(x = totalWidthDp * leftFrac)
@@ -592,12 +721,15 @@ private fun TimelineRow(
                                 .padding(vertical = 4.dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(
-                                    if (isLive) BrandBlue.copy(alpha = 0.28f)
-                                    else CinemaSurfaceHigh
+                                    when {
+                                        selected -> BrandBlue.copy(alpha = 0.55f)
+                                        isLive -> BrandBlue.copy(alpha = 0.28f)
+                                        else -> CinemaSurfaceHigh
+                                    }
                                 )
                                 .border(
-                                    1.dp,
-                                    if (isLive) BrandBlue.copy(alpha = 0.55f)
+                                    if (selected) 2.dp else 1.dp,
+                                    if (selected || isLive) BrandBlue.copy(alpha = 0.9f)
                                     else SoftOverlay,
                                     RoundedCornerShape(6.dp)
                                 )

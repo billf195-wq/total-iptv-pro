@@ -2,6 +2,7 @@ package com.totaliptv.pro.ui.browse
 
 import android.util.Log
 import android.widget.Toast
+import com.totaliptv.pro.util.SensitiveText
 
 import androidx.activity.compose.BackHandler
 
@@ -56,17 +57,20 @@ import com.totaliptv.pro.data.local.WatchProgressStore
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.repo.CatalogSort
+import com.totaliptv.pro.ui.components.ClassicBrandBar
 import com.totaliptv.pro.ui.components.CategoryRailItem
+import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.components.ChannelGridCard
 import com.totaliptv.pro.ui.components.ChannelListItem
 import com.totaliptv.pro.ui.components.MovieDetailSheet
 import com.totaliptv.pro.ui.components.PosterCard
 import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
+import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.ui.theme.ClassicDimens
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.tipScreenBrush
-import com.totaliptv.pro.ui.theme.CinemaBgElevated
+import com.totaliptv.pro.ui.theme.CinemaBg
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 
@@ -87,6 +91,7 @@ fun BrowseScreen(
     val favoriteIds = remember(favorites) { favorites.map { it.id }.toSet() }
     val railFocus = remember { FocusRequester() }
     var catalogSort by remember { mutableStateOf(CatalogSort.RECENTLY_ADDED) }
+    var showGameDay by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val appPrefs = (context.applicationContext as? TotalIptvProApp)?.preferences
@@ -120,13 +125,6 @@ fun BrowseScreen(
 
     var selectedCategoryId by remember(section, categories) {
         mutableStateOf(categories.firstOrNull()?.id)
-    }
-
-    val title = when (section) {
-        BrowseSection.Live -> "Live TV"
-        BrowseSection.Movies -> "Movies"
-        BrowseSection.Series -> "Series"
-        BrowseSection.Favorites -> "Favorites"
     }
 
     val displayItems: List<MediaItem> = remember(selectedCategoryId, section, catalogRevision, catalogSort) {
@@ -227,23 +225,30 @@ fun BrowseScreen(
                 tipScreenBrush()
             )
     ) {
+        ClassicBrandBar()
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 14.dp),
+                .padding(
+                    start = 24.dp,
+                    end = 24.dp,
+                    top = HomeShelfFit.pageTopOffset,
+                    bottom = 4.dp
+                ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             TopBarChip(label = "← Home", onClick = onBack, emphasized = true)
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = OnCinema
-            )
             Spacer(Modifier.weight(1f))
             if (section == BrowseSection.Live && onOpenGuide != null) {
                 TopBarChip(label = "TV Guide", onClick = onOpenGuide)
+            }
+            if (section == BrowseSection.Live) {
+                TopBarChip(
+                    label = "Game Day",
+                    emphasized = true,
+                    onClick = { showGameDay = true }
+                )
             }
             Text(
                 text = when (section) {
@@ -290,7 +295,7 @@ fun BrowseScreen(
                     modifier = Modifier
                         .width(ClassicDimens.CategoryRailWidth)
                         .fillMaxHeight()
-                        .background(CinemaBgElevated)
+                        .background(CinemaBg)
                         .padding(vertical = 8.dp, horizontal = 10.dp)
                 ) {
                     Text(
@@ -419,7 +424,7 @@ fun BrowseScreen(
                                         onClick = {
                                             Log.i(
                                                 "TotalIPTV.Live",
-                                                "browseClick name=${item.name} id=${item.id} sid=${item.xtreamStreamId} num=${item.channelNum} url=${item.streamUrl}"
+                                                "browseClick name=${item.name} id=${item.id} sid=${item.xtreamStreamId} num=${item.channelNum} url=${SensitiveText.redact(item.streamUrl)}"
                                             )
                                             onPlay(item)
                                         }
@@ -503,6 +508,13 @@ fun BrowseScreen(
             },
             onToggleFavorite = { toggleFavoriteToast(detail) },
             onDismiss = { dismissDetail(restore = true) }
+        )
+    }
+    if (showGameDay && section == BrowseSection.Live) {
+        GameDayPicker(
+            channels = repository.liveItems(),
+            initialLeft = null,
+            onDismiss = { showGameDay = false }
         )
     }
     } // Box

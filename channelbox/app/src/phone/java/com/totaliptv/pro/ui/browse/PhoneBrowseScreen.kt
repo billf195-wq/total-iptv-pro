@@ -33,7 +33,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.data.LiveChannelMapping
@@ -43,11 +42,11 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.data.repo.CatalogSort
 import com.totaliptv.pro.ui.components.PhoneDetailSheet
+import com.totaliptv.pro.ui.components.PhonePageHeader
 import com.totaliptv.pro.ui.components.PhoneLiveRow
 import com.totaliptv.pro.ui.components.PhonePosterCard
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.CinemaSurface
-import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.tipScreenBrush
 import com.totaliptv.pro.dvr.DvrActions
@@ -138,18 +137,7 @@ fun PhoneBrowseScreen(
             .background(tipScreenBrush())
             .padding(contentPadding)
     ) {
-        Text(
-            text = when (section) {
-                BrowseSection.Live -> "Live"
-                BrowseSection.Movies -> "Movies"
-                BrowseSection.Series -> "Series"
-                BrowseSection.Favorites -> "Favorites"
-            },
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = OnCinema,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-        )
+        PhonePageHeader()
 
         if (section != BrowseSection.Favorites) {
             LazyRow(

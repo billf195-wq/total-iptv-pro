@@ -19,13 +19,25 @@ object LiveEpgBinding {
         "channel", "tv", "usa", "us", "uk", "hd", "sd", "fhd", "uhd"
     )
 
-    fun normalizeTitle(raw: String): String =
-        raw.lowercase()
-            .replace(Regex("\\(\\d{4}\\)"), " ")
-            .replace(Regex("[^a-z0-9]+"), " ")
-            .replace(Regex("\\b(the|a|an|and|of|hd|sd|fhd|uhd|4k|us|usa)\\b"), " ")
+    // Compiled once: the guide normalizes thousands of titles per repaint.
+    private val YEAR_RE = Regex("\\(\\d{4}\\)")
+    private val NON_ALNUM_RE = Regex("[^a-z0-9]+")
+    private val FILLER_RE = Regex("\\b(the|a|an|and|of|hd|sd|fhd|uhd|4k|us|usa)\\b")
+    private val SPACES_RE = Regex("\\s+")
+    private val normalizedMemo = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    fun normalizeTitle(raw: String): String {
+        normalizedMemo[raw]?.let { return it }
+        val out = raw.lowercase()
+            .replace(YEAR_RE, " ")
+            .replace(NON_ALNUM_RE, " ")
+            .replace(FILLER_RE, " ")
             .trim()
-            .replace(Regex("\\s+"), " ")
+            .replace(SPACES_RE, " ")
+        if (normalizedMemo.size > 50_000) normalizedMemo.clear()
+        normalizedMemo[raw] = out
+        return out
+    }
 
     fun titlesMatch(channelName: String, programTitle: String): Boolean {
         val a = normalizeTitle(channelName)

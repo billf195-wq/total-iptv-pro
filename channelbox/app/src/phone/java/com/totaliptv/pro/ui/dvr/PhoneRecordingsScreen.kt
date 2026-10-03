@@ -1,6 +1,7 @@
 package com.totaliptv.pro.ui.dvr
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +34,7 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.dvr.DvrActions
 import com.totaliptv.pro.dvr.DvrKind
 import com.totaliptv.pro.dvr.RecordingEntry
+import com.totaliptv.pro.ui.components.PhonePageHeader
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.tipScreenBrush
@@ -46,18 +51,37 @@ fun PhoneRecordingsScreen(
     val dvr = DvrActions.recorder(context)
     val snapshot by dvr.snapshot.collectAsState()
     val timeFmt = SimpleDateFormat("MMM d h:mm a", Locale.getDefault())
+    var pendingDelete by remember { mutableStateOf<RecordingEntry?>(null) }
+    BackHandler(enabled = pendingDelete != null) { pendingDelete = null }
 
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(tipScreenBrush())
             .padding(contentPadding)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+    PhonePageHeader()
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        pendingDelete?.let { doomed ->
+            item {
+                Text("Delete ${doomed.title}?", color = OnCinema, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        dvr.deleteRecording(doomed.id)
+                        pendingDelete = null
+                        Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
+                    }) { Text("Delete") }
+                    OutlinedButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+                }
+            }
+        }
         item {
-            Text("Recordings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = OnCinema)
-            Spacer(Modifier.height(4.dp))
             Text("Saved on this phone only — ${snapshot.recordingsDir}", color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
         }
         snapshot.active?.let { active ->
@@ -94,13 +118,11 @@ fun PhoneRecordingsScreen(
                     rec = rec,
                     timeLabel = timeFmt.format(Date(rec.startMs)),
                     onPlay = { playRecording(onPlay, rec) },
-                    onDelete = {
-                        dvr.deleteRecording(rec.id)
-                        Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
-                    }
+                    onDelete = { pendingDelete = rec }
                 )
             }
         }
+    }
     }
 }
 
@@ -114,7 +136,19 @@ private fun RecordingPhoneRow(
     Column(Modifier.fillMaxWidth()) {
         Text(rec.title, color = OnCinema, fontWeight = FontWeight.Medium)
         Text(
-            "${DvrKind.label(rec.contentKind)} · ${rec.channelName} · $timeLabel · ${rec.statusEnum().name.lowercase()}",
+            buildString {
+                append(DvrKind.label(rec.contentKind))
+                append(" · ")
+                append(rec.channelName)
+                append(" · ")
+                append(timeLabel)
+                append(" · ")
+                append(rec.statusEnum().name.lowercase())
+                rec.errorMessage?.takeIf { it.isNotBlank() }?.let {
+                    append(" · ")
+                    append(it)
+                }
+            },
             color = OnCinemaMuted,
             style = MaterialTheme.typography.bodySmall
         )

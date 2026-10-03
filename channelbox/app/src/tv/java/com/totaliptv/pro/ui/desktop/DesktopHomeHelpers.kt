@@ -3,7 +3,6 @@ package com.totaliptv.pro.ui.desktop
 import com.totaliptv.pro.data.model.MediaItem
 import java.util.Calendar
 
-private const val TOP_N = 24
 private const val MIN_FILTERED = 6
 private const val NEW_YEAR_WINDOW = 5
 private const val NEW_ADDED_WINDOW_YEARS = 5L
@@ -92,14 +91,8 @@ private fun cappedScan(items: List<MediaItem>): List<MediaItem> {
     return out
 }
 
-private fun topByRating(list: List<MediaItem>): List<MediaItem> {
-    if (list.size <= TOP_N) return list.sortedByDescending { it.ratingScore() }
-    // Partial top-N without sorting the entire list when still large.
-    return list.asSequence()
-        .sortedByDescending { it.ratingScore() }
-        .take(TOP_N)
-        .toList()
-}
+private fun topByRating(list: List<MediaItem>): List<MediaItem> =
+    list.sortedByDescending { it.ratingScore() }
 
 fun pickTopRatedMovies(items: List<MediaItem>): TopRatedRow {
     val scan = cappedScan(items)
@@ -117,7 +110,7 @@ fun pickTopRatedMovies(items: List<MediaItem>): TopRatedRow {
     val overall = topByRating(pool)
     return TopRatedRow(
         "Top rated movies",
-        overall.ifEmpty { scan.sortedByDescending { it.addedMs ?: 0L }.take(TOP_N) }
+        overall.ifEmpty { scan.sortedByDescending { it.addedMs ?: 0L } }
     )
 }
 
@@ -137,6 +130,6 @@ fun pickTopRatedSeries(items: List<MediaItem>): TopRatedRow {
     val overall = topByRating(pool)
     return TopRatedRow(
         "Top rated series",
-        overall.ifEmpty { scan.sortedByDescending { it.addedMs ?: 0L }.take(TOP_N) }
+        overall.ifEmpty { scan.sortedByDescending { it.addedMs ?: 0L } }
     )
 }

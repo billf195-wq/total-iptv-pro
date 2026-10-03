@@ -43,8 +43,8 @@ class WatchProgressStore(context: Context) {
         }.getOrDefault(emptyList())
     }
 
-    /** In-progress items eligible for resume (≥15s, not completed), newest first. */
-    fun continueWatching(limit: Int = 24): List<WatchProgress> {
+    /** In-progress items eligible for resume (≥15s, not completed), newest first. No home-row cap. */
+    fun continueWatching(limit: Int = Int.MAX_VALUE): List<WatchProgress> {
         val raw = all()
         val list = raw
             .filter { it.kind != ContentKind.LIVE && it.shouldResume() }
@@ -82,6 +82,19 @@ class WatchProgressStore(context: Context) {
         Log.i(TAG, "saved id=${progress.id} catalog=${progress.catalogId} pos=${progress.positionMs} dur=${progress.durationMs}")
     }
 
+    /** Drop Continue watching rows for a deleted recording (id, rec-id, or file path). */
+    fun clearRecording(recordingId: String, filePath: String?) {
+        if (recordingId.isBlank() && filePath.isNullOrBlank()) return
+        val recId = "rec-$recordingId"
+        val path = filePath?.trim().orEmpty()
+        val next = all().filterNot {
+            it.id == recId ||
+                it.id == recordingId ||
+                (path.isNotEmpty() && it.streamUrl == path)
+        }
+        writeAll(next)
+    }
+
     fun clear(id: String) {
         if (id.isBlank()) return
         val next = all().filterNot { it.id == id || it.catalogId == id }
@@ -108,7 +121,7 @@ class WatchProgressStore(context: Context) {
         private const val TAG = "TotalIPTV.Progress"
         private const val PREFS = "watch_progress"
         private const val KEY = "entries"
-        private const val MAX_ENTRIES = 80
+        private const val MAX_ENTRIES = 500
         const val MIN_SAVE_MS = 15_000L
     }
 }

@@ -1,11 +1,17 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.totaliptv.pro.ui.home
 
 import android.util.Log
 import android.widget.Toast
+import com.totaliptv.pro.util.SensitiveText
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,20 +20,21 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.tv.foundation.lazy.list.TvLazyRow
+import androidx.tv.foundation.lazy.list.itemsIndexed as tvItemsIndexed
+import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,6 +56,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -74,16 +82,20 @@ import com.totaliptv.pro.ui.components.AppTopNav
 import com.totaliptv.pro.ui.components.CategoryRailItem
 import com.totaliptv.pro.ui.components.ErrorText
 import com.totaliptv.pro.ui.components.FeaturedNowPanel
-import com.totaliptv.pro.ui.components.HeroFeatureBanner
 import com.totaliptv.pro.ui.components.MovieDetailSheet
 import com.totaliptv.pro.ui.components.LiveChannelCard
 import com.totaliptv.pro.ui.components.PosterCard
-import com.totaliptv.pro.ui.components.SectionRowLabel
+import com.totaliptv.pro.ui.focus.FocusTrace
+import com.totaliptv.pro.ui.home.HomeShelfFit
+import com.totaliptv.pro.ui.home.NoVerticalHomeScroll
+import com.totaliptv.pro.ui.home.PosterRowBringIntoView
 import com.totaliptv.pro.ui.components.SortChip
+import com.totaliptv.pro.ui.components.TopBarChip
+import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.ui.theme.ClassicDimens
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.tipScreenBrush
-import com.totaliptv.pro.ui.theme.CinemaBgElevated
+import com.totaliptv.pro.ui.theme.CinemaBg
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.WarningAmber
@@ -110,6 +122,7 @@ fun HomeScreen(
     onPlayFromStart: (MediaItem) -> Unit = onPlayItem
 ) {
     var hubTab by remember { mutableStateOf(HubTab.Home) }
+    SideEffect { FocusTrace.screen = "classic:${hubTab.name}" }
     var catalogSort by remember { mutableStateOf(CatalogSort.RECENTLY_ADDED) }
     var liveCatCount by remember { mutableIntStateOf(0) }
     var vodCatCount by remember { mutableIntStateOf(0) }
@@ -121,6 +134,7 @@ fun HomeScreen(
     var loading by remember { mutableStateOf(true) }
     var reloadToken by remember { mutableIntStateOf(0) }
     var detailItem by remember { mutableStateOf<MediaItem?>(null) }
+    var showGameDay by remember { mutableStateOf(false) }
     // Restore D-pad focus to the *same* poster (stable media id + row/grid index).
     var restoreFocusId by remember { mutableStateOf<String?>(null) }
     var restoreFocusIndex by remember { mutableIntStateOf(-1) }
@@ -221,14 +235,14 @@ fun HomeScreen(
         } catch (t: Throwable) {
             refreshFromCache()
             if (liveCatCount > 0 || vodCatCount > 0 || seriesCatCount > 0) {
-                warning = t.message ?: "Partial load - showing available catalog"
+                warning = SensitiveText.forUser(t)
                 error = null
                 if (userRefresh) {
                     refreshStatus = warning
                     Toast.makeText(context, warning, Toast.LENGTH_LONG).show()
                 }
             } else {
-                error = t.message ?: "Failed to load catalog"
+                error = SensitiveText.forUser(t)
                 if (userRefresh) {
                     refreshStatus = error
                     Toast.makeText(context, error, Toast.LENGTH_LONG).show()
@@ -313,7 +327,6 @@ fun HomeScreen(
     var channelEpgMap by remember(displayItems) { mutableStateOf<Map<String, EpgNowNext>>(emptyMap()) }
 
     // Home rails
-    var heroItem by remember { mutableStateOf<MediaItem?>(null) }
     var newlyAdded by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var topPicks by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var continueWatching by remember { mutableStateOf<List<WatchProgress>>(emptyList()) }
@@ -383,14 +396,9 @@ fun HomeScreen(
     LaunchedEffect(hubTab, catalogRevision) {
         if (hubTab != HubTab.Home) return@LaunchedEffect
         reloadContinueWatching()
-        val newest = repository.newlyAddedMovies(24)
+        val newest = repository.newlyAddedMovies(Int.MAX_VALUE)
         newlyAdded = newest
         topPicks = newest.drop(1).ifEmpty { newest }
-        heroItem = repository.featuredHeroItem()?.let { item ->
-            if (item.artworkUrl().isNullOrBlank() && item.xtreamStreamId != null) {
-                runCatching { repository.resolvePoster(item) }.getOrDefault(item)
-            } else item
-        }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -451,7 +459,7 @@ fun HomeScreen(
         val bound = repository.playableFrom(repository.itemById(clickedId) ?: item)
         Log.i(
             "TotalIPTV.Live",
-            "click name=${bound.name} id=${bound.id} sid=${bound.xtreamStreamId} num=${bound.channelNum} url=${bound.streamUrl} startOver=$startOver"
+            "click name=${bound.name} id=${bound.id} sid=${bound.xtreamStreamId} num=${bound.channelNum} url=${SensitiveText.redact(bound.streamUrl)} startOver=$startOver"
         )
         val sink: (MediaItem) -> Unit = if (startOver) onPlayFromStart else onPlayItem
         // Already a concrete episode leaf from Continue watching / Resume - do not re-resolve.
@@ -551,7 +559,7 @@ fun HomeScreen(
                 }
                 hubTab == HubTab.Home -> {
                     HomeTabContent(
-                        heroItem = heroItem,
+                        modifier = Modifier.weight(1f),
                         newlyAdded = newlyAdded,
                         topPicks = topPicks,
                         continueWatching = continueWatching,
@@ -572,8 +580,7 @@ fun HomeScreen(
                         onOpenFavorite = onOpenFavorite,
                         onOpenLive = { hubTab = HubTab.Live },
                         onOpenMovies = { hubTab = HubTab.Movies },
-                        onOpenSeries = { hubTab = HubTab.Series },
-                        onPreviewHero = { item -> openDetailFromPoster(item, scope = "hero") }
+                        onOpenSeries = { hubTab = HubTab.Series }
                     )
                 }
                 else -> {
@@ -583,7 +590,7 @@ fun HomeScreen(
                             modifier = Modifier
                                 .width(ClassicDimens.CategoryRailWidth)
                                 .fillMaxHeight()
-                                .background(CinemaBgElevated)
+                                .background(CinemaBg)
                                 .padding(vertical = 6.dp, horizontal = 6.dp)
                         ) {
                             if (hubTab == HubTab.Live) {
@@ -603,6 +610,11 @@ fun HomeScreen(
                                     title = "TV Guide",
                                     selected = false,
                                     onClick = onOpenGuide
+                                )
+                                CategoryRailItem(
+                                    title = "Game Day",
+                                    selected = false,
+                                    onClick = { showGameDay = true }
                                 )
                                 CategoryRailItem(
                                     title = "Recordings",
@@ -654,7 +666,12 @@ fun HomeScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .padding(
+                                    start = 12.dp,
+                                    top = HomeShelfFit.classicContentPadTop,
+                                    end = 12.dp,
+                                    bottom = HomeShelfFit.classicContentPadBottom
+                                )
                         ) {
                             when (hubTab) {
                                 HubTab.Live -> LiveMainPane(
@@ -670,7 +687,8 @@ fun HomeScreen(
                                     onFocusChannel = { focusedChannel = it },
                                     onPlay = { playMedia(it) },
                                     onOpenGuide = onOpenGuide,
-                                    onRecordNow = { DvrActions.recordNow(context, it) }
+                                    onRecordNow = { DvrActions.recordNow(context, it) },
+                                    onGameDay = { showGameDay = true }
                                 )
                                 HubTab.Movies, HubTab.Series -> VodMainPane(
                                     isSeries = hubTab == HubTab.Series,
@@ -746,13 +764,19 @@ fun HomeScreen(
                 onDismiss = { dismissDetail(restore = true) }
             )
         }
+        if (showGameDay && hubTab == HubTab.Live) {
+            GameDayPicker(
+                channels = repository.liveItems(),
+                initialLeft = focusedChannel,
+                onDismiss = { showGameDay = false }
+            )
+        }
     }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun HomeTabContent(
-    heroItem: MediaItem?,
     newlyAdded: List<MediaItem>,
     topPicks: List<MediaItem>,
     continueWatching: List<WatchProgress>,
@@ -772,15 +796,28 @@ private fun HomeTabContent(
     onOpenLive: () -> Unit,
     onOpenMovies: () -> Unit,
     onOpenSeries: () -> Unit,
-    onPreviewHero: (MediaItem) -> Unit
+    modifier: Modifier = Modifier
 ) {
     val homeListState = rememberLazyListState()
-    val cwRowState = rememberLazyListState()
-    val newRowState = rememberLazyListState()
-    val topRowState = rememberLazyListState()
-    val favRowState = rememberLazyListState()
+    val cwRowState = rememberTvLazyListState()
+    val newRowState = rememberTvLazyListState()
+    val topRowState = rememberTvLazyListState()
+    val favRowState = rememberTvLazyListState()
     val homeScopes = setOf("cw", "new", "top", "fav")
-    LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope) {
+    val posterRows = listOf(
+        continueWatching.isNotEmpty(),
+        newlyAdded.isNotEmpty(),
+        topPicks.isNotEmpty(),
+        favorites.isNotEmpty()
+    ).count { it }
+    BoxWithConstraints(modifier.fillMaxSize()) {
+    val homeBlock = HomeShelfFit.homeBlock(
+        HomeShelfFit.classicRow(),
+        HomeShelfFit.classicRowGap,
+        posterRows
+    )
+    val centerHome = posterRows > 0 && homeBlock <= maxHeight
+    LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope, centerHome) {
         if (!pendingFocusRestore) return@LaunchedEffect
         val scope = restoreFocusScope ?: return@LaunchedEffect
         val id = restoreFocusId ?: return@LaunchedEffect
@@ -790,24 +827,27 @@ private fun HomeTabContent(
         var focused = false
         for (attempt in 0 until 12) {
             val rowOrdinal = when (scope) {
-                "cw" -> 1
-                "new" -> if (continueWatching.isNotEmpty()) 3 else 1
+                "cw" -> 0
+                "new" -> if (continueWatching.isNotEmpty()) 1 else 0
                 "top" -> {
-                    var o = 1
-                    if (continueWatching.isNotEmpty()) o += 2
-                    if (newlyAdded.isNotEmpty()) o += 2
+                    var o = 0
+                    if (continueWatching.isNotEmpty()) o += 1
+                    if (newlyAdded.isNotEmpty()) o += 1
                     o
                 }
                 "fav" -> {
-                    var o = 1
-                    if (continueWatching.isNotEmpty()) o += 2
-                    if (newlyAdded.isNotEmpty()) o += 2
-                    if (topPicks.isNotEmpty()) o += 2
+                    var o = 0
+                    if (continueWatching.isNotEmpty()) o += 1
+                    if (newlyAdded.isNotEmpty()) o += 1
+                    if (topPicks.isNotEmpty()) o += 1
                     o
                 }
                 else -> 0
             }
-            runCatching { homeListState.scrollToItem(rowOrdinal.coerceAtLeast(0)) }
+            // A centered block is already fully on screen. Scrolling it would undo the inset.
+            if (!centerHome) {
+                runCatching { homeListState.scrollToItem(rowOrdinal.coerceAtLeast(0)) }
+            }
             when (scope) {
                 "cw" -> runCatching { cwRowState.scrollToItem(idx) }
                 "new" -> runCatching { newRowState.scrollToItem(idx) }
@@ -824,66 +864,36 @@ private fun HomeTabContent(
         }
         onRestoreConsumed()
     }
+    val homeTop = HomeShelfFit.centeredTopOffset(
+        maxHeight,
+        homeBlock,
+        HomeShelfFit.classicContentPadTop
+    )
+    val posterBringIntoView = LocalBringIntoViewSpec.current
+    CompositionLocalProvider(
+        LocalBringIntoViewSpec provides if (centerHome) NoVerticalHomeScroll else posterBringIntoView
+    ) {
     LazyColumn(
         state = homeListState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
+        userScrollEnabled = !centerHome,
+        contentPadding = PaddingValues(
+            start = 12.dp,
+            top = homeTop,
+            end = 12.dp,
+            bottom = if (centerHome) homeTop else HomeShelfFit.classicContentPadBottom
+        ),
+        verticalArrangement = Arrangement.spacedBy(HomeShelfFit.classicRowGap)
     ) {
-        item {
-            if (heroItem != null) {
-                HeroFeatureBanner(
-                    title = heroItem.name,
-                    imageUrl = heroItem.artworkUrl(),
-                    metaLine = heroItem.groupTitle ?: "From your library",
-                    onPlay = { onPlay(heroItem) },
-                    modifier = Modifier
-                        .padding(bottom = 4.dp)
-                        .height(ClassicDimens.HeroHeight),
-                    rating = heroItem.displayRating(),
-                    onPreview = { onPreviewHero(heroItem) }
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = ClassicDimens.HeroEmptyHeight)
-                        .padding(bottom = 8.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Column {
-                        Text(
-                            "Welcome to Total IPTV Pro",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = OnCinema,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "Live TV loads first — Movies & Series appear when ready.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OnCinemaMuted,
-                            modifier = Modifier.padding(top = 6.dp)
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(top = 12.dp)
-                        ) {
-                            Button(onClick = onOpenLive) { Text("Browse Live") }
-                            Button(onClick = onOpenMovies) { Text("Browse Movies") }
-                            Button(onClick = onOpenSeries) { Text("Browse Series") }
-                        }
-                    }
-                }
-            }
-        }
         if (continueWatching.isNotEmpty()) {
-            item { SectionRowLabel("Continue watching") }
             item {
-                LazyRow(
+                HomeShelfLabel("Continue watching")
+                PosterRowBringIntoView(posterBringIntoView) {
+                TvLazyRow(
                     state = cwRowState,
-                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap),
-                    contentPadding = PaddingValues(bottom = 4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
                 ) {
-                    itemsIndexed(continueWatching, key = { _, it -> "cw-${it.id}" }) { index, prog ->
+                    tvItemsIndexed(continueWatching, key = { _, it -> "cw-${it.id}" }) { index, prog ->
                         val pct = (prog.fraction() * 100).toInt().coerceIn(1, 99)
                         val media = prog.toMediaItem()
                         PosterCard(
@@ -901,21 +911,24 @@ private fun HomeTabContent(
                             isFavorite = prog.id in favoriteIds || (prog.catalogId != null && prog.catalogId in favoriteIds),
                             onLongClick = { onToggleFavorite(media) },
                             progressPercent = pct,
-                            focusRequester = posterFocus("cw", prog.id)
+                            focusRequester = posterFocus("cw", prog.id),
+                            imageHeight = HomeShelfFit.classicPosterImage,
+                            titleSlotHeight = HomeShelfFit.classicPosterTitle
                         )
                     }
+                }
                 }
             }
         }
         if (newlyAdded.isNotEmpty()) {
-            item { SectionRowLabel("Newly added") }
             item {
-                LazyRow(
+                HomeShelfLabel("Newly added")
+                PosterRowBringIntoView(posterBringIntoView) {
+                TvLazyRow(
                     state = newRowState,
-                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap),
-                    contentPadding = PaddingValues(bottom = 4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
                 ) {
-                    itemsIndexed(newlyAdded, key = { _, it -> it.id }) { index, item ->
+                    tvItemsIndexed(newlyAdded, key = { _, it -> it.id }) { index, item ->
                         val prog = progressById[item.id]
                         val pct = prog?.let { (it.fraction() * 100).toInt().coerceIn(1, 99) }
                         PosterCard(
@@ -932,21 +945,24 @@ private fun HomeTabContent(
                             onLongClick = { onToggleFavorite(item) },
                             rating = item.displayRating(),
                             progressPercent = pct,
-                            focusRequester = posterFocus("new", item.id)
+                            focusRequester = posterFocus("new", item.id),
+                            imageHeight = HomeShelfFit.classicPosterImage,
+                            titleSlotHeight = HomeShelfFit.classicPosterTitle
                         )
                     }
+                }
                 }
             }
         }
         if (topPicks.isNotEmpty()) {
-            item { SectionRowLabel("Top picks") }
             item {
-                LazyRow(
+                HomeShelfLabel("Top picks")
+                PosterRowBringIntoView(posterBringIntoView) {
+                TvLazyRow(
                     state = topRowState,
-                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap),
-                    contentPadding = PaddingValues(bottom = 4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
                 ) {
-                    itemsIndexed(topPicks, key = { _, it -> "tp-${it.id}" }) { index, item ->
+                    tvItemsIndexed(topPicks, key = { _, it -> "tp-${it.id}" }) { index, item ->
                         val prog = progressById[item.id]
                         val pct = prog?.let { (it.fraction() * 100).toInt().coerceIn(1, 99) }
                         PosterCard(
@@ -963,21 +979,24 @@ private fun HomeTabContent(
                             onLongClick = { onToggleFavorite(item) },
                             rating = item.displayRating(),
                             progressPercent = pct,
-                            focusRequester = posterFocus("top", item.id)
+                            focusRequester = posterFocus("top", item.id),
+                            imageHeight = HomeShelfFit.classicPosterImage,
+                            titleSlotHeight = HomeShelfFit.classicPosterTitle
                         )
                     }
+                }
                 }
             }
         }
         if (favorites.isNotEmpty()) {
-            item { SectionRowLabel("Favorites") }
             item {
-                LazyRow(
+                HomeShelfLabel("Favorites")
+                PosterRowBringIntoView(posterBringIntoView) {
+                TvLazyRow(
                     state = favRowState,
-                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap),
-                    contentPadding = PaddingValues(bottom = 16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
                 ) {
-                    itemsIndexed(favorites, key = { _, it -> "fav-${it.id}" }) { _, fav ->
+                    tvItemsIndexed(favorites, key = { _, it -> "fav-${it.id}" }) { _, fav ->
                         PosterCard(
                             title = fav.name,
                             imageUrl = fav.logoUrl,
@@ -995,23 +1014,44 @@ private fun HomeTabContent(
                                     )
                                 )
                             },
-                            focusRequester = posterFocus("fav", fav.id)
+                            focusRequester = posterFocus("fav", fav.id),
+                            imageHeight = HomeShelfFit.classicPosterImage,
+                            titleSlotHeight = HomeShelfFit.classicPosterTitle
                         )
                     }
                 }
+                }
             }
         }
-        if (newlyAdded.isEmpty() && topPicks.isEmpty() && heroItem == null && continueWatching.isEmpty()) {
+        if (newlyAdded.isEmpty() && topPicks.isEmpty() && continueWatching.isEmpty()) {
             item {
                 Text(
                     "Add a playlist to see featured titles and rows here.",
                     color = OnCinemaMuted,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(24.dp)
+                    style = MaterialTheme.typography.bodyLarge
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onOpenLive) { Text("Live") }
+                    Button(onClick = onOpenMovies) { Text("Movies") }
+                    Button(onClick = onOpenSeries) { Text("Series") }
+                }
             }
         }
     }
+    }
+    }
+}
+
+@Composable
+private fun HomeShelfLabel(text: String) {
+    Text(
+        text = text,
+        color = Color.White,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        modifier = Modifier.height(HomeShelfFit.classicRowHeader)
+    )
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -1029,7 +1069,8 @@ private fun LiveMainPane(
     onFocusChannel: (MediaItem) -> Unit,
     onPlay: (MediaItem) -> Unit,
     onOpenGuide: () -> Unit,
-    onRecordNow: (MediaItem) -> Unit = {}
+    onRecordNow: (MediaItem) -> Unit = {},
+    onGameDay: () -> Unit = {}
 ) {
     val ch = focusedChannel
     val context = LocalContext.current
@@ -1081,6 +1122,8 @@ private fun LiveMainPane(
             color = BrandBlue.copy(alpha = 0.9f)
         )
         Spacer(Modifier.weight(1f))
+        TopBarChip(label = "Game Day", onClick = onGameDay, emphasized = true)
+        Spacer(Modifier.width(8.dp))
         Text("Sort", style = MaterialTheme.typography.labelSmall, color = OnCinemaMuted)
         SortChip(label = "A–Z", selected = catalogSort == CatalogSort.AZ, onClick = { onSort(CatalogSort.AZ) })
         SortChip(label = "Z–A", selected = catalogSort == CatalogSort.ZA, onClick = { onSort(CatalogSort.ZA) })

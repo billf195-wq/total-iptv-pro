@@ -4,6 +4,7 @@ import android.content.Context
 import android.widget.Toast
 import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.data.model.MediaItem
+import com.totaliptv.pro.util.SensitiveText
 
 object DvrActions {
     fun recorder(context: Context): DvrRecorder =
@@ -30,7 +31,7 @@ object DvrActions {
             Toast.makeText(context, "$verb ${item.name} on this device", Toast.LENGTH_SHORT).show()
             true
         } catch (t: Throwable) {
-            Toast.makeText(context, t.message ?: "Could not record", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, SensitiveText.forUser(t), Toast.LENGTH_LONG).show()
             false
         }
     }
@@ -55,7 +56,7 @@ object DvrActions {
             Toast.makeText(context, "Scheduled $title", Toast.LENGTH_SHORT).show()
             true
         } catch (t: Throwable) {
-            Toast.makeText(context, t.message ?: "Could not schedule", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, SensitiveText.forUser(t), Toast.LENGTH_LONG).show()
             false
         }
     }

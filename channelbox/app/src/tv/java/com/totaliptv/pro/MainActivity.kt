@@ -2,9 +2,13 @@ package com.totaliptv.pro
 
 import android.content.Intent
 import android.util.Log
+import android.view.KeyEvent
 import android.widget.Toast
+import com.totaliptv.pro.ui.focus.FocusCrashGuard
+import com.totaliptv.pro.util.SensitiveText
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.material3.CircularProgressIndicator
@@ -18,11 +22,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.totaliptv.pro.ui.nav.TvBack
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -55,6 +62,11 @@ import com.totaliptv.pro.data.model.ContentKind
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 class MainActivity : ComponentActivity() {
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        // While the playlist-refresh splash is up, keys must not move hidden focus.
+        if (com.totaliptv.pro.data.repo.ManualRefresh.overlayVisible) true
+        else FocusCrashGuard.guard(this, event) { super.dispatchKeyEvent(event) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as TotalIptvProApp
@@ -71,6 +83,8 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(StartupSplashGate.shownThisProcess)
             }
             var boundLayout by remember { mutableStateOf(AppLayoutMode.CLASSIC) }
+            // First run (no saved source): no splash, straight to sign-in.
+            var startupChecked by remember { mutableStateOf(StartupSplashGate.shownThisProcess) }
             val appearance by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
             val accent by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
 
@@ -95,8 +109,20 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 if (StartupSplashGate.shownThisProcess) {
                     splashCatalogReady = true
+                    startupChecked = true
                     return@LaunchedEffect
                 }
+                val hasSources = runCatching {
+                    withContext(Dispatchers.IO) { app.preferences.getSources().isNotEmpty() }
+                }.getOrDefault(true)
+                if (com.totaliptv.pro.ui.onboarding.SignInForm.skipStartupSplash(hasSources)) {
+                    StartupSplashGate.shownThisProcess = true
+                    splashDone = true
+                    splashCatalogReady = true
+                    startupChecked = true
+                    return@LaunchedEffect
+                }
+                startupChecked = true
                 runCatching {
                     withContext(Dispatchers.IO) {
                         val sources = app.preferences.getSources()
@@ -122,6 +148,15 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
+            if (!startupChecked && !switchingLayout) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(androidx.compose.ui.graphics.Color(0xFF000000))
+                )
+                return@setContent
+            }
+
             if (!splashDone && !switchingLayout) {
                 LogoBannerSplash(ready = splashCatalogReady, statusMessage = if (splashCatalogReady) null else "Updating Live / Movies / Series...", onFinished = { splashDone = true })
                 return@setContent
@@ -133,7 +168,7 @@ class MainActivity : ComponentActivity() {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(androidx.compose.ui.graphics.Color(0xFF0B0F14)),
+                        .background(androidx.compose.ui.graphics.Color(0xFF000000)),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -159,6 +194,7 @@ class MainActivity : ComponentActivity() {
                 return@setContent
             }
 
+            Box(modifier = Modifier.fillMaxSize()) {
             if (boundLayout == AppLayoutMode.DESKTOP) {
                 DesktopAppRoot(
                     repository = app.repository,
@@ -176,6 +212,8 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+            com.totaliptv.pro.ui.splash.RefreshSplashOverlay()
+            }
         }
     }
 
@@ -190,7 +228,9 @@ class MainActivity : ComponentActivity() {
         val bound = repository.playableFrom(item)
         // Prefer the catalog poster id (series-123 / vod-456) so Continue watching
         // and detail Resume can map episode leaves back to the grid poster.
-        val catalogId = when {
+        val catalogId = item.seriesCatalogId
+            ?: bound.seriesCatalogId
+            ?: when {
             item.id.startsWith("series-") && !item.id.startsWith("series-ep-") -> item.id
             bound.id.startsWith("series-") && !bound.id.startsWith("series-ep-") -> bound.id
             item.id.startsWith("vod-") -> item.id
@@ -221,7 +261,11 @@ class MainActivity : ComponentActivity() {
                 ).show()
                 return@launch
             }
-            openPlayer(playable, startOver = startOver, catalogId = catalogId ?: bound.id)
+            openPlayer(
+                playable,
+                startOver = startOver,
+                catalogId = playable.seriesCatalogId ?: catalogId ?: bound.id
+            )
         }
     }
 
@@ -236,21 +280,26 @@ class MainActivity : ComponentActivity() {
         }
         Log.i(
             "TotalIPTV.Live",
-            "openPlayer name=${item.name} id=${item.id} sid=${item.xtreamStreamId} num=${item.channelNum} startOver=$startOver catalog=$catalogId url=${item.streamUrl}"
+            "openPlayer name=${item.name} id=${item.id} sid=${item.xtreamStreamId} num=${item.channelNum} startOver=$startOver catalog=$catalogId url=${SensitiveText.redact(item.streamUrl)}"
         )
-        startActivity(
-            Intent(this, PlayerActivity::class.java).apply {
-                putExtra(PlayerActivity.EXTRA_URL, item.streamUrl)
-                putExtra(PlayerActivity.EXTRA_TITLE, item.name)
-                putExtra(PlayerActivity.EXTRA_ID, item.id)
-                putExtra(PlayerActivity.EXTRA_KIND, item.kind.name)
-                putExtra(PlayerActivity.EXTRA_LOGO, item.logoUrl ?: item.posterUrl)
-                putExtra(PlayerActivity.EXTRA_START_OVER, startOver)
-                if (!catalogId.isNullOrBlank()) {
-                    putExtra(PlayerActivity.EXTRA_CATALOG_ID, catalogId)
+        try {
+            startActivity(
+                Intent(this, PlayerActivity::class.java).apply {
+                    putExtra(PlayerActivity.EXTRA_URL, item.streamUrl)
+                    putExtra(PlayerActivity.EXTRA_TITLE, item.name)
+                    putExtra(PlayerActivity.EXTRA_ID, item.id)
+                    putExtra(PlayerActivity.EXTRA_KIND, item.kind.name)
+                    putExtra(PlayerActivity.EXTRA_LOGO, item.logoUrl ?: item.posterUrl)
+                    putExtra(PlayerActivity.EXTRA_START_OVER, startOver)
+                    if (!catalogId.isNullOrBlank()) {
+                        putExtra(PlayerActivity.EXTRA_CATALOG_ID, catalogId)
+                    }
                 }
-            }
-        )
+            )
+        } catch (t: Throwable) {
+            Log.e("TotalIPTV.Live", "openPlayer failed: ${SensitiveText.safeLog(t)}")
+            Toast.makeText(this, "Couldn't open the player", Toast.LENGTH_LONG).show()
+        }
     }
 }
 
@@ -274,6 +323,11 @@ private fun AppRoot(
 ) {
     val sources by repository.sources.collectAsState(initial = emptyList())
     var screen by remember { mutableStateOf<Screen?>(null) }
+    val refreshHomeStart = remember { com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.value }
+    val refreshHomeReq by com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.collectAsState()
+    LaunchedEffect(refreshHomeReq) {
+        if (refreshHomeReq > refreshHomeStart) screen = Screen.Home
+    }
     var prefsReady by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -301,13 +355,29 @@ private fun AppRoot(
         return
     }
 
-    val route = screen ?: if (sources.isEmpty()) Screen.Onboarding else Screen.Home
+    val route = screen ?: if (sources.isEmpty() || com.totaliptv.pro.ui.onboarding.SignInForm.active) Screen.Onboarding else Screen.Home
 
+    val backContext = LocalContext.current
+    var exitArmedAt by remember { mutableLongStateOf(0L) }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
+        BackHandler(enabled = route !is Screen.Onboarding) {
+            val atHome = route is Screen.Home
+            when (TvBack.action(atHome, exitArmedAt, System.currentTimeMillis())) {
+                TvBack.Action.GO_HOME -> {
+                    exitArmedAt = 0L
+                    screen = Screen.Home
+                }
+                TvBack.Action.ARM_EXIT -> {
+                    exitArmedAt = System.currentTimeMillis()
+                    Toast.makeText(backContext, "Press Back again to exit", Toast.LENGTH_SHORT).show()
+                }
+                TvBack.Action.EXIT -> (backContext as? android.app.Activity)?.finish()
+            }
+        }
         when (val s = route) {
             Screen.Onboarding -> OnboardingScreen(
                 repository = repository,

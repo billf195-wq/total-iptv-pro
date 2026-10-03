@@ -29,6 +29,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.totaliptv.pro.data.model.MediaItem
+import com.totaliptv.pro.ui.home.HomeShelfFit
+import com.totaliptv.pro.ui.splash.AppBrandName
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.CinemaSurfaceHigh
@@ -188,6 +190,27 @@ fun PhoneLiveRow(
                 }
             }
         }
+    }
+}
+
+/**
+ * Shared phone page header. The name is centered. Content starts under this
+ * [HomeShelfFit.phoneTopOffset] bar.
+ */
+@Composable
+fun PhonePageHeader(modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(HomeShelfFit.phoneTopOffset)
+            .background(Color(0xFF000000))
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        AppBrandName(
+            color = OnCinema,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

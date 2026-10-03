@@ -16,11 +16,26 @@ object PlayerStream {
     const val STREAM_USER_AGENT = "VLC/3.0.21 LibVLC/3.0.21"
 
     /** Live start buffers must fit a ~5–12s Xtream window (VOD uses ~1.5s). */
-    const val LIVE_MIN_BUFFER_MS = 5_000
-    const val LIVE_MAX_BUFFER_MS = 20_000
-    const val LIVE_PLAYBACK_BUFFER_MS = 800
-    const val LIVE_REBUFFER_MS = 1_500
-    const val LIVE_STUCK_BUFFER_MS = 8_000L
+    const val LIVE_MIN_BUFFER_MS = 10_000
+    const val LIVE_MAX_BUFFER_MS = 25_000
+    const val LIVE_PLAYBACK_BUFFER_MS = 2_500
+    const val LIVE_REBUFFER_MS = 4_000
+    const val LIVE_STUCK_BUFFER_MS = 13_000L
+    /** Hard cap for the live buffer so 3-4 GB devices (Shield, Fire Stick) stay safe. */
+    const val LIVE_TARGET_BUFFER_BYTES = 24 * 1024 * 1024
+
+    /** A long stall on a channel that already played fine is the provider, not a bad URL. */
+    fun shouldFailOverOnStall(playedFine: Boolean): Boolean = !playedFine
+
+    /**
+     * Game Day runs two players. Keep each buffer smaller than single-channel live
+     * so a Shield is less likely to run out of memory.
+     */
+    const val SPLIT_MIN_BUFFER_MS = 2_000
+    const val SPLIT_MAX_BUFFER_MS = 8_000
+    const val SPLIT_PLAYBACK_BUFFER_MS = 500
+    const val SPLIT_REBUFFER_MS = 1_000
+    const val SPLIT_TARGET_BUFFER_BYTES = 6 * 1024 * 1024
 
     const val LIVE_TARGET_OFFSET_MS = C.TIME_UNSET
     const val LIVE_MIN_OFFSET_MS = C.TIME_UNSET

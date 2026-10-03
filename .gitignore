@@ -3,6 +3,10 @@
 **/.kotlin/
 **/local.properties
 **/*.apk
+# Release signing material. Keep the keystore outside the repo.
+*.jks
+*.keystore
+keystore.properties
 **/*.aab
 **/*.exe
 **/*.msi
