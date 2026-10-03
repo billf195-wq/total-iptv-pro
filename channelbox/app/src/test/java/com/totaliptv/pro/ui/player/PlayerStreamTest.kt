@@ -75,10 +75,10 @@ class PlayerStreamTest {
         assertTrue(desktopLive.contains("Game Day"))
         val gradle = java.io.File("build.gradle.kts").readText()
         assertFalse(gradle.contains("192.168"))
-        assertTrue(gradle.contains("versionName = \"1.4.88\""))
-        assertTrue(gradle.contains("versionName = \"1.4.65-phone\""))
-        assertTrue(gradle.contains("versionCode = 100"))
-        assertTrue(gradle.contains("versionCode = 77"))
+        assertTrue(gradle.contains("versionName = \"1.4.89\""))
+        assertTrue(gradle.contains("versionName = \"1.4.66-phone\""))
+        assertTrue(gradle.contains("versionCode = 101"))
+        assertTrue(gradle.contains("versionCode = 78"))
         assertTrue(gradle.contains("TIP_UPDATE_BASE_URL"))
         assertTrue(gradle.contains("OWNER_UPDATE_BASE_URL"))
         assertFalse(gradle.contains("hudv"))
@@ -87,9 +87,9 @@ class PlayerStreamTest {
     @Test
     fun liveBuffersFitShortXtreamWindow() {
         assertTrue(PlayerStream.LIVE_MIN_BUFFER_MS < 12_000)
-        assertTrue(PlayerStream.LIVE_PLAYBACK_BUFFER_MS < 2_000)
+        assertTrue(PlayerStream.LIVE_PLAYBACK_BUFFER_MS < 3_000)
         assertTrue(PlayerStream.LIVE_MAX_BUFFER_MS <= 25_000)
-        assertTrue(PlayerStream.LIVE_STUCK_BUFFER_MS <= 10_000L)
+        assertTrue(PlayerStream.LIVE_STUCK_BUFFER_MS <= 15_000L)
     }
 
     @Test

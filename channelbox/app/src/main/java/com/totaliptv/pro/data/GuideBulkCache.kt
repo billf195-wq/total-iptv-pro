@@ -12,7 +12,8 @@ import java.net.URLEncoder
 object GuideBulkCache {
     const val FILE_NAME = "guide-epg-18h.tsv"
     const val SHORT_FILE_NAME = "guide-epg-short.tsv"
-    const val TTL_MS = 30L * 60L * 1000L
+    /** Saved listings count as fresh this long; a refresh only runs when nothing is playing. */
+    const val TTL_MS = 6L * 60L * 60L * 1000L
     /** A saved 18-hour file older than [TTL_MS] still paints the guide while a new one downloads. */
     const val USABLE_MS = 12L * 60L * 60L * 1000L
     /** With nothing saved, wait this long for xmltv before visible rows use short EPG. */

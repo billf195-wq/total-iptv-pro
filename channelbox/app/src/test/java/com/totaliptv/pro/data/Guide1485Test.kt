@@ -13,7 +13,7 @@ class Guide1485Test {
         val f = File.createTempFile("guide", ".tsv")
         try {
             f.writeText("# tip-guide-epg 1\n1\t1\t2\tx\n")
-            val now = f.lastModified() + 2L * 60L * 60L * 1000L
+            val now = f.lastModified() + 8L * 60L * 60L * 1000L
             assertFalse(GuideBulkCache.isFresh(f, now))
             assertTrue(GuideBulkCache.isUsable(f, now))
             assertFalse(GuideBulkCache.isUsable(f, f.lastModified() + GuideBulkCache.USABLE_MS + 1))

@@ -897,9 +897,54 @@ class CatalogRepository(
      * One xmltv download at a time, owned by the repository, so switching category
      * or leaving the guide joins it instead of starting another one.
      */
+    @Volatile
+    private var bulkCall: okhttp3.Call? = null
+    @Volatile
+    private var bulkPendingCreds: XtreamApi.Credentials? = null
+    @Volatile
+    private var bulkPendingFile: File? = null
+    /** A refresh was skipped or stopped because a video started; run it once playback ends. */
+    private val bulkDeferredForPlayback = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val playbackWatchStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Stop an in-flight guide download when a player opens; resume it when playback ends. */
+    private fun ensurePlaybackWatch() {
+        if (!playbackWatchStarted.compareAndSet(false, true)) return
+        repoScope.launch {
+            com.totaliptv.pro.data.PlaybackGate.active.collect { playing ->
+                if (playing) {
+                    val job = bulkJob
+                    if (job != null && job.isActive) {
+                        bulkDeferredForPlayback.set(true)
+                        bulkCall?.cancel()
+                        job.cancel()
+                        Log.i("TotalIPTV.Guide", "bulkDownload paused for playback")
+                    }
+                } else if (bulkDeferredForPlayback.getAndSet(false)) {
+                    val c = bulkPendingCreds
+                    val f = bulkPendingFile
+                    if (c != null && f != null && activeXtreamCreds == c &&
+                        !GuideBulkCache.isFresh(f, System.currentTimeMillis())
+                    ) {
+                        Log.i("TotalIPTV.Guide", "bulkDownload resumed after playback")
+                        startBulkDownload(c, f)
+                    }
+                }
+            }
+        }
+    }
+
     private fun startBulkDownload(creds: XtreamApi.Credentials, file: File): kotlinx.coroutines.Deferred<Boolean> {
+        ensurePlaybackWatch()
         synchronized(bulkLock) {
             bulkJob?.takeIf { it.isActive }?.let { return it }
+            bulkPendingCreds = creds
+            bulkPendingFile = file
+            if (!com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) {
+                // Never download the guide listing while a video plays.
+                bulkDeferredForPlayback.set(true)
+                return kotlinx.coroutines.CompletableDeferred(false)
+            }
             if (System.currentTimeMillis() - bulkFailedAtMs < GuideBulkCache.RETRY_COOLDOWN_MS) {
                 return kotlinx.coroutines.CompletableDeferred(false)
             }
@@ -914,10 +959,10 @@ class CatalogRepository(
                         Log.w("TotalIPTV.Guide", "bulkDownload attempt=$attempt failed: ${t.javaClass.simpleName}")
                         false
                     }
-                    if (ok || activeXtreamCreds != creds) break
+                    if (ok || activeXtreamCreds != creds || bulkDeferredForPlayback.get()) break
                     if (attempt < GuideBulkCache.DOWNLOAD_ATTEMPTS) kotlinx.coroutines.delay(GuideBulkCache.RETRY_DELAY_MS)
                 }
-                if (!ok) bulkFailedAtMs = System.currentTimeMillis()
+                if (!ok && !bulkDeferredForPlayback.get()) bulkFailedAtMs = System.currentTimeMillis()
                 ok
             }
             bulkJob = job
@@ -935,8 +980,9 @@ class CatalogRepository(
             .callTimeout(180, TimeUnit.SECONDS)
             .build()
         val req = Request.Builder().url(url).header("User-Agent", "TotalIPTVPro/1.4").get().build()
+        val call = bulkHttp.newCall(req).also { bulkCall = it }
         val parsed = try {
-            bulkHttp.newCall(req).execute().use { resp ->
+            call.execute().use { resp ->
                 if (resp.code == 429) throw XtreamApi.RateLimited("xmltv")
                 if (!resp.isSuccessful) return@use emptyMap()
                 val stream = resp.body?.byteStream() ?: return@use emptyMap()
@@ -953,6 +999,14 @@ class CatalogRepository(
             return false
         }
         if (activeXtreamCreds != creds) return false
+        // A cancel (video started) cuts the stream and the parser returns a partial
+        // listing. Never keep or save that; the full refresh runs again when idle.
+        if (call.isCanceled() || kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]?.isActive == false ||
+            bulkDeferredForPlayback.get() || !com.totaliptv.pro.data.PlaybackGate.refreshAllowed()
+        ) {
+            Log.i("TotalIPTV.Guide", "bulkDownload discarded partial (playback)")
+            return false
+        }
         val indexed = GuideBulkCache.indexByStream(parsed, liveSiblings())
         Log.i("TotalIPTV.Guide", "bulkDownload channels=${indexed.size} ms=${System.currentTimeMillis() - t0}")
         if (indexed.isEmpty()) return false

@@ -157,6 +157,8 @@ class PlayerActivity : ComponentActivity() {
     /** Actual URI passed to ExoPlayer (live prefers .ts; may flip to .m3u8). */
     private var playbackUrl: String = ""
     private var triedAlternateLiveUrl = false
+    /** This channel reached READY at least once; do not fail over on a later stall. */
+    private var livePlayedFine = false
     private var bufferWatchJob: Job? = null
     private var aspectRatioBtn: Button? = null
     private var currentResizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -445,6 +447,7 @@ class PlayerActivity : ComponentActivity() {
         // VLC Intent still uses [streamUrl] (.m3u8) as a fallback button.
         playbackUrl = PlayerStream.preferredExoUrl(streamUrl, isLivePlayback())
         triedAlternateLiveUrl = false
+        livePlayedFine = false
         initPlayer()
         scope.launch {
             loadEpgOverlay()
@@ -686,15 +689,21 @@ class PlayerActivity : ComponentActivity() {
             bufferForPlaybackMs = 1_500
             bufferForPlaybackAfterRebufferMs = 3_000
         }
-        return DefaultLoadControl.Builder()
+        val builder = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 minBufferMs,
                 maxBufferMs,
                 bufferForPlaybackMs,
                 bufferForPlaybackAfterRebufferMs
             )
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
+        if (isLivePlayback()) {
+            // Hard byte cap: never let a high-bitrate live stream grow past it on 3-4 GB devices.
+            builder.setTargetBufferBytes(PlayerStream.LIVE_TARGET_BUFFER_BYTES)
+                .setPrioritizeTimeOverSizeThresholds(false)
+        } else {
+            builder.setPrioritizeTimeOverSizeThresholds(true)
+        }
+        return builder.build()
     }
 
     private fun buildRenderersFactory(preferSoftware: Boolean): DefaultRenderersFactory {
@@ -981,6 +990,7 @@ class PlayerActivity : ComponentActivity() {
                         }
                         Player.STATE_READY -> {
                             bufferWatchJob?.cancel()
+                            livePlayedFine = true
                             statusView?.text = ""
                             statusView?.isVisible = false
                             retryCount = 0
@@ -1356,7 +1366,9 @@ class PlayerActivity : ComponentActivity() {
         bufferWatchJob = scope.launch {
             delay(PlayerStream.LIVE_STUCK_BUFFER_MS)
             val exo = player ?: return@launch
-            if (exo.playbackState == Player.STATE_BUFFERING && !exo.isPlaying) {
+            if (exo.playbackState == Player.STATE_BUFFERING && !exo.isPlaying &&
+                PlayerStream.shouldFailOverOnStall(livePlayedFine)
+            ) {
                 tryAlternateLiveUrl("Live still buffering — trying other URL…")
             }
         }
@@ -1549,6 +1561,7 @@ class PlayerActivity : ComponentActivity() {
         resumeWaitAttempts = 0
         playbackUrl = PlayerStream.preferredExoUrl(streamUrl, isLivePlayback())
         triedAlternateLiveUrl = false
+        livePlayedFine = false
         bufferWatchJob?.cancel()
         // Rebuild so decoder-fallback / software-preferring factory stays applied.
         initPlayer()
@@ -1578,12 +1591,14 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        com.totaliptv.pro.data.PlaybackGate.enter()
         player?.playWhenReady = true
     }
 
     override fun onStop() {
         savePlaybackProgress()
         player?.playWhenReady = false
+        com.totaliptv.pro.data.PlaybackGate.exit()
         super.onStop()
     }
 
@@ -1924,6 +1939,7 @@ class PlayerActivity : ComponentActivity() {
         userPickedAudio.set(false)
         playbackUrl = PlayerStream.preferredExoUrl(item.streamUrl, live = false)
         triedAlternateLiveUrl = false
+        livePlayedFine = false
         bufferWatchJob?.cancel()
         initPlayer()
         cachedNextEpisode = null

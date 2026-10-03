@@ -145,6 +145,7 @@ class SplitPlayerActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        com.totaliptv.pro.data.PlaybackGate.enter()
         if (released) return
         left.player?.playWhenReady = true
         right.player?.playWhenReady = true
@@ -153,6 +154,7 @@ class SplitPlayerActivity : ComponentActivity() {
     override fun onStop() {
         left.player?.playWhenReady = false
         right.player?.playWhenReady = false
+        com.totaliptv.pro.data.PlaybackGate.exit()
         super.onStop()
     }
 
