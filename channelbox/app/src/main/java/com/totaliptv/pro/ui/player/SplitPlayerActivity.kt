@@ -773,7 +773,7 @@ class SplitPlayerActivity : ComponentActivity() {
         controls?.visibility = View.VISIBLE
         hideControlsJob?.cancel()
         hideControlsJob = scope.launch {
-            delay(6_000)
+            delay(PlayerOverlayTiming.SPLIT_CONTROLS_MS)
             controls?.visibility = View.GONE
         }
     }

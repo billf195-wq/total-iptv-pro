@@ -13,6 +13,14 @@ object GuideBulkCache {
     const val FILE_NAME = "guide-epg-18h.tsv"
     const val SHORT_FILE_NAME = "guide-epg-short.tsv"
     const val TTL_MS = 30L * 60L * 1000L
+    /** A saved 18-hour file older than [TTL_MS] still paints the guide while a new one downloads. */
+    const val USABLE_MS = 12L * 60L * 60L * 1000L
+    /** With nothing saved, wait this long for xmltv before visible rows use short EPG. */
+    const val FIRST_WAIT_MS = 6_000L
+    const val DOWNLOAD_ATTEMPTS = 2
+    const val RETRY_DELAY_MS = 3_000L
+    /** After a failed download, do not start another for this long. */
+    const val RETRY_COOLDOWN_MS = 2L * 60L * 1000L
 
     fun xmltvUrl(baseUrl: String, username: String, password: String): String {
         val base = baseUrl.trim().trimEnd('/')
@@ -23,6 +31,8 @@ object GuideBulkCache {
 
     fun isFresh(file: File, nowMs: Long, ttlMs: Long = TTL_MS): Boolean =
         file.isFile && file.length() > 0L && nowMs - file.lastModified() < ttlMs
+
+    fun isUsable(file: File, nowMs: Long): Boolean = isFresh(file, nowMs, USABLE_MS)
 
     fun indexByStream(
         byXmlId: Map<String, List<EpgProgram>>,

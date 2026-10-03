@@ -502,13 +502,20 @@ class PlayerActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = FocusCrashGuard.guard(this, event) {
         FocusTrace.screen = "player"
         if (event.action == KeyEvent.ACTION_DOWN) {
+            lastUserKeyAtMs = android.os.SystemClock.uptimeMillis()
             playerView?.showController()
             showOverlayTemporarily()
         }
         super.dispatchKeyEvent(event)
     }
 
-    private fun showOverlayTemporarily(ms: Long = 4500) {
+    private var lastUserKeyAtMs = 0L
+
+    /** Short on its own (movie start), longer right after a remote key. */
+    private fun overlayHoldMs(): Long =
+        PlayerOverlayTiming.holdMs(android.os.SystemClock.uptimeMillis(), lastUserKeyAtMs)
+
+    private fun showOverlayTemporarily(ms: Long = overlayHoldMs()) {
         refreshPlayNextButton()
         refreshRecordButton()
         overlay?.isVisible = true

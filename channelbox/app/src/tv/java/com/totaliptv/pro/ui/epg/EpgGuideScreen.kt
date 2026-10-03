@@ -194,7 +194,9 @@ fun EpgGuideScreen(
         }
 
         // Paint rows immediately (cache hits already have blocks). Play is allowed.
-        rows = channels.map { repository.peekCachedGuideRow(it) ?: EpgChannelRow(channel = it) }
+        rows = withContext(Dispatchers.Default) {
+            channels.map { repository.peekCachedGuideRow(it) ?: EpgChannelRow(channel = it) }
+        }
         loading = false
         if (guideLoadGen != myGen) return@LaunchedEffect
 
@@ -216,7 +218,9 @@ fun EpgGuideScreen(
             runCatching { repository.prepareBulkGuideEpg(context.cacheDir) }
         }
         if (guideLoadGen != myGen) return@LaunchedEffect
-        rows = channels.map { repository.peekCachedGuideRow(it) ?: EpgChannelRow(channel = it) }
+        rows = withContext(Dispatchers.Default) {
+            channels.map { repository.peekCachedGuideRow(it) ?: EpgChannelRow(channel = it) }
+        }
         val n = withDataCount()
         status = if (n == 0) {
             "Timeline | $selectedCategoryName | loading visible rows…"
@@ -297,6 +301,18 @@ fun EpgGuideScreen(
                     paint(drain())
                 }
             }
+    }
+
+    // A background xmltv download finished: repaint rows from the cache.
+    val bulkRevision by repository.guideBulkRevision.collectAsState()
+    LaunchedEffect(bulkRevision) {
+        if (bulkRevision == 0 || rows.isEmpty()) return@LaunchedEffect
+        val gen = guideLoadGen
+        val current = rows
+        val next = withContext(Dispatchers.Default) {
+            current.map { r -> repository.peekCachedGuideRow(r.channel) ?: r }
+        }
+        if (gen == guideLoadGen && rows === current) rows = next
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
