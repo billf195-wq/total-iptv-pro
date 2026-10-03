@@ -142,6 +142,8 @@ class PlayerActivity : ComponentActivity() {
     /** Once true, rebuild ExoPlayer with software-preferring MediaCodecSelector. */
     private var preferSoftwareDecoders = false
     private val englishAutoApplied = AtomicBoolean(false)
+    /** Viewer chose a track in the Audio menu; keep it (do not snap back to English). */
+    private val userPickedAudio = AtomicBoolean(false)
     private var hideOverlayJob: Job? = null
     private var progressSaveJob: Job? = null
     private var resumeApplied = false
@@ -881,6 +883,7 @@ class PlayerActivity : ComponentActivity() {
 
     private fun initPlayerInner() {
         englishAutoApplied.set(false)
+        userPickedAudio.set(false)
         // Detach first. Releasing a player PlayerView still owns crashes inside the view listener.
         playerView?.player = null
         val previous = player
@@ -1124,6 +1127,10 @@ class PlayerActivity : ComponentActivity() {
     private fun preferEnglishAudioIfNeeded() {
         val options = listAudioOptions(includeUnsupported = true)
         if (options.isEmpty()) return // wait for TRACKS_CHANGED / STATE_READY with real groups
+        if (!EnglishAudio.shouldAutoSelect(userPickedAudio.get())) {
+            ensureAudioOutputEnabled()
+            return
+        }
 
         fun rank(opt: AudioTrackOption): Int {
             var score = 0
@@ -1318,6 +1325,7 @@ class PlayerActivity : ComponentActivity() {
             .setTitle("Audio tracks")
             .setItems(labels) { _, which ->
                 val opt = options[which]
+                userPickedAudio.set(true)
                 selectAudio(opt, announce = true)
             }
             .setNegativeButton("Close", null)
@@ -1536,6 +1544,7 @@ class PlayerActivity : ComponentActivity() {
         statusView?.isVisible = true
         overlay?.isVisible = true
         englishAutoApplied.set(false)
+        userPickedAudio.set(false)
         omitForcedMime = false
         resumeWaitAttempts = 0
         playbackUrl = PlayerStream.preferredExoUrl(streamUrl, isLivePlayback())
@@ -1912,6 +1921,7 @@ class PlayerActivity : ComponentActivity() {
         omitForcedMime = false
         preferSoftwareDecoders = false
         englishAutoApplied.set(false)
+        userPickedAudio.set(false)
         playbackUrl = PlayerStream.preferredExoUrl(item.streamUrl, live = false)
         triedAlternateLiveUrl = false
         bufferWatchJob?.cancel()

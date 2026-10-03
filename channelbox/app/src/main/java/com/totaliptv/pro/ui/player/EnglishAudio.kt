@@ -28,6 +28,9 @@ object EnglishAudio {
         val trackIndex: Int
     )
 
+    /** After the viewer picks a track from the Audio menu, stop auto-selecting English. */
+    fun shouldAutoSelect(userPicked: Boolean): Boolean = !userPicked
+
     fun isEnglishLanguage(raw: String?): Boolean {
         if (raw.isNullOrBlank()) return false
         val n = raw.trim().lowercase(Locale.US).replace('_', '-')
