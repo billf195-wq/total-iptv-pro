@@ -8,13 +8,13 @@ Copy/paste into email or chat. **Developed by Bill Foster.**
 - **GitHub repo:** https://github.com/billf195-wq/total-iptv-pro
 - **All releases:** https://github.com/billf195-wq/total-iptv-pro/releases
 
-### Desktop (v1.2.22)
-- **Windows:** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.22/TotalIptvPro-Desktop-1.2.22-windows.zip
-- **Linux:** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.22/TotalIptvPro-Desktop-1.2.22-linux.tar.gz
+### Desktop (v1.2.25)
+- **Windows:** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.25/TotalIptvPro-Desktop-1.2.25-windows.zip
+- **Linux:** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.25/TotalIptvPro-Desktop-1.2.25-linux.tar.gz
 
-### Android (release v1.4.59)
-- **Android TV (1.4.59):** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.4.59/TotalIPTVPro-android-tv-1.4.59-debug.apk
-- **Android phone (1.4.36):** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.4.59/TotalIPTVPro-android-phone-1.4.36-debug.apk
+### Android (latest release: TV 1.4.89, phone 1.4.66)
+- **Android TV / Shield (1.4.89):** https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-ShieldTV.apk
+- **Android phone (1.4.66):** https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-Phone.apk
 
 ## Ubuntu From Zero (tutorial)
 
@@ -34,10 +34,10 @@ Copy/paste into email or chat. **Developed by Bill Foster.**
 ```
 Hey — Total IPTV Pro downloads:
 
-Android TV (1.4.59): https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.4.59/TotalIPTVPro-android-tv-1.4.59-debug.apk
-Android phone (1.4.36): https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.4.59/TotalIPTVPro-android-phone-1.4.36-debug.apk
-Windows (v1.2.22): https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.22/TotalIptvPro-Desktop-1.2.22-windows.zip
-Linux (v1.2.22): https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.22/TotalIptvPro-Desktop-1.2.22-linux.tar.gz
+Android TV / Shield (1.4.89): https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-ShieldTV.apk
+Android phone (1.4.66): https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-Phone.apk
+Windows (v1.2.25): https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.25/TotalIptvPro-Desktop-1.2.25-windows.zip
+Linux (v1.2.25): https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.25/TotalIptvPro-Desktop-1.2.25-linux.tar.gz
 All releases: https://github.com/billf195-wq/total-iptv-pro/releases
 
 Ubuntu tutorial: https://billf195-wq.github.io/ubuntu-from-zero/

@@ -11,13 +11,13 @@ IPTV player for **Android TV / phone** and **Desktop** (Linux & Windows).
 
 [All releases](https://github.com/billf195-wq/total-iptv-pro/releases) · email-ready list: [LINKS.md](LINKS.md)
 
-### Desktop (v1.2.22)
-- **Windows:** [TotalIptvPro-Desktop-1.2.22-windows.zip](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.22/TotalIptvPro-Desktop-1.2.22-windows.zip)
-- **Linux:** [TotalIptvPro-Desktop-1.2.22-linux.tar.gz](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.22/TotalIptvPro-Desktop-1.2.22-linux.tar.gz)
+### Desktop (v1.2.25)
+- **Windows:** [TotalIptvPro-Desktop-1.2.25-windows.zip](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.25/TotalIptvPro-Desktop-1.2.25-windows.zip)
+- **Linux:** [TotalIptvPro-Desktop-1.2.25-linux.tar.gz](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.25/TotalIptvPro-Desktop-1.2.25-linux.tar.gz)
 
-### Android (release v1.4.59)
-- **Android TV (1.4.59):** [TotalIPTVPro-android-tv-1.4.59-debug.apk](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.4.59/TotalIPTVPro-android-tv-1.4.59-debug.apk)
-- **Android phone (1.4.36):** [TotalIPTVPro-android-phone-1.4.36-debug.apk](https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.4.59/TotalIPTVPro-android-phone-1.4.36-debug.apk)
+### Android (latest release: TV 1.4.89, phone 1.4.66)
+- **Android TV / Shield (1.4.89):** [TotalIPTVPro-ShieldTV.apk](https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-ShieldTV.apk)
+- **Android phone (1.4.66):** [TotalIPTVPro-Phone.apk](https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-Phone.apk)
 
 
 
