@@ -12,9 +12,9 @@ Copy/paste into email or chat. **Developed by Bill Foster.**
 - **Windows:** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.25/TotalIptvPro-Desktop-1.2.25-windows.zip
 - **Linux:** https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.25/TotalIptvPro-Desktop-1.2.25-linux.tar.gz
 
-### Android (latest release: TV 1.4.89, phone 1.4.66)
-- **Android TV / Shield (1.4.89):** https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-ShieldTV.apk
-- **Android phone (1.4.66):** https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-Phone.apk
+### Android (latest release: TV 1.4.90, phone 1.4.67)
+- **Android TV / Shield (1.4.90):** https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-ShieldTV.apk
+- **Android phone (1.4.67):** https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-Phone.apk
 
 ### Easy install with the Downloader app
 - **Shield / Fire TV / Android TV:** code **1144079** (https://aftv.news/1144079)
@@ -40,8 +40,8 @@ On a TV box, open the Downloader app and type the number into its URL box. On a 
 ```
 Hey — Total IPTV Pro downloads:
 
-Android TV / Shield (1.4.89): https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-ShieldTV.apk
-Android phone (1.4.66): https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-Phone.apk
+Android TV / Shield (1.4.90): https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-ShieldTV.apk
+Android phone (1.4.67): https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/TotalIPTVPro-Phone.apk
 Windows (v1.2.25): https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.25/TotalIptvPro-Desktop-1.2.25-windows.zip
 Linux (v1.2.25): https://github.com/billf195-wq/total-iptv-pro/releases/download/v1.2.25/TotalIptvPro-Desktop-1.2.25-linux.tar.gz
 Downloader app codes (always the newest): Shield/Fire TV/Android TV 1144079, phone 4864629
