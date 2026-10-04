@@ -143,6 +143,8 @@ fun DesktopPosterCard(
                             .size(200, 300)
                             .addHeader("User-Agent", LogoUrls.USER_AGENT)
                             .allowHardware(false)
+                            // Posters are opaque: half the heap per bitmap, less GC while scrolling.
+                            .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
                             .crossfade(false)
                             .build()
                     }

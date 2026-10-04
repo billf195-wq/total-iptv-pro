@@ -64,7 +64,19 @@ class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean =
         // While the playlist-refresh splash is up, keys must not move hidden focus.
         if (com.totaliptv.pro.data.repo.ManualRefresh.overlayVisible) true
-        else FocusCrashGuard.guard(this, event) { super.dispatchKeyEvent(event) }
+        else if (dpadGate.shouldDrop(event, android.os.SystemClock.uptimeMillis())) true
+        else {
+            val started = android.os.SystemClock.uptimeMillis()
+            val handled = FocusCrashGuard.guard(this, event) { super.dispatchKeyEvent(event) }
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                val done = android.os.SystemClock.uptimeMillis()
+                dpadGate.onDispatched(event.keyCode, event.repeatCount, done, done - started)
+            }
+            handled
+        }
+
+    /** Drops piled-up D-pad repeats so a held key cannot freeze the app (ANR). */
+    private val dpadGate = com.totaliptv.pro.ui.focus.DpadRepeatGate()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
