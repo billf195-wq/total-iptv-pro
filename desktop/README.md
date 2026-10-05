@@ -105,6 +105,24 @@ Same launcher artwork as Android TV (`com.totaliptv.pro` → `res/drawable/ic_la
 - `src/main/resources/app_banner.png` — top banner in the main UI
 - `~/.local/share/icons/hicolor/512x512/apps/total-iptv-pro.png` — app menu (`.desktop` uses `Icon=total-iptv-pro`)
 
+
+## Troubleshooting (Windows)
+
+### No sound while playing
+Often **VLC is muted in the Windows Volume Mixer** even when Speakers are not muted. Total IPTV Pro plays through VLC, so VLC has its own mute slider.
+
+1. Play a channel so VLC opens.
+2. Right-click the speaker icon in the taskbar → **Open volume mixer**.
+3. Unmute **VLC** / raise its slider.
+4. Also try in VLC: **Audio → Audio Device** and pick the speakers you are using (for example Speakers (GS3)).
+
+### Volume mixer won't open
+Windows **Settings** may be stuck.
+
+1. Open **Task Manager** → end **Settings**, then try the mixer again.
+2. Or press **Win+R**, type `sndvol`, press Enter (classic Volume Mixer).
+3. Or open **Settings → System → Sound → Volume mixer**.
+
 ## Notes
 
 - Android ChannelBox must remain untouched; this desktop app only mirrors API concepts.
