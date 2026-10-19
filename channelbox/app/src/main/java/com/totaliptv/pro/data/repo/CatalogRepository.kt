@@ -4,6 +4,7 @@ import android.util.Log
 import com.totaliptv.pro.data.GuideBulkCache
 import com.totaliptv.pro.data.LiveChannelMapping
 import com.totaliptv.pro.data.SeriesTitles
+import com.totaliptv.pro.data.VodDiskCache
 import com.totaliptv.pro.data.LiveEpgBinding
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.m3u.M3uParser
@@ -109,6 +110,55 @@ class CatalogRepository(
     private val _vodLoading = MutableStateFlow(false)
     val vodLoading: StateFlow<Boolean> = _vodLoading.asStateFlow()
 
+    /** User-facing VOD failure (null = ok). Set only when movies are empty after retries. */
+    private val _vodError = MutableStateFlow<String?>(null)
+    val vodError: StateFlow<String?> = _vodError.asStateFlow()
+
+    @Volatile
+    private var vodCacheDir: File? = null
+    @Volatile
+    private var vodRetryArgs: List<String>? = null
+
+    /** Where the last good movie/series list is kept (app filesDir). */
+    fun attachVodCacheDir(dir: File) {
+        vodCacheDir = dir
+    }
+
+    /** Re-run the movie/series download for the active Xtream source. */
+    fun retryVod() {
+        val args = vodRetryArgs ?: run {
+            repoScope.launch { runCatching { ensureCatalogLoaded(force = true) } }
+            return
+        }
+        startVodJob(args[0], args[1], args[2], args[3])
+    }
+
+    private fun startVodJob(sourceId: String, base: String, user: String, pass: String) {
+        vodRetryArgs = listOf(sourceId, base, user, pass)
+        vodJob?.cancel()
+        _vodLoading.value = true
+        _vodError.value = null
+        vodJob = repoScope.launch {
+            try {
+                mergeVodInBackground(sourceId, base, user, pass)
+                // Save movies now: series can take minutes more on big providers.
+                persistVodCache(sourceId)
+                mergeSeriesInBackground(sourceId, base, user, pass)
+            } finally {
+                _vodLoading.value = false
+                persistVodCache(sourceId)
+            }
+        }
+    }
+
+    private fun persistVodCache(sourceId: String) {
+        val dir = vodCacheDir ?: return
+        if (loadedForSourceId != sourceId) return
+        runCatching { VodDiskCache.write(dir, sourceId, cachedCategories, cachedItems) }
+            .onSuccess { Log.i(VOD_TAG, "cache saved movies=${cachedItems.count { it.kind == ContentKind.VOD }} series=${cachedItems.count { it.kind == ContentKind.SERIES }}") }
+            .onFailure { Log.w(VOD_TAG, "cache save failed: ${SensitiveText.safeLog(it)}") }
+    }
+
     val sources: Flow<List<PlaylistSource>> = prefs.sources
     val favorites: Flow<List<FavoriteRef>> = prefs.favorites
     val activeSourceId: Flow<String?> = prefs.activeSourceId
@@ -159,6 +209,9 @@ class CatalogRepository(
     }
 
     suspend fun clearAllData() {
+        vodCacheDir?.let { runCatching { VodDiskCache.clear(it) } }
+        _vodError.value = null
+        vodRetryArgs = null
         vodJob?.cancel()
         vodJob = null
         _vodLoading.value = false
@@ -240,25 +293,29 @@ class CatalogRepository(
                                 forgetEpg()
                                 clearXmltv()
                                 // Publish live immediately — do not wait on VOD.
-                                cachedCategories = live.categories
-                                cachedItems = live.items
+                                // 1.4.91: keep the previous movie/series lists (memory, else disk
+                                // cache) until a fresh non-empty load replaces them.
+                                val sameSource = loadedForSourceId == source.id
+                                var keepCats = if (sameSource) cachedCategories.filter { it.kind != ContentKind.LIVE } else emptyList()
+                                var keepItems = if (sameSource) cachedItems.filter { it.kind != ContentKind.LIVE } else emptyList()
+                                if (keepItems.none { it.kind == ContentKind.VOD }) {
+                                    val snap = vodCacheDir?.let { dir -> runCatching { VodDiskCache.read(dir, source.id) }.getOrNull() }
+                                    if (snap != null) {
+                                        keepCats = snap.categories
+                                        keepItems = snap.items
+                                        Log.i(VOD_TAG, "disk cache hit movies=${snap.items.count { it.kind == ContentKind.VOD }} ageMs=${System.currentTimeMillis() - snap.savedAtMs}")
+                                    } else {
+                                        Log.i(VOD_TAG, "no movie cache yet")
+                                    }
+                                }
+                                cachedCategories = live.categories + keepCats
+                                cachedItems = live.items + keepItems
                                 lastWarning = null
                                 loadedForSourceId = source.id
                                 bumpRevision()
 
                                 val sourceId = source.id
-                                scheduleVod = {
-                                    vodJob?.cancel()
-                                    _vodLoading.value = true
-                                    vodJob = repoScope.launch {
-                                        try {
-                                            mergeVodInBackground(sourceId, base, user, pass)
-                                            mergeSeriesInBackground(sourceId, base, user, pass)
-                                        } finally {
-                                            _vodLoading.value = false
-                                        }
-                                    }
-                                }
+                                scheduleVod = { startVodJob(sourceId, base, user, pass) }
                             }
                         }
                         return@withContext cachedCategories to cachedItems
@@ -288,29 +345,66 @@ class CatalogRepository(
         return result
     }
 
+    /** Runs [load] up to [VOD_ATTEMPTS] times; an empty or failed result counts as a miss. */
+    private suspend fun <T> loadWithRetry(
+        label: String,
+        load: () -> T,
+        itemCount: (T) -> Int,
+        warnings: (T) -> List<String>
+    ): Pair<T?, String?> {
+        var lastProblem: String? = null
+        for (attempt in 1..VOD_ATTEMPTS) {
+            val t0 = System.currentTimeMillis()
+            val res = runCatching { load() }
+            val ms = System.currentTimeMillis() - t0
+            val value = res.getOrNull()
+            val n = value?.let(itemCount) ?: 0
+            if (value != null && n > 0) {
+                Log.i(VOD_TAG, "$label ok attempt=$attempt items=$n ms=$ms")
+                return value to null
+            }
+            lastProblem = res.exceptionOrNull()?.let { SensitiveText.forUser(it) }
+                ?: value?.let(warnings)?.joinToString(" ")?.takeIf { it.isNotBlank() }
+                ?: "empty list"
+            Log.w(VOD_TAG, "$label miss attempt=$attempt/$VOD_ATTEMPTS ms=$ms problem=$lastProblem")
+            if (attempt < VOD_ATTEMPTS) delay(VOD_BACKOFF_MS * (1L shl (attempt - 1)))
+        }
+        return null to lastProblem
+    }
+
     private suspend fun mergeVodInBackground(
         sourceId: String,
         base: String,
         user: String,
         pass: String
     ) {
-        val vod = runCatching { xtreamApi.loadVodCatalog(base, user, pass) }
-            .getOrElse { t ->
-                val detail = SensitiveText.forUser(t)
-                XtreamApi.VodCatalog(
-                    emptyList(),
-                    emptyList(),
-                    listOf("VOD list failed (" + detail + "). Live TV still available.")
-                )
-            }
+        Log.i(VOD_TAG, "movies load start")
+        val (vod, problem) = loadWithRetry(
+            "movies",
+            { xtreamApi.loadVodCatalog(base, user, pass) },
+            { it.items.size },
+            { it.warnings }
+        )
 
         loadMutex.withLock {
             if (loadedForSourceId != sourceId) return@withLock
-            val liveCats = cachedCategories.filter { it.kind == ContentKind.LIVE }
-            val liveItems = cachedItems.filter { it.kind == ContentKind.LIVE }
-            cachedCategories = liveCats + vod.categories
-            cachedItems = liveItems + vod.items
-            lastWarning = vod.warnings.takeIf { it.isNotEmpty() }?.joinToString(" ")
+            if (vod != null && VodDiskCache.shouldReplace(vod.items)) {
+                val keepCats = cachedCategories.filter { it.kind != ContentKind.VOD }
+                val keepItems = cachedItems.filter { it.kind != ContentKind.VOD }
+                cachedCategories = keepCats + vod.categories
+                cachedItems = keepItems + vod.items
+                lastWarning = null
+                _vodError.value = null
+            } else {
+                val have = cachedItems.count { it.kind == ContentKind.VOD }
+                Log.w(VOD_TAG, "movies refresh failed; keeping $have cached movies")
+                if (have == 0) {
+                    _vodError.value = "Couldn't load movies (" + (problem ?: "unknown error") + ")."
+                    lastWarning = "VOD list failed (" + (problem ?: "unknown error") + "). Live TV still available."
+                } else {
+                    lastWarning = "Couldn't refresh movies; showing saved list."
+                }
+            }
             bumpRevision()
         }
     }
@@ -322,25 +416,25 @@ class CatalogRepository(
         user: String,
         pass: String
     ) {
-        val series = runCatching { xtreamApi.loadSeriesCatalog(base, user, pass) }
-            .getOrElse { t ->
-                val detail = SensitiveText.forUser(t)
-                XtreamApi.SeriesCatalog(
-                    emptyList(),
-                    emptyList(),
-                    listOf("Series list failed (" + detail + ").")
-                )
-            }
+        val (series, problem) = loadWithRetry(
+            "series",
+            { xtreamApi.loadSeriesCatalog(base, user, pass) },
+            { it.items.size },
+            { it.warnings }
+        )
 
         loadMutex.withLock {
             if (loadedForSourceId != sourceId) return@withLock
-            val keepCats = cachedCategories.filter { it.kind != ContentKind.SERIES }
-            val keepItems = cachedItems.filter { it.kind != ContentKind.SERIES }
-            cachedCategories = keepCats + series.categories
-            cachedItems = keepItems + series.items
-            val extra = series.warnings.takeIf { it.isNotEmpty() }?.joinToString(" ")
-            if (!extra.isNullOrBlank()) {
-                lastWarning = listOfNotNull(lastWarning, extra).joinToString(" ")
+            if (series != null && series.items.isNotEmpty()) {
+                val keepCats = cachedCategories.filter { it.kind != ContentKind.SERIES }
+                val keepItems = cachedItems.filter { it.kind != ContentKind.SERIES }
+                cachedCategories = keepCats + series.categories
+                cachedItems = keepItems + series.items
+            } else {
+                Log.w(VOD_TAG, "series refresh failed; keeping cached series problem=$problem")
+                if (cachedItems.none { it.kind == ContentKind.SERIES }) {
+                    lastWarning = listOfNotNull(lastWarning, "Series list failed (" + (problem ?: "unknown error") + ").").joinToString(" ")
+                }
             }
             bumpRevision()
         }
@@ -1264,3 +1358,6 @@ enum class CatalogSort {
     RECENTLY_ADDED
 }
 
+private const val VOD_TAG = "TotalIPTV.Vod"
+private const val VOD_ATTEMPTS = 3
+private const val VOD_BACKOFF_MS = 2_000L

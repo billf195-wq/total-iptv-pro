@@ -65,6 +65,9 @@ fun PhoneBrowseScreen(
     contentPadding: PaddingValues = PaddingValues(0.dp)
 ) {
     val revision by repository.catalogRevision.collectAsState()
+    val vodLoading by repository.vodLoading.collectAsState()
+    val vodError by repository.vodError.collectAsState()
+    val isVodSection = section == BrowseSection.Movies || section == BrowseSection.Series
     var loading by remember { mutableStateOf(true) }
     var categories by remember { mutableStateOf<List<Category>>(emptyList()) }
     var selectedCat by remember { mutableStateOf<String?>(null) }
@@ -184,6 +187,24 @@ fun PhoneBrowseScreen(
             loading && displayItems.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
+                }
+            }
+            displayItems.isEmpty() && isVodSection && vodLoading -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(12.dp))
+                        Text(if (section == BrowseSection.Series) "Loading series…" else "Loading movies…", color = OnCinemaMuted)
+                    }
+                }
+            }
+            displayItems.isEmpty() && isVodSection && vodError != null -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(vodError ?: "", color = OnCinemaMuted)
+                        Spacer(Modifier.height(12.dp))
+                        androidx.compose.material3.Button(onClick = { repository.retryVod() }) { Text("Retry") }
+                    }
                 }
             }
             displayItems.isEmpty() -> {

@@ -145,6 +145,8 @@ fun HomeScreen(
     fun posterFocus(scope: String, id: String): FocusRequester =
         posterFocusRequesters.getOrPut("$scope:$id") { FocusRequester() }
     val catalogRevision by repository.catalogRevision.collectAsState()
+    val vodLoading by repository.vodLoading.collectAsState()
+    val vodError by repository.vodError.collectAsState()
     val pillFocus = remember { FocusRequester() }
     val clockFmt = remember { SimpleDateFormat("h:mm a | MMM d", Locale.getDefault()) }
     var clockText by remember { mutableStateOf(clockFmt.format(Date())) }
@@ -695,6 +697,9 @@ fun HomeScreen(
                                     displayItems = displayItems,
                                     posterOverrides = posterOverrides,
                                     categoriesEmpty = categories.isEmpty(),
+                                    vodLoading = vodLoading,
+                                    vodError = vodError,
+                                    onRetryVod = { repository.retryVod() },
                                     catalogSort = catalogSort,
                                     onSort = { catalogSort = it },
                                     favoriteIds = favoriteIds,
@@ -1179,6 +1184,9 @@ private fun VodMainPane(
     displayItems: List<MediaItem>,
     posterOverrides: Map<String, MediaItem> = emptyMap(),
     categoriesEmpty: Boolean,
+    vodLoading: Boolean = false,
+    vodError: String? = null,
+    onRetryVod: () -> Unit = {},
     catalogSort: CatalogSort,
     onSort: (CatalogSort) -> Unit,
     favoriteIds: Set<String>,
@@ -1249,9 +1257,13 @@ private fun VodMainPane(
     }
 
     when {
+        categoriesEmpty && vodLoading -> EmptyHub(
+            if (isSeries) "Loading series…" else "Loading movies…"
+        )
+        categoriesEmpty && vodError != null -> VodErrorHub(vodError, onRetryVod)
         categoriesEmpty -> EmptyHub(
             if (isSeries) "Series catalogs aren't available for this playlist yet."
-            else "Movies are still loading, or this playlist has no VOD."
+            else "This playlist has no movies."
         )
         displayItems.isEmpty() -> EmptyHub("No titles in this category.")
         else -> {
@@ -1283,6 +1295,23 @@ private fun VodMainPane(
                     )
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun VodErrorHub(message: String, onRetry: () -> Unit) {
+    val focus = remember { FocusRequester() }
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.titleMedium,
+                color = OnCinemaMuted,
+                modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp)
+            )
+            Button(onClick = onRetry, modifier = Modifier.focusRequester(focus)) { Text("Retry") }
         }
     }
 }

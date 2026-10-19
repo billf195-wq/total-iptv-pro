@@ -38,6 +38,7 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         CrashLog.install(this)
         preferences = AppPreferences(this)
         repository = CatalogRepository(preferences)
+        repository.attachVodCacheDir(filesDir)
         watchProgress = WatchProgressStore(this)
         dvr = DvrRecorder(this)
         appScope.launch {
