@@ -18,8 +18,8 @@ object UpdateSources {
     private val APK_SUFFIXES = listOf("-debug.apk", "-release.apk")
 
     /** Google Drive update manifests (folder "Total IPTV Pro"). Ids stay fixed; content is replaced. */
-    const val DRIVE_MANIFEST_TV = "1smi84EEP2INJcDdKKOaKyftNj5kdNTCQ"
-    const val DRIVE_MANIFEST_PHONE = "1OeFkcRKdnyRDdL1cGfvh4cENGpnkkmWi"
+    const val DRIVE_MANIFEST_TV = "13hgzKtCKZcK7Pdzxv8kNo7mMCHocgcSW"
+    const val DRIVE_MANIFEST_PHONE = "1s9RotVdUWedrNnNMvqPCIqAFQOgE7CeF"
 
     fun driveManifestId(flavor: String): String = when (flavor.trim().lowercase()) {
         "phone" -> DRIVE_MANIFEST_PHONE
