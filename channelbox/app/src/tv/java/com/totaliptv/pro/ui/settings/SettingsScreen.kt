@@ -220,7 +220,7 @@ fun SettingsScreen(
                         else -> "Check for update"
                     },
                     subtitle = updateStatus
-                        ?: "Checks GitHub Releases first, then version.json on the PC shelf",
+                        ?: "Checks Google Drive first, then version.json on the PC shelf",
                     onClick = {
                         if (updateBusy) return@FocusableCard
                         val activity = context as? Activity
@@ -240,7 +240,7 @@ fun SettingsScreen(
                                         AppUpdateChecker.openUnknownSourcesSettings(activity)
                                         return@launch
                                     }
-                                    val file = AppUpdateChecker.downloadApk(context, ready.apkUrl)
+                                    val file = AppUpdateChecker.downloadApk(context, ready.apkUrl, ready.manifest.size, ready.manifest.sha256)
                                     updateStatus = "Opening installer…"
                                     AppUpdateChecker.launchInstaller(context, file)
                                 } catch (t: Throwable) {

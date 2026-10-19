@@ -974,7 +974,7 @@ fun DesktopSettingsPane(
             fontSize = TipDimens.BodyMediumSp
         )
         Text(
-            if (updateBaseUrl.isBlank()) "Checks GitHub Releases" else "Checks GitHub Releases, then your shelf",
+            if (updateBaseUrl.isBlank()) "Checks Google Drive" else "Checks Google Drive, then your shelf",
             color = TipGoldMuted,
             fontSize = TipDimens.sp(12)
         )
@@ -1034,7 +1034,7 @@ fun DesktopSettingsPane(
                                 AppUpdateChecker.openUnknownSourcesSettings(activity)
                                 return@launch
                             }
-                            val file = AppUpdateChecker.downloadApk(context, ready.apkUrl)
+                            val file = AppUpdateChecker.downloadApk(context, ready.apkUrl, ready.manifest.size, ready.manifest.sha256)
                             updateStatus = "Opening installer…"
                             AppUpdateChecker.launchInstaller(context, file)
                         } catch (t: Throwable) {

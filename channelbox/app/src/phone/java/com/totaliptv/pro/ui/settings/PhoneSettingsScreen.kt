@@ -107,7 +107,7 @@ fun PhoneSettingsScreen(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "Checks GitHub Releases. A shelf URL is optional and is not required.",
+            "Checks Google Drive first, then the shelf URL if set.",
             color = OnCinemaMuted,
             style = MaterialTheme.typography.bodySmall
         )
@@ -177,7 +177,7 @@ fun PhoneSettingsScreen(
                                 AppUpdateChecker.openUnknownSourcesSettings(activity)
                                 return@launch
                             }
-                            val file = AppUpdateChecker.downloadApk(context, ready.apkUrl)
+                            val file = AppUpdateChecker.downloadApk(context, ready.apkUrl, ready.manifest.size, ready.manifest.sha256)
                             updateStatus = "Opening installer…"
                             AppUpdateChecker.launchInstaller(context, file)
                         } catch (t: Throwable) {

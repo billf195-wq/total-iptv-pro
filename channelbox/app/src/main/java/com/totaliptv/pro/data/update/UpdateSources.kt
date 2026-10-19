@@ -17,6 +17,41 @@ object UpdateSources {
     /** Uploaded debug builds, and release builds signed with the permanent key. */
     private val APK_SUFFIXES = listOf("-debug.apk", "-release.apk")
 
+    /** Google Drive update manifests (folder "Total IPTV Pro"). Ids stay fixed; content is replaced. */
+    const val DRIVE_MANIFEST_TV = "1smi84EEP2INJcDdKKOaKyftNj5kdNTCQ"
+    const val DRIVE_MANIFEST_PHONE = "1OeFkcRKdnyRDdL1cGfvh4cENGpnkkmWi"
+
+    fun driveManifestId(flavor: String): String = when (flavor.trim().lowercase()) {
+        "phone" -> DRIVE_MANIFEST_PHONE
+        "tv" -> DRIVE_MANIFEST_TV
+        else -> ""
+    }
+
+    fun driveDownloadUrl(fileId: String): String =
+        "https://drive.usercontent.google.com/download?id=$fileId&export=download&confirm=t"
+
+    /** Explicit https url wins; otherwise build one from the Drive file id. */
+    fun driveApkUrl(url: String, driveFileId: String): String? {
+        val u = url.trim()
+        if (u.startsWith("https://")) return u
+        val id = driveFileId.trim()
+        return if (id.isNotEmpty()) driveDownloadUrl(id) else null
+    }
+
+    /** Null when ok; otherwise a short reason. Zero/blank expectations are skipped. */
+    fun verifyApk(bytes: ByteArray, expectedSize: Long, expectedSha256: String): String? {
+        if (expectedSize > 0 && bytes.size.toLong() != expectedSize) {
+            return "Download size mismatch (${bytes.size} vs $expectedSize)"
+        }
+        val want = expectedSha256.trim().lowercase()
+        if (want.isNotEmpty()) {
+            val got = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+            if (got != want) return "Download checksum mismatch"
+        }
+        return null
+    }
+
     data class Asset(val name: String, val url: String)
 
     data class ReleaseListing(

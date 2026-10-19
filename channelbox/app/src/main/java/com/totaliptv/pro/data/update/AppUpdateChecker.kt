@@ -10,7 +10,6 @@ import androidx.core.content.FileProvider
 import com.totaliptv.pro.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -22,7 +21,12 @@ import java.util.concurrent.TimeUnit
 data class UpdateManifest(
     val versionCode: Int,
     val versionName: String = "",
-    val apk: String = "TotalIPTVPro.apk"
+    val apk: String = "TotalIPTVPro.apk",
+    /** Google Drive manifest extras (1.4.92+). Shelf manifests leave these blank. */
+    val driveFileId: String = "",
+    val url: String = "",
+    val size: Long = 0,
+    val sha256: String = ""
 )
 
 sealed class UpdateCheckResult {
@@ -39,19 +43,6 @@ fun UpdateCheckResult.Available.installLabel(): String {
         "Update available: $name. Tap to install."
     }
 }
-
-@Serializable
-private data class GithubReleaseDto(
-    val draft: Boolean = false,
-    val prerelease: Boolean = false,
-    val assets: List<GithubAssetDto> = emptyList()
-)
-
-@Serializable
-private data class GithubAssetDto(
-    val name: String = "",
-    @SerialName("browser_download_url") val browserDownloadUrl: String = ""
-)
 
 object AppUpdateChecker {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
@@ -70,71 +61,31 @@ object AppUpdateChecker {
     }
 
     /**
-     * GitHub Releases first (list releases; do not trust /releases/latest, because
-     * a desktop tag can be Latest). An optional shelf URL is the fallback.
-     * A blank shelf is skipped. Failures never include a server address.
+     * 1.4.92: Google Drive manifest only; the home shelf is the fallback when
+     * Drive is unreachable. Manual downloads stay on the public releases page.
      */
     suspend fun check(baseUrl: String): UpdateCheckResult = withContext(Dispatchers.IO) {
-        val github = runCatching { checkGitHub() }.getOrElse {
+        val drive = runCatching { checkDrive() }.getOrElse {
             UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
         }
-        if (github is UpdateCheckResult.Available) return@withContext github
-        if (!UpdateSources.shouldCheckShelf(baseUrl)) {
-            return@withContext when (github) {
-                is UpdateCheckResult.UpToDate -> github
-                else -> UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
-            }
-        }
-        val shelf = checkShelf(baseUrl)
-        if (shelf is UpdateCheckResult.Available) return@withContext shelf
-        if (github is UpdateCheckResult.UpToDate || shelf is UpdateCheckResult.UpToDate) {
-            return@withContext UpdateCheckResult.UpToDate
-        }
-        UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
+        if (drive !is UpdateCheckResult.Failed) return@withContext drive
+        if (!UpdateSources.shouldCheckShelf(baseUrl)) return@withContext drive
+        checkShelf(baseUrl)
     }
 
-    private fun checkGitHub(): UpdateCheckResult {
-        val releases = mutableListOf<UpdateSources.ReleaseListing>()
-        var pageUrl: String? = UpdateSources.GITHUB_RELEASES_URL + "?per_page=100"
-        var pages = 0
-        while (pageUrl != null && pages < 5) {
-            val req = Request.Builder()
-                .url(pageUrl)
-                .header("User-Agent", "TotalIPTVPro/${BuildConfig.VERSION_NAME}")
-                .header("Accept", "application/vnd.github+json")
-                .get()
-                .build()
-            client.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) error("HTTP ${resp.code}")
-                val body = resp.body?.string().orEmpty()
-                if (body.isBlank()) error("Empty releases list")
-                val parsed = json.decodeFromString<List<GithubReleaseDto>>(body)
-                releases += parsed.map { dto ->
-                    UpdateSources.ReleaseListing(
-                        draft = dto.draft,
-                        prerelease = dto.prerelease,
-                        assets = dto.assets.map { asset ->
-                            UpdateSources.Asset(asset.name, asset.browserDownloadUrl)
-                        }
-                    )
-                }
-                pageUrl = UpdateSources.nextPageUrl(resp.header("Link"))
-            }
-            pages++
+    private fun checkDrive(): UpdateCheckResult {
+        val manifestId = UpdateSources.driveManifestId(BuildConfig.FLAVOR)
+        if (manifestId.isBlank()) return UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
+        val req = Request.Builder().url(UpdateSources.driveDownloadUrl(manifestId)).get().build()
+        client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) error("HTTP ${resp.code}")
+            val body = resp.body?.string().orEmpty()
+            val manifest = json.decodeFromString(UpdateManifest.serializer(), body)
+            if (manifest.versionCode <= BuildConfig.VERSION_CODE) return UpdateCheckResult.UpToDate
+            val url = UpdateSources.driveApkUrl(manifest.url, manifest.driveFileId)
+                ?: error("Drive manifest has no APK")
+            return UpdateCheckResult.Available(manifest, url)
         }
-        val picked = UpdateSources.pickNewerApk(
-            releasesNewestFirst = releases,
-            flavor = BuildConfig.FLAVOR,
-            currentVersionName = BuildConfig.VERSION_NAME
-        ) ?: return UpdateCheckResult.UpToDate
-        return UpdateCheckResult.Available(
-            manifest = UpdateManifest(
-                versionCode = 0,
-                versionName = picked.versionName,
-                apk = picked.url.substringAfterLast('/')
-            ),
-            apkUrl = picked.url
-        )
     }
 
     private fun checkShelf(baseUrl: String): UpdateCheckResult {
@@ -160,7 +111,12 @@ object AppUpdateChecker {
         }
     }
 
-    suspend fun downloadApk(context: Context, apkUrl: String): File = withContext(Dispatchers.IO) {
+    suspend fun downloadApk(
+        context: Context,
+        apkUrl: String,
+        expectedSize: Long = 0,
+        expectedSha256: String = ""
+    ): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
         val out = File(dir, "TotalIPTVPro-update.apk")
         if (out.exists()) out.delete()
@@ -169,6 +125,7 @@ object AppUpdateChecker {
             if (!resp.isSuccessful) error("Download failed (${resp.code})")
             val bytes = resp.body?.bytes() ?: error("Empty APK body")
             if (bytes.size < 100_000) error("APK too small (${bytes.size} bytes)")
+            UpdateSources.verifyApk(bytes, expectedSize, expectedSha256)?.let { error(it) }
             out.writeBytes(bytes)
         }
         out
