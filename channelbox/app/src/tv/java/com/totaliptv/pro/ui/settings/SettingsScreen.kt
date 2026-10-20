@@ -162,7 +162,7 @@ fun SettingsScreen(
                                 orientation = LinearLayout.VERTICAL
                                 setPadding(dp(4), dp(4), dp(4), dp(4))
                                 addView(TextView(ctx).apply {
-                                    text = "Optional shelf URL. Leave blank to use GitHub Releases only."
+                                    text = "Optional shelf URL. Leave blank to use Google Drive only."
                                     setTextColor(AndroidColor.parseColor("#B0BEC5"))
                                     textSize = 13f
                                 })
@@ -196,7 +196,7 @@ fun SettingsScreen(
                 item {
                     FocusableCard(
                         title = "Save update server URL",
-                        subtitle = "Leave blank for GitHub only",
+                        subtitle = "Leave blank for Google Drive only",
                         onClick = {
                             scope.launch {
                                 val normalized = AppUpdateChecker.normalizeBase(urlHolder.text)

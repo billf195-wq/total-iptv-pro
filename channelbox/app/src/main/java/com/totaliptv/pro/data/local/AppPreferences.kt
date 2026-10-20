@@ -73,7 +73,7 @@ class AppPreferences(private val context: Context) {
     private val autoPipKey = booleanPreferencesKey("auto_pip")
 
     companion object {
-        /** Blank unless the user saves a shelf. GitHub Releases is the update source. */
+        /** Blank unless the user saves a shelf. Google Drive is the update source. */
         val DEFAULT_UPDATE_BASE_URL: String
             get() = BuildConfig.DEFAULT_UPDATE_BASE_URL
 

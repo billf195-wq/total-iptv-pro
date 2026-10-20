@@ -979,7 +979,7 @@ fun DesktopSettingsPane(
             fontSize = TipDimens.sp(12)
         )
         Text(
-            "Shelf address (optional). Leave blank to use GitHub only. A saved address stays after updates.",
+            "Shelf address (optional). Leave blank to use Google Drive only. A saved address stays after updates.",
             color = TipGoldMuted,
             fontSize = TipDimens.sp(12)
         )
