@@ -1,0 +1,4 @@
+{
+  "name": "Total IPTV Pro",
+  "install": "bash .cursor/install.sh"
+}
