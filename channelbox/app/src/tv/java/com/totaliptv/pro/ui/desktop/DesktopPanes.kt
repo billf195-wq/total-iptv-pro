@@ -63,6 +63,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.totaliptv.pro.R
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
@@ -932,6 +934,12 @@ fun DesktopSettingsPane(
             fontSize = TipDimens.BodyMediumSp,
             modifier = Modifier.padding(top = TipDimens.dp(6))
         )
+        Text(
+            stringResource(R.string.trademark_disclaimer),
+            color = TipGoldMuted,
+            fontSize = TipDimens.BodyMediumSp,
+            modifier = Modifier.padding(top = TipDimens.dp(6))
+        )
         Spacer(Modifier.height(TipDimens.dp(12)))
         SectionHeader("Accent color")
         Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
@@ -1157,6 +1165,12 @@ fun DesktopSettingsPane(
         Text("Total IPTV Pro — Classic / Desktop layout", color = TipGoldMuted, fontSize = TipDimens.sp(12))
         Text("Package: com.totaliptv.pro", color = TipGoldMuted, fontSize = TipDimens.sp(12))
         Text("Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", color = TipGoldMuted, fontSize = TipDimens.sp(12))
+        Text(
+            stringResource(R.string.trademark_disclaimer),
+            color = TipGoldMuted,
+            fontSize = TipDimens.sp(12),
+            modifier = Modifier.padding(top = TipDimens.dp(8))
+        )
     }
 }
 

@@ -51,8 +51,8 @@ android {
         applicationId = "com.totaliptv.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 106
-        versionName = "1.4.94"
+        versionCode = 107
+        versionName = "1.4.95"
         buildConfigField(
             "String",
             "DEFAULT_UPDATE_BASE_URL",
@@ -94,8 +94,8 @@ android {
         create("tv") {
             dimension = "device"
             // Keep Shield / Leanback applicationId unchanged.
-            versionCode = 106
-            versionName = "1.4.94"
+            versionCode = 107
+            versionName = "1.4.95"
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",
@@ -106,8 +106,8 @@ android {
             dimension = "device"
             applicationIdSuffix = ".phone"
             // Phone-only bump so Shield is not forced to update.
-            versionCode = 83
-            versionName = "1.4.71-phone"
+            versionCode = 84
+            versionName = "1.4.72-phone"
             resValue("string", "app_name", "Total IPTV Pro Phone")
             buildConfigField(
                 "String",

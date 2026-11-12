@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">Total IPTV Pro</string>
     <string name="privacy_policy_placeholder_url">https://example.com/total-iptv-pro/privacy</string>
+    <string name="trademark_disclaimer" translatable="false">Netflix, Prime Video, HBO Max and Apple TV+ are trademarks of their owners. Total IPTV Pro is not affiliated with or endorsed by them.</string>
 </resources>

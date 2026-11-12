@@ -41,7 +41,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.totaliptv.pro.R
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.tv.material3.Button
 import androidx.tv.material3.Surface
@@ -646,6 +648,12 @@ fun SettingsScreen(
                 )
                 Text(
                     text = TmdbAttribution.TMDB + "\n" + TmdbAttribution.JUSTWATCH,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                Text(
+                    text = stringResource(R.string.trademark_disclaimer),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     modifier = Modifier.padding(top = 8.dp)

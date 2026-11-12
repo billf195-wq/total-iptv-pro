@@ -30,9 +30,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.BuildConfig
+import com.totaliptv.pro.R
 import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.diagnostics.CrashLog
 import com.totaliptv.pro.diagnostics.DebugLog
@@ -98,6 +100,12 @@ fun PhoneSettingsScreen(
         Spacer(Modifier.height(8.dp))
         Text(
             "Total IPTV Pro Phone ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.trademark_disclaimer),
             color = OnCinemaMuted,
             style = MaterialTheme.typography.bodySmall
         )
@@ -480,6 +488,12 @@ fun PhoneSettingsScreen(
         Text(
             com.totaliptv.pro.data.tmdb.TmdbAttribution.TMDB + "\n" +
                 com.totaliptv.pro.data.tmdb.TmdbAttribution.JUSTWATCH,
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.trademark_disclaimer),
             color = OnCinemaMuted,
             style = MaterialTheme.typography.bodySmall
         )
