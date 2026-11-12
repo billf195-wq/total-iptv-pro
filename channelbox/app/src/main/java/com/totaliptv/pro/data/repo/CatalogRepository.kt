@@ -3,7 +3,10 @@ package com.totaliptv.pro.data.repo
 import android.util.Log
 import com.totaliptv.pro.data.GuideBulkCache
 import com.totaliptv.pro.data.LiveChannelMapping
+import com.totaliptv.pro.data.Ratings
 import com.totaliptv.pro.data.SeriesTitles
+import com.totaliptv.pro.data.StreamingService
+import com.totaliptv.pro.data.StreamingServices
 import com.totaliptv.pro.data.VodDiskCache
 import com.totaliptv.pro.data.LiveEpgBinding
 import com.totaliptv.pro.data.local.AppPreferences
@@ -443,6 +446,46 @@ class CatalogRepository(
         _catalogRevision.value = _catalogRevision.value + 1
     }
 
+    private class ServiceGroupSnapshot(
+        val items: List<MediaItem>,
+        val categories: List<Category>,
+        val groups: Map<Pair<StreamingService, ContentKind>, List<MediaItem>>
+    )
+
+    @Volatile
+    private var serviceGroupSnapshot: ServiceGroupSnapshot? = null
+
+    /**
+     * Netflix / Prime Video / HBO / Apple TV+ virtual groups, rebuilt only when the
+     * in-memory catalog list changes. Provider categories are never modified.
+     */
+    private fun serviceGroups(): Map<Pair<StreamingService, ContentKind>, List<MediaItem>> {
+        val items = cachedItems
+        val cats = cachedCategories
+        serviceGroupSnapshot?.let { snap ->
+            if (snap.items === items && snap.categories === cats) return snap.groups
+        }
+        val names = HashMap<String, String>(cats.size * 2)
+        for (c in cats) names[c.id] = c.name
+        val groups = runCatching {
+            StreamingServices.group(items) { item ->
+                item.categoryId?.let { names[it] } ?: item.groupTitle
+            }
+        }.getOrDefault(emptyMap())
+        serviceGroupSnapshot = ServiceGroupSnapshot(items, cats, groups)
+        return groups
+    }
+
+    private fun withServiceGroups(kind: ContentKind, list: List<Category>): List<Category> {
+        val svc = StreamingServices.categoriesFor(kind, serviceGroups())
+            .filter { s -> list.none { it.id == s.id } }
+        if (svc.isEmpty()) return list
+        // Keep "Newly added" first (default selection), then service groups, then provider groups.
+        val newlyId = if (kind == ContentKind.SERIES) NEWLY_ADDED_SERIES_CATEGORY_ID else NEWLY_ADDED_VOD_CATEGORY_ID
+        val idx = list.indexOfFirst { it.id == newlyId }
+        return if (idx < 0) svc + list else list.take(idx + 1) + svc + list.drop(idx + 1)
+    }
+
     fun categories(kind: ContentKind? = null): List<Category> {
         val base = if (kind == null) cachedCategories else cachedCategories.filter { it.kind == kind }
         return when (kind) {
@@ -453,8 +496,9 @@ class CatalogRepository(
                     name = NEWLY_ADDED_VOD_CATEGORY_NAME,
                     kind = ContentKind.VOD
                 )
-                if (base.any { it.id == NEWLY_ADDED_VOD_CATEGORY_ID }) base
+                val withNewly = if (base.any { it.id == NEWLY_ADDED_VOD_CATEGORY_ID }) base
                 else listOf(synthetic) + base
+                withServiceGroups(ContentKind.VOD, withNewly)
             }
             ContentKind.SERIES -> {
                 if (!hasSeriesItems()) return base
@@ -463,8 +507,9 @@ class CatalogRepository(
                     name = NEWLY_ADDED_VOD_CATEGORY_NAME,
                     kind = ContentKind.SERIES
                 )
-                if (base.any { it.id == NEWLY_ADDED_SERIES_CATEGORY_ID }) base
+                val withNewly = if (base.any { it.id == NEWLY_ADDED_SERIES_CATEGORY_ID }) base
                 else listOf(synthetic) + base
+                withServiceGroups(ContentKind.SERIES, withNewly)
             }
             ContentKind.LIVE -> base
             null -> {
@@ -503,6 +548,9 @@ class CatalogRepository(
         }
         if (categoryId == NEWLY_ADDED_SERIES_CATEGORY_ID) {
             return newlyAddedSeries(NEWLY_ADDED_LIMIT)
+        }
+        StreamingServices.parseCategoryId(categoryId)?.let { key ->
+            return serviceGroups()[key].orEmpty()
         }
         val knownKind = cachedCategories.find { it.id == categoryId }?.kind
         if (knownKind == ContentKind.LIVE ||
@@ -625,6 +673,7 @@ class CatalogRepository(
             CatalogSort.AZ -> items.sortedBy { it.name.lowercase() }
             CatalogSort.ZA -> items.sortedByDescending { it.name.lowercase() }
             CatalogSort.RECENTLY_ADDED -> sortByRecentlyAdded(items)
+            CatalogSort.TOP_RATED -> Ratings.sortTopRated(items)
         }
 
     private fun hasVodItems(): Boolean =
@@ -1355,7 +1404,9 @@ class CatalogRepository(
 enum class CatalogSort {
     AZ,
     ZA,
-    RECENTLY_ADDED
+    RECENTLY_ADDED,
+    /** Highest provider rating first; unrated at the bottom; ties A–Z. */
+    TOP_RATED
 }
 
 private const val VOD_TAG = "TotalIPTV.Vod"

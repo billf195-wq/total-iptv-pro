@@ -44,6 +44,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import com.totaliptv.pro.ui.focus.SafeFocus
+import com.totaliptv.pro.data.Ratings
+import com.totaliptv.pro.data.StreamingServices
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -518,9 +520,16 @@ fun BrowseGridPane(
         // resolve like CatalogRepository.itemsForCategory instead of filtering to empty.
         val isNewlyAdded = categoryId == CatalogRepository.NEWLY_ADDED_VOD_CATEGORY_ID ||
             categoryId == CatalogRepository.NEWLY_ADDED_SERIES_CATEGORY_ID
+        val serviceKey = StreamingServices.parseCategoryId(categoryId)
         var list = when {
             isNewlyAdded -> sortDesktopRecentlyAdded(items)
                 .take(CatalogRepository.NEWLY_ADDED_LIMIT)
+            // Netflix / Prime Video / HBO / Apple TV+ virtual groups.
+            serviceKey != null -> {
+                val names = categories.associate { it.id to it.name }
+                StreamingServices.group(items) { it.categoryId?.let(names::get) ?: it.groupTitle }[serviceKey]
+                    .orEmpty()
+            }
             categoryId == null -> items
             else -> items.filter { it.categoryId == categoryId }
         }
@@ -528,6 +537,7 @@ fun BrowseGridPane(
         list = when (sort) {
             "ZA" -> list.sortedByDescending { it.name.lowercase() }
             "RECENT" -> sortDesktopRecentlyAdded(list)
+            "TOP" -> Ratings.sortTopRated(list)
             else -> list.sortedBy { it.name.lowercase() }
         }
         list
@@ -1189,7 +1199,7 @@ fun FilterBar(
         if (sort != null && onSort != null) {
             Spacer(Modifier.height(TipDimens.dp(12)))
             Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
-                listOf("AZ" to "A–Z", "ZA" to "Z–A", "RECENT" to "Most recent").forEach { (key, label) ->
+                listOf("AZ" to "A–Z", "ZA" to "Z–A", "RECENT" to "Most recent", "TOP" to "Top rated").forEach { (key, label) ->
                     Chip(
                         label,
                         selected = sort == key,

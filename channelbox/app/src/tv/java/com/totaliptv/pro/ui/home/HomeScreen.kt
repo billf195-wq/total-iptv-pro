@@ -314,7 +314,8 @@ fun HomeScreen(
                     repository.liveItems(),
                     selectedCategoryId
                 )
-                if (catalogSort == CatalogSort.RECENTLY_ADDED) aligned
+                // Live has no ratings: Top rated keeps the provider lineup order.
+                if (catalogSort == CatalogSort.RECENTLY_ADDED || catalogSort == CatalogSort.TOP_RATED) aligned
                 else repository.sortCatalogItems(aligned, catalogSort)
             }
             else -> {
@@ -1253,6 +1254,11 @@ private fun VodMainPane(
             label = "Newest",
             selected = catalogSort == CatalogSort.RECENTLY_ADDED,
             onClick = { onSort(CatalogSort.RECENTLY_ADDED) }
+        )
+        SortChip(
+            label = "Top rated",
+            selected = catalogSort == CatalogSort.TOP_RATED,
+            onClick = { onSort(CatalogSort.TOP_RATED) }
         )
     }
 

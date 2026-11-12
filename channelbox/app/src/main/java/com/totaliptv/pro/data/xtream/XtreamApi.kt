@@ -816,22 +816,8 @@ class XtreamApi(
      * Prefer Xtream `rating` as IMDb/TMDB-style /10 number.
      * Fall back to `rating_5based` converted to /10. Skip zeros / junk.
      */
-    private fun normalizeRating(rating: String?, rating5based: String?): String? {
-        val raw = rating?.trim()?.takeIf {
-            it.isNotBlank() && !it.equals("N/A", true) && it != "0" && it != "0.0"
-        }
-        val asNum = raw?.replace(',', '.')?.toFloatOrNull()
-        if (asNum != null) {
-            if (asNum <= 0f) return null
-            return String.format(Locale.US, "%.1f", asNum)
-        }
-        val r5 = rating5based?.trim()?.replace(',', '.')?.toFloatOrNull()
-        if (r5 != null && r5 > 0f) {
-            val outOfTen = if (r5 <= 5.01f) r5 * 2f else r5
-            return String.format(Locale.US, "%.1f", outOfTen)
-        }
-        return null
-    }
+    private fun normalizeRating(rating: String?, rating5based: String?): String? =
+        com.totaliptv.pro.data.Ratings.normalizeXtream(rating, rating5based)
 
     private fun parseXtreamAdded(raw: JsonElement?): Long? {
         if (raw == null) return null

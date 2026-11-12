@@ -1,6 +1,7 @@
 package com.totaliptv.pro.data.m3u
 
 import com.totaliptv.pro.data.LiveChannelMapping
+import com.totaliptv.pro.data.Ratings
 import com.totaliptv.pro.data.model.Category
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem
@@ -47,6 +48,7 @@ object M3uParser {
                 var idAttr: String? = null
                 var tvgChno: Int? = null
                 var typeAttr: String? = null
+                var ratingAttr: String? = null
 
                 attrRegex.findAll(line).forEach { match ->
                     val key = match.groupValues[1].lowercase()
@@ -57,6 +59,7 @@ object M3uParser {
                         "tvg-id", "channel-id" -> if (value.isNotBlank()) idAttr = value
                         "tvg-chno" -> tvgChno = value.toIntOrNull()?.takeIf { it > 0 }
                         "type", "tvg-type" -> if (value.isNotBlank()) typeAttr = value
+                        "tvg-rating", "rating" -> if (value.isNotBlank()) ratingAttr = value
                     }
                 }
 
@@ -66,7 +69,8 @@ object M3uParser {
                     logo = logo,
                     idAttr = idAttr,
                     tvgChno = tvgChno,
-                    typeAttr = typeAttr
+                    typeAttr = typeAttr,
+                    rating = Ratings.normalizeM3u(ratingAttr)
                 )
                 return@forEachLine
             }
@@ -91,7 +95,8 @@ object M3uParser {
                 groupTitle = extInf.group,
                 epgChannelId = if (kind == ContentKind.LIVE) extInf.idAttr?.takeIf { it.isNotBlank() } else null,
                 channelNum = if (kind == ContentKind.LIVE) extInf.tvgChno else null,
-                categoryIds = listOf(catId)
+                categoryIds = listOf(catId),
+                rating = if (kind == ContentKind.LIVE) null else extInf.rating
             )
         }
 
@@ -119,6 +124,7 @@ object M3uParser {
         val logo: String?,
         val idAttr: String?,
         val tvgChno: Int?,
-        val typeAttr: String?
+        val typeAttr: String?,
+        val rating: String? = null
     )
 }

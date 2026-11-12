@@ -109,7 +109,8 @@ fun PhoneBrowseScreen(
                     repository.liveItems(),
                     selectedCat
                 )
-                if (sort == CatalogSort.RECENTLY_ADDED) aligned
+                // Live has no ratings: Top rated keeps the provider lineup order.
+                if (sort == CatalogSort.RECENTLY_ADDED || sort == CatalogSort.TOP_RATED) aligned
                 else repository.sortCatalogItems(aligned, sort)
             }
             else -> {
@@ -162,15 +163,17 @@ fun PhoneBrowseScreen(
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp),
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf(
-                    CatalogSort.RECENTLY_ADDED to "Newest",
-                    CatalogSort.AZ to "A–Z",
-                    CatalogSort.ZA to "Z–A"
-                ).forEach { (mode, label) ->
+                val modes = buildList {
+                    add(CatalogSort.RECENTLY_ADDED to "Newest")
+                    add(CatalogSort.AZ to "A–Z")
+                    add(CatalogSort.ZA to "Z–A")
+                    if (isVodSection) add(CatalogSort.TOP_RATED to "Top rated")
+                }
+                items(modes, key = { it.first.name }) { (mode, label) ->
                     AssistChip(
                         onClick = { sort = mode },
                         label = { Text(label) },

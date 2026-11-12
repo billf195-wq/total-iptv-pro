@@ -135,7 +135,8 @@ fun BrowseScreen(
                     repository.liveItems(),
                     selectedCategoryId
                 )
-                if (catalogSort == CatalogSort.RECENTLY_ADDED) aligned
+                // Live has no ratings: Top rated keeps the provider lineup order.
+                if (catalogSort == CatalogSort.RECENTLY_ADDED || catalogSort == CatalogSort.TOP_RATED) aligned
                 else repository.sortCatalogItems(aligned, catalogSort)
             }
             else -> {
@@ -286,6 +287,13 @@ fun BrowseScreen(
                     selected = catalogSort == CatalogSort.RECENTLY_ADDED,
                     onClick = { catalogSort = CatalogSort.RECENTLY_ADDED }
                 )
+                if (section != BrowseSection.Live) {
+                    SortChip(
+                        label = "Top rated",
+                        selected = catalogSort == CatalogSort.TOP_RATED,
+                        onClick = { catalogSort = CatalogSort.TOP_RATED }
+                    )
+                }
             }
         }
 
