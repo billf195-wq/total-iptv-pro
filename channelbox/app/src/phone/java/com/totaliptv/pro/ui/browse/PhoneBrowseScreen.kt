@@ -76,7 +76,7 @@ fun PhoneBrowseScreen(
     var categories by remember { mutableStateOf<List<Category>>(emptyList()) }
     val context = LocalContext.current
     val lastPlace = remember { (context.applicationContext as TotalIptvProApp).lastPlace }
-    val initialPlace = remember { lastPlace.load() }
+    val initialPlace = remember { lastPlace.peek() }
     val sectionScreen = when (section) {
         BrowseSection.Live -> LastPlace.SCREEN_LIVE
         BrowseSection.Movies -> LastPlace.SCREEN_MOVIES

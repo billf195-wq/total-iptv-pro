@@ -1,7 +1,6 @@
 package com.totaliptv.pro
 
 import android.app.Application
-import android.os.StrictMode
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -41,24 +40,12 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         CrashLog.install(this)
-        if (BuildConfig.DEBUG) {
-            StrictMode.setThreadPolicy(
-                StrictMode.ThreadPolicy.Builder()
-                    .detectAll()
-                    .penaltyLog()
-                    .build()
-            )
-            StrictMode.setVmPolicy(
-                StrictMode.VmPolicy.Builder()
-                    .detectAll()
-                    .penaltyLog()
-                    .build()
-            )
-        }
         preferences = AppPreferences(this)
         repository = CatalogRepository(preferences)
         repository.attachVodCacheDir(filesDir)
         lastPlace = LastPlaceStore(File(filesDir, "last-place.json"))
+        // Load off the main thread so a crash-restore is ready after the splash.
+        lastPlace.preload()
         // Streaming service groups: cached TMDB lists, refreshed in background.
         repository.startServiceLookup()
         watchProgress = WatchProgressStore(this)

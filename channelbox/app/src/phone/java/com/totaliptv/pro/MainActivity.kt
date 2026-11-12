@@ -59,6 +59,8 @@ import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.theme.AppearanceMode
 import com.totaliptv.pro.ui.theme.TotalIptvProTheme
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -151,10 +153,10 @@ class MainActivity : ComponentActivity() {
     private fun restoreLastPlayback(app: TotalIptvProApp) {
         if (!restorePlaybackOnStart) return
         restorePlaybackOnStart = false
-        val place = app.lastPlace.load() ?: return
-        if (!place.playing) return
-        val id = place.playItemId?.takeIf { it.isNotBlank() } ?: return
         lifecycleScope.launch {
+            val place = withContext(Dispatchers.IO) { app.lastPlace.load() } ?: return@launch
+            if (!place.playing) return@launch
+            val id = place.playItemId?.takeIf { it.isNotBlank() } ?: return@launch
             runCatching { app.repository.ensureCatalogLoaded() }
             val item = app.repository.itemById(id)
                 ?: place.playCatalogId?.takeIf { it.isNotBlank() }?.let { app.repository.itemById(it) }
@@ -215,7 +217,7 @@ private fun PhoneAppRoot(
 ) {
     val sources by repository.sources.collectAsState(initial = emptyList())
     val app = LocalContext.current.applicationContext as TotalIptvProApp
-    val initialPlace = remember { app.lastPlace.load() }
+    val initialPlace = remember { app.lastPlace.peek() }
     var prefsReady by remember { mutableStateOf(false) }
     var showOnboarding by remember { mutableStateOf(false) }
     var tab by remember {

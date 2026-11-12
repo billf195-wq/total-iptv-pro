@@ -291,10 +291,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun restoreLastPlayback(app: TotalIptvProApp) {
-        val place = app.lastPlace.load() ?: return
-        if (!place.playing) return
-        val id = place.playItemId?.takeIf { it.isNotBlank() } ?: return
         lifecycleScope.launch {
+            val place = withContext(Dispatchers.IO) { app.lastPlace.load() } ?: return@launch
+            if (!place.playing) return@launch
+            val id = place.playItemId?.takeIf { it.isNotBlank() } ?: return@launch
             runCatching { app.repository.ensureCatalogLoaded() }
             val item = app.repository.itemById(id)
                 ?: place.playCatalogId?.takeIf { it.isNotBlank() }?.let { app.repository.itemById(it) }
@@ -357,7 +357,7 @@ private fun AppRoot(
 ) {
     val sources by repository.sources.collectAsState(initial = emptyList())
     val app = LocalContext.current.applicationContext as TotalIptvProApp
-    val initialPlace = remember { app.lastPlace.load() }
+    val initialPlace = remember { app.lastPlace.peek() }
     var screen by remember {
         mutableStateOf<Screen?>(
             when (initialPlace?.screen) {

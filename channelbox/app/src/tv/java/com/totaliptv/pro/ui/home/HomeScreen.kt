@@ -125,7 +125,7 @@ fun HomeScreen(
     onPlayFromStart: (MediaItem) -> Unit = onPlayItem
 ) {
     val app = (LocalContext.current.applicationContext as TotalIptvProApp)
-    val initialPlace = remember { app.lastPlace.load() }
+    val initialPlace = remember { app.lastPlace.peek() }
     var hubTab by remember {
         mutableStateOf(
             when (initialPlace?.screen?.lowercase()) {

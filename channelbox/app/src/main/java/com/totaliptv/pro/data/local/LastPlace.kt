@@ -48,7 +48,12 @@ class LastPlaceStore(private val file: File) {
         Thread(r, "last-place-writer").apply { isDaemon = true }
     }
 
-    fun peek(): LastPlace? = memory ?: load()
+    fun peek(): LastPlace? = memory
+
+    /** Read the file on a background thread. Safe to call from Application.onCreate. */
+    fun preload() {
+        writer.execute { load() }
+    }
 
     fun load(): LastPlace? = synchronized(lock) {
         memory?.let { return it }
