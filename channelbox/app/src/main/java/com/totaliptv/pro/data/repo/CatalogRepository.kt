@@ -925,6 +925,7 @@ class CatalogRepository(
             _serviceLookupStatus.value = "Looking up streaming services…"
             val lookup = TmdbServiceLookup(http)
             var lastBumpMs = 0L
+            val lookupJob = kotlin.coroutines.coroutineContext[Job]
             val entries = try {
                 lookup.fetch(
                     apiKey = key,
@@ -938,7 +939,7 @@ class CatalogRepository(
                             applyServiceIndex(snapshot)
                         }
                     },
-                    isActive = { kotlinx.coroutines.currentCoroutineContext().isActive }
+                    isActive = { lookupJob?.isActive != false }
                 )
             } catch (e: TmdbServiceLookup.LookupFailed) {
                 _serviceLookupStatus.value = e.message ?: "TMDB lookup failed"
