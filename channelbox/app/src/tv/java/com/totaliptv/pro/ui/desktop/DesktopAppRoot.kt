@@ -324,7 +324,13 @@ fun DesktopAppRoot(
                                 section = it
                                 if (!keepLiveFilters) {
                                     search = ""
-                                    categoryId = null
+                                    // Movies / Series open on Newly added (newest first), like the TV and phone layouts.
+                                    categoryId = when (it) {
+                                        DesktopNavSection.MOVIES -> com.totaliptv.pro.data.CatalogCategories.NEWLY_ADDED_VOD_ID
+                                        DesktopNavSection.SERIES -> com.totaliptv.pro.data.CatalogCategories.NEWLY_ADDED_SERIES_ID
+                                        else -> null
+                                    }
+                                    if (it == DesktopNavSection.MOVIES || it == DesktopNavSection.SERIES) browseSort = "RECENT"
                                 }
                                 // Never leave restore pending across section changes (blocks sidebar + content).
                                 pendingFocusRestore = false
@@ -423,7 +429,11 @@ fun DesktopAppRoot(
                                     onRestoreConsumed = { consumeFocusRestore() },
                                     gridScope = "desk-movies-grid",
                                     onSearch = { search = it },
-                                    onCategory = { categoryId = it },
+                                    onCategory = {
+                                        categoryId = it
+                                        // Top rated is a ranked list: show it highest first.
+                                        if (com.totaliptv.pro.data.CatalogCategories.isTopRatedId(it)) browseSort = "TOP"
+                                    },
                                     onSort = { browseSort = it },
                                     onClick = { item, index ->
                                         openDetailOrPlay(item, index = index, scope = "desk-movies-grid")
@@ -445,7 +455,11 @@ fun DesktopAppRoot(
                                     onRestoreConsumed = { consumeFocusRestore() },
                                     gridScope = "desk-series-grid",
                                     onSearch = { search = it },
-                                    onCategory = { categoryId = it },
+                                    onCategory = {
+                                        categoryId = it
+                                        // Top rated is a ranked list: show it highest first.
+                                        if (com.totaliptv.pro.data.CatalogCategories.isTopRatedId(it)) browseSort = "TOP"
+                                    },
                                     onSort = { browseSort = it },
                                     onClick = { item, index ->
                                         openDetailOrPlay(item, index = index, scope = "desk-series-grid")

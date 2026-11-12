@@ -68,9 +68,17 @@ import com.totaliptv.pro.ui.theme.AppearanceMode
 import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.components.SectionTitle
 import com.totaliptv.pro.util.SensitiveText
+import com.totaliptv.pro.data.tmdb.TmdbAttribution
 import kotlinx.coroutines.launch
 
 private class UrlFieldHolder(var text: String)
+
+/** Never show the key itself; only whether one is set. */
+private fun tmdbKeyLabel(saved: String): String = when {
+    saved.isNotBlank() -> "Saved"
+    BuildConfig.TMDB_DEFAULT_KEY.isNotBlank() -> "Using the built-in test key"
+    else -> "Not set"
+}
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -100,10 +108,15 @@ fun SettingsScreen(
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var updateBusy by remember { mutableStateOf(false) }
     var pendingInstall by remember { mutableStateOf<UpdateCheckResult.Available?>(null) }
+    val tmdbKey by app.preferences.tmdbApiKey.collectAsState(initial = "")
+    val serviceStatus by repository.serviceLookupStatus.collectAsState()
+    var editingTmdbKey by remember { mutableStateOf(false) }
+    val tmdbHolder = remember(tmdbKey) { UrlFieldHolder(tmdbKey) }
 
     BackHandler {
         when {
             showPrivacy -> showPrivacy = false
+            editingTmdbKey -> editingTmdbKey = false
             editingUpdateUrl -> editingUpdateUrl = false
             else -> onBack()
         }
@@ -537,6 +550,81 @@ fun SettingsScreen(
                     }
                 )
             }
+            item { SectionTitle("Service groups") }
+            item {
+                FocusableCard(
+                    title = if (editingTmdbKey) "TMDB API key (for service groups) (editing)" else "TMDB API key (for service groups)",
+                    subtitle = tmdbKeyLabel(tmdbKey),
+                    onClick = {
+                        tmdbHolder.text = tmdbKey
+                        editingTmdbKey = !editingTmdbKey
+                    }
+                )
+            }
+            if (editingTmdbKey) {
+                item {
+                    AndroidView(
+                        factory = { ctx ->
+                            val density = ctx.resources.displayMetrics.density
+                            fun dp(v: Int) = (v * density).toInt()
+                            LinearLayout(ctx).apply {
+                                orientation = LinearLayout.VERTICAL
+                                setPadding(dp(4), dp(4), dp(4), dp(4))
+                                addView(TextView(ctx).apply {
+                                    text = "Free key from themoviedb.org (Settings > API): v3 key or v4 read token. Leave blank to use the built-in key, if any."
+                                    setTextColor(AndroidColor.parseColor("#B0BEC5"))
+                                    textSize = 13f
+                                })
+                                addView(EditText(ctx).apply {
+                                    setText(tmdbHolder.text)
+                                    setTextColor(AndroidColor.WHITE)
+                                    setHintTextColor(AndroidColor.parseColor("#78909C"))
+                                    setBackgroundColor(AndroidColor.parseColor("#1A2332"))
+                                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                                    hint = "TMDB API key"
+                                    inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                                    setSingleLine()
+                                    layoutParams = LinearLayout.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.WRAP_CONTENT
+                                    )
+                                    addTextChangedListener(object : android.text.TextWatcher {
+                                        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                                        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                                            tmdbHolder.text = s?.toString().orEmpty()
+                                        }
+                                        override fun afterTextChanged(s: android.text.Editable?) {}
+                                    })
+                                })
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 88.dp)
+                    )
+                }
+                item {
+                    FocusableCard(
+                        title = "Save TMDB API key",
+                        subtitle = "Saves and refreshes the service groups",
+                        onClick = {
+                            scope.launch {
+                                app.preferences.setTmdbApiKey(tmdbHolder.text)
+                                editingTmdbKey = false
+                                repository.startServiceLookup(force = true)
+                                Toast.makeText(context, "TMDB key saved", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                }
+            }
+            item {
+                FocusableCard(
+                    title = "Refresh service groups",
+                    subtitle = serviceStatus.ifBlank { "Netflix, Prime Video, HBO / Max and Apple TV+ lists from TMDB (US)" },
+                    onClick = { repository.startServiceLookup(force = true) }
+                )
+            }
             item { SectionTitle("About") }
             item {
                 Text(
@@ -555,6 +643,12 @@ fun SettingsScreen(
                     text = "Total IPTV Pro ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+                Text(
+                    text = TmdbAttribution.TMDB + "\n" + TmdbAttribution.JUSTWATCH,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(top = 8.dp)
                 )
             }
             item {

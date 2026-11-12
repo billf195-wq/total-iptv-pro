@@ -71,6 +71,7 @@ class AppPreferences(private val context: Context) {
     private val posterColumnsKey = intPreferencesKey("poster_columns")
     private val recordingsDirKey = stringPreferencesKey("recordings_dir")
     private val autoPipKey = booleanPreferencesKey("auto_pip")
+    private val tmdbApiKeyKey = stringPreferencesKey("tmdb_api_key")
 
     companion object {
         /** Blank unless the user saves a shelf. Google Drive is the update source. */
@@ -218,6 +219,22 @@ class AppPreferences(private val context: Context) {
             prefs[autoPipKey] = enabled
         }
     }
+
+    /** User TMDB key (v3 key or v4 read token) for service groups; blank = use built-in default. */
+    val tmdbApiKey: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[tmdbApiKeyKey]?.trim().orEmpty()
+    }
+
+    suspend fun setTmdbApiKey(key: String) {
+        context.dataStore.edit { prefs ->
+            val cleaned = key.trim()
+            if (cleaned.isBlank()) prefs.remove(tmdbApiKeyKey) else prefs[tmdbApiKeyKey] = cleaned
+        }
+    }
+
+    /** Saved key, else the build-time default (local test builds only; never in git). */
+    suspend fun effectiveTmdbApiKey(): String =
+        tmdbApiKey.first().ifBlank { BuildConfig.TMDB_DEFAULT_KEY.trim() }
 
     suspend fun getRecordingsDir(): String =
         context.dataStore.data.first()[recordingsDirKey]?.trim().orEmpty()

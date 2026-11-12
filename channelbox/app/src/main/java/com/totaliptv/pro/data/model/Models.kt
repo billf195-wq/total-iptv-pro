@@ -60,7 +60,11 @@ data class MediaItem(
     /** Plot / synopsis from get_vod_info / get_series_info when resolved. */
     val plot: String? = null,
     /** Series poster id (series-123) when [id] is an episode leaf (series-ep-…). */
-    val seriesCatalogId: String? = null
+    val seriesCatalogId: String? = null,
+    /** Release year when the provider sent one (Xtream `year` / series `releaseDate`). */
+    val year: Int? = null,
+    /** TMDB id when the provider sent one (Xtream `tmdb` / `tmdb_id`); used for service groups. */
+    val tmdbId: Int? = null
 ) {
     /** Best available artwork for browse grids / logos. */
     fun artworkUrl(): String? = posterUrl?.takeIf { it.isNotBlank() } ?: logoUrl?.takeIf { it.isNotBlank() }

@@ -56,6 +56,13 @@ object Ratings {
         return tenBased.takeIf { it > 0.0 && it <= 10.0 }
     }
 
+    /** Rated titles only, highest first, ties A–Z, capped at [limit]. */
+    fun topRatedOnly(items: List<MediaItem>, limit: Int): List<MediaItem> =
+        items.mapNotNull { item -> score(item)?.let { item to it } }
+            .sortedWith(compareByDescending<Pair<MediaItem, Double>> { it.second }.thenBy { it.first.name.lowercase() })
+            .take(limit)
+            .map { it.first }
+
     /** Highest rating first, unrated at the bottom, ties A–Z. */
     fun sortTopRated(items: List<MediaItem>): List<MediaItem> {
         val scored = items.map { it to score(it) }

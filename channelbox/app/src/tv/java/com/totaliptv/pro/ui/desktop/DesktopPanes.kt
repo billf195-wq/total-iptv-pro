@@ -46,6 +46,7 @@ import androidx.compose.ui.input.key.type
 import com.totaliptv.pro.ui.focus.SafeFocus
 import com.totaliptv.pro.data.Ratings
 import com.totaliptv.pro.data.StreamingServices
+import com.totaliptv.pro.data.CatalogCategories
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -515,29 +516,28 @@ fun BrowseGridPane(
         gridState.scrollToItem(0)
     }
 
+    val desktopRepo = (LocalContext.current.applicationContext as? com.totaliptv.pro.TotalIptvProApp)?.repository
     val filtered = remember(items, query, categoryId, sort) {
         // Synthetic Newly added categories have no real item.categoryId matches -
         // resolve like CatalogRepository.itemsForCategory instead of filtering to empty.
         val isNewlyAdded = categoryId == CatalogRepository.NEWLY_ADDED_VOD_CATEGORY_ID ||
             categoryId == CatalogRepository.NEWLY_ADDED_SERIES_CATEGORY_ID
-        val serviceKey = StreamingServices.parseCategoryId(categoryId)
+        val virtualOther = CatalogCategories.isTopRatedId(categoryId) ||
+            StreamingServices.isServiceCategoryId(categoryId)
         var list = when {
             isNewlyAdded -> sortDesktopRecentlyAdded(items)
                 .take(CatalogRepository.NEWLY_ADDED_LIMIT)
-            // Netflix / Prime Video / HBO / Apple TV+ virtual groups.
-            serviceKey != null -> {
-                val names = categories.associate { it.id to it.name }
-                StreamingServices.group(items) { it.categoryId?.let(names::get) ?: it.groupTitle }[serviceKey]
-                    .orEmpty()
-            }
+            // Top rated + Netflix / Prime Video / HBO / Max / Apple TV+ come from the repository
+            // (includes the TMDB service lookup).
+            virtualOther && categoryId != null -> desktopRepo?.itemsForCategory(categoryId).orEmpty()
             categoryId == null -> items
             else -> items.filter { it.categoryId == categoryId }
         }
         list = list.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
         list = when (sort) {
             "ZA" -> list.sortedByDescending { it.name.lowercase() }
-            "RECENT" -> sortDesktopRecentlyAdded(list)
             "TOP" -> Ratings.sortTopRated(list)
+            "RECENT" -> if (CatalogCategories.isTopRatedId(categoryId)) list else sortDesktopRecentlyAdded(list)
             else -> list.sortedBy { it.name.lowercase() }
         }
         list
@@ -906,6 +906,33 @@ fun DesktopSettingsPane(
             }
         }
         Spacer(Modifier.height(TipDimens.dp(12)))
+        SectionHeader("Service groups")
+        val serviceStatus by repository.serviceLookupStatus.collectAsState()
+        Text(
+            "TMDB API key (for service groups): set it in Classic layout > Settings. " +
+                serviceStatus.ifBlank { "Netflix, Prime Video, HBO / Max and Apple TV+ lists from TMDB (US)." },
+            color = TipGoldMuted,
+            fontSize = TipDimens.BodyMediumSp
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        TipFocusable(onClick = { repository.startServiceLookup(force = true) }) { focused ->
+            Text(
+                "Refresh service groups",
+                color = if (focused) TipAccent else TipGoldText,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                    .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+            )
+        }
+        Text(
+            com.totaliptv.pro.data.tmdb.TmdbAttribution.TMDB + " " +
+                com.totaliptv.pro.data.tmdb.TmdbAttribution.JUSTWATCH,
+            color = TipGoldMuted,
+            fontSize = TipDimens.BodyMediumSp,
+            modifier = Modifier.padding(top = TipDimens.dp(6))
+        )
+        Spacer(Modifier.height(TipDimens.dp(12)))
         SectionHeader("Accent color")
         Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
             AccentPreset.entries.forEach { preset ->
@@ -1170,29 +1197,42 @@ fun FilterBar(
             )
             Spacer(Modifier.height(TipDimens.dp(8)))
         }
+        // Movies / Series: Newly added, Top rated and the service groups come first, then "All",
+        // then provider groups. Live keeps "All" first.
+        val leading = categories.takeWhile { CatalogCategories.isVirtual(it.id) }
+        val trailing = categories.drop(leading.size)
+        val firstChipModifier = Modifier
+            .focusRequester(chips)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    // Geometric search is the fallback. Never point focusProperties
+                    // at these requesters: the search field is swapped while editing,
+                    // and a lazy row below may not be composed yet.
+                    Key.DirectionUp -> showSearch && SafeFocus.request(searchFocus)
+                    Key.DirectionDown -> SafeFocus.request(belowFocus) ||
+                        (sort == null && onDownToResults?.invoke() == true)
+                    else -> false
+                }
+            }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
-            item {
+            items(leading, key = { it.id }) { cat ->
+                Chip(
+                    cat.name,
+                    selected = categoryId == cat.id,
+                    onClick = { onCategory(cat.id) },
+                    modifier = if (cat === leading.first()) firstChipModifier else Modifier
+                )
+            }
+            item(key = "__all__") {
                 Chip(
                     "All",
                     selected = categoryId == null,
                     onClick = { onCategory(null) },
-                    modifier = Modifier
-                        .focusRequester(chips)
-                        .onPreviewKeyEvent { event ->
-                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                            when (event.key) {
-                                // Geometric search is the fallback. Never point focusProperties
-                                // at these requesters: the search field is swapped while editing,
-                                // and a lazy row below may not be composed yet.
-                                Key.DirectionUp -> showSearch && SafeFocus.request(searchFocus)
-                                Key.DirectionDown -> SafeFocus.request(belowFocus) ||
-                                    (sort == null && onDownToResults?.invoke() == true)
-                                else -> false
-                            }
-                        }
+                    modifier = if (leading.isEmpty()) firstChipModifier else Modifier
                 )
             }
-            items(categories, key = { it.id }) { cat ->
+            items(trailing, key = { it.id }) { cat ->
                 Chip(cat.name, selected = categoryId == cat.id, onClick = { onCategory(cat.id) })
             }
         }

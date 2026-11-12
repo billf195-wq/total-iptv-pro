@@ -119,6 +119,8 @@ object StreamingServices {
      */
     fun group(
         items: List<MediaItem>,
+        /** Extra services for an item (TMDB lookup); merged with keyword matches. */
+        extra: ((MediaItem) -> Set<StreamingService>)? = null,
         categoryName: (MediaItem) -> String? = { it.groupTitle }
     ): Map<Pair<StreamingService, ContentKind>, List<MediaItem>> {
         val out = LinkedHashMap<Pair<StreamingService, ContentKind>, MutableList<MediaItem>>()
@@ -129,7 +131,11 @@ object StreamingServices {
             if (item.kind != ContentKind.VOD && item.kind != ContentKind.SERIES) continue
             val cat = categoryName(item) ?: item.groupTitle
             val fromCat = if (cat == null) emptySet() else catCache.getOrPut(cat) { matchCategoryName(cat) }
-            val services = fromCat + matchTitle(item.name)
+            var services = fromCat + matchTitle(item.name)
+            if (extra != null) {
+                val more = extra(item)
+                if (more.isNotEmpty()) services = services + more
+            }
             for (svc in services) {
                 val k = svc to item.kind
                 if (seen.add("${svc.key}|${item.kind}|${item.id}")) {

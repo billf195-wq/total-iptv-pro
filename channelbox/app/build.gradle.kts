@@ -51,8 +51,8 @@ android {
         applicationId = "com.totaliptv.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 105
-        versionName = "1.4.93"
+        versionCode = 106
+        versionName = "1.4.94"
         buildConfigField(
             "String",
             "DEFAULT_UPDATE_BASE_URL",
@@ -69,6 +69,24 @@ android {
             "OWNER_UPDATE_BASE_URL",
             "\"$ownerUpdate\""
         )
+        // Optional TMDB key for service groups in local test builds. Read from a file named by
+        // -PtipTmdbKeyFile=... or env TIP_TMDB_KEY_FILE; the key itself is never in git.
+        val tmdbKeyFile = (project.findProperty("tipTmdbKeyFile") as String?)
+            ?: System.getenv("TIP_TMDB_KEY_FILE")
+        val tmdbDefaultKey = tmdbKeyFile
+            ?.let { File(it) }
+            ?.takeIf { it.isFile }
+            ?.readLines()
+            ?.firstOrNull { it.isNotBlank() }
+            ?.trim()
+            ?.replace("\"", "")
+            ?.replace("\\", "")
+            .orEmpty()
+        buildConfigField(
+            "String",
+            "TMDB_DEFAULT_KEY",
+            "\"$tmdbDefaultKey\""
+        )
     }
 
     flavorDimensions += "device"
@@ -76,8 +94,8 @@ android {
         create("tv") {
             dimension = "device"
             // Keep Shield / Leanback applicationId unchanged.
-            versionCode = 105
-            versionName = "1.4.93"
+            versionCode = 106
+            versionName = "1.4.94"
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",
@@ -88,8 +106,8 @@ android {
             dimension = "device"
             applicationIdSuffix = ".phone"
             // Phone-only bump so Shield is not forced to update.
-            versionCode = 82
-            versionName = "1.4.70-phone"
+            versionCode = 83
+            versionName = "1.4.71-phone"
             resValue("string", "app_name", "Total IPTV Pro Phone")
             buildConfigField(
                 "String",

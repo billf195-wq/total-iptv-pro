@@ -123,8 +123,14 @@ fun BrowseScreen(
         categories.associate { it.id to repository.itemsForCategory(it.id).size }
     }
 
-    var selectedCategoryId by remember(section, categories) {
+    var selectedCategoryId by remember(section) {
         mutableStateOf(categories.firstOrNull()?.id)
+    }
+    // Groups can appear later (service lookup); keep the user's pick unless it disappeared.
+    LaunchedEffect(categories) {
+        if (selectedCategoryId == null || categories.none { it.id == selectedCategoryId }) {
+            selectedCategoryId = categories.firstOrNull()?.id
+        }
     }
 
     val displayItems: List<MediaItem> = remember(selectedCategoryId, section, catalogRevision, catalogSort) {
@@ -141,7 +147,7 @@ fun BrowseScreen(
             }
             else -> {
                 val base = selectedCategoryId?.let { repository.itemsForCategory(it) }.orEmpty()
-                repository.sortCatalogItems(base, catalogSort)
+                repository.sortCategoryItems(selectedCategoryId, base, catalogSort)
             }
         }
     }

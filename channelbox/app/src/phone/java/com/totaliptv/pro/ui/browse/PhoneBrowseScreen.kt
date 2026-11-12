@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -74,6 +76,10 @@ fun PhoneBrowseScreen(
     var sort by remember { mutableStateOf(CatalogSort.RECENTLY_ADDED) }
     var items by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var detail by remember { mutableStateOf<MediaItem?>(null) }
+    val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
+    var lastListKey by remember { mutableStateOf("") }
+    var pendingScrollTop by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val dvrSnap by remember(context) {
@@ -115,9 +121,23 @@ fun PhoneBrowseScreen(
             }
             else -> {
                 val raw = selectedCat?.let { repository.itemsForCategory(it) }.orEmpty()
-                repository.sortCatalogItems(raw, sort)
+                repository.sortCategoryItems(selectedCat, raw, sort)
             }
         }
+        // New group or sort: start at the top. (A catalog refresh keeps the scroll spot.)
+        val key = "${section.name}|$selectedCat|${sort.name}"
+        if (key != lastListKey) {
+            lastListKey = key
+            pendingScrollTop = true
+        }
+    }
+    // Scroll after the new list is composed; scrolling earlier lets the grid keep the old
+    // first item (by key) in view, which lands mid-list after a re-sort.
+    LaunchedEffect(items, pendingScrollTop) {
+        if (!pendingScrollTop) return@LaunchedEffect
+        runCatching { gridState.scrollToItem(0) }
+        runCatching { listState.scrollToItem(0) }
+        pendingScrollTop = false
     }
 
     val favorites by repository.favorites.collectAsState(initial = emptyList())
@@ -216,7 +236,7 @@ fun PhoneBrowseScreen(
                 }
             }
             section == BrowseSection.Live || section == BrowseSection.Favorites -> {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                     items(displayItems, key = { it.id }) { item ->
                         PhoneLiveRow(
                             item = item,
@@ -234,6 +254,7 @@ fun PhoneBrowseScreen(
             }
             else -> {
                 LazyVerticalGrid(
+                    state = gridState,
                     columns = GridCells.Adaptive(120.dp),
                     contentPadding = PaddingValues(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),

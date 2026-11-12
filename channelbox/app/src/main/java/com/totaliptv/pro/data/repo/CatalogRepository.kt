@@ -7,6 +7,10 @@ import com.totaliptv.pro.data.Ratings
 import com.totaliptv.pro.data.SeriesTitles
 import com.totaliptv.pro.data.StreamingService
 import com.totaliptv.pro.data.StreamingServices
+import com.totaliptv.pro.data.CatalogCategories
+import com.totaliptv.pro.data.tmdb.ServiceIndex
+import com.totaliptv.pro.data.tmdb.TmdbServiceCache
+import com.totaliptv.pro.data.tmdb.TmdbServiceLookup
 import com.totaliptv.pro.data.VodDiskCache
 import com.totaliptv.pro.data.LiveEpgBinding
 import com.totaliptv.pro.data.local.AppPreferences
@@ -449,68 +453,104 @@ class CatalogRepository(
     private class ServiceGroupSnapshot(
         val items: List<MediaItem>,
         val categories: List<Category>,
+        val index: ServiceIndex?,
         val groups: Map<Pair<StreamingService, ContentKind>, List<MediaItem>>
     )
 
     @Volatile
     private var serviceGroupSnapshot: ServiceGroupSnapshot? = null
+    private val serviceComputeRunning = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** TMDB-derived title -> services lookup (null until a cache / fetch is available). */
+    @Volatile
+    private var serviceIndex: ServiceIndex? = null
 
     /**
-     * Netflix / Prime Video / HBO / Apple TV+ virtual groups, rebuilt only when the
-     * in-memory catalog list changes. Provider categories are never modified.
+     * Netflix / Prime Video / HBO / Max / Apple TV+ virtual groups. Built off the main thread
+     * (55k-title catalogs); returns the last finished result immediately and bumps
+     * [catalogRevision] when a newer one is ready. Provider categories are never modified.
      */
     private fun serviceGroups(): Map<Pair<StreamingService, ContentKind>, List<MediaItem>> {
-        val items = cachedItems
-        val cats = cachedCategories
-        serviceGroupSnapshot?.let { snap ->
-            if (snap.items === items && snap.categories === cats) return snap.groups
-        }
-        val names = HashMap<String, String>(cats.size * 2)
-        for (c in cats) names[c.id] = c.name
-        val groups = runCatching {
-            StreamingServices.group(items) { item ->
-                item.categoryId?.let { names[it] } ?: item.groupTitle
-            }
-        }.getOrDefault(emptyMap())
-        serviceGroupSnapshot = ServiceGroupSnapshot(items, cats, groups)
-        return groups
+        val snap = serviceGroupSnapshot
+        if (snap != null && snap.items === cachedItems && snap.categories === cachedCategories &&
+            snap.index === serviceIndex
+        ) return snap.groups
+        scheduleServiceGroupCompute()
+        return snap?.groups ?: emptyMap()
     }
 
-    private fun withServiceGroups(kind: ContentKind, list: List<Category>): List<Category> {
-        val svc = StreamingServices.categoriesFor(kind, serviceGroups())
-            .filter { s -> list.none { it.id == s.id } }
-        if (svc.isEmpty()) return list
-        // Keep "Newly added" first (default selection), then service groups, then provider groups.
-        val newlyId = if (kind == ContentKind.SERIES) NEWLY_ADDED_SERIES_CATEGORY_ID else NEWLY_ADDED_VOD_CATEGORY_ID
-        val idx = list.indexOfFirst { it.id == newlyId }
-        return if (idx < 0) svc + list else list.take(idx + 1) + svc + list.drop(idx + 1)
+    private fun computeServiceGroups(
+        items: List<MediaItem>,
+        cats: List<Category>,
+        idx: ServiceIndex?
+    ): Map<Pair<StreamingService, ContentKind>, List<MediaItem>> {
+        val names = HashMap<String, String>(cats.size * 2)
+        for (c in cats) names[c.id] = c.name
+        val extra: ((MediaItem) -> Set<StreamingService>)? =
+            idx?.takeIf { !it.isEmpty() }?.let { index -> { item -> index.lookup(item) } }
+        return runCatching {
+            StreamingServices.group(items, extra) { item -> item.categoryId?.let { names[it] } ?: item.groupTitle }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun scheduleServiceGroupCompute() {
+        if (!serviceComputeRunning.compareAndSet(false, true)) return
+        repoScope.launch {
+            var changed = false
+            try {
+                while (true) {
+                    val items = cachedItems
+                    val cats = cachedCategories
+                    val idx = serviceIndex
+                    val groups = computeServiceGroups(items, cats, idx)
+                    val prev = serviceGroupSnapshot
+                    serviceGroupSnapshot = ServiceGroupSnapshot(items, cats, idx, groups)
+                    if (prev == null || groupSignature(prev.groups) != groupSignature(groups)) changed = true
+                    if (items === cachedItems && cats === cachedCategories && idx === serviceIndex) break
+                }
+            } finally {
+                serviceComputeRunning.set(false)
+            }
+            if (changed) bumpRevision()
+        }
+    }
+
+    private fun groupSignature(g: Map<Pair<StreamingService, ContentKind>, List<MediaItem>>): Map<String, Int> =
+        g.entries.associate { "${it.key.first.key}|${it.key.second}" to it.value.size }
+
+    private class TopRatedSnapshot(val items: List<MediaItem>, val vod: List<MediaItem>, val series: List<MediaItem>)
+
+    @Volatile
+    private var topRatedSnapshot: TopRatedSnapshot? = null
+
+    /** Rated titles of [kind], highest first, capped at [CatalogCategories.TOP_RATED_LIMIT]. */
+    fun topRated(kind: ContentKind): List<MediaItem> {
+        val items = cachedItems
+        val snap = topRatedSnapshot?.takeIf { it.items === items } ?: run {
+            val vod = Ratings.topRatedOnly(items.filter { it.kind == ContentKind.VOD }, CatalogCategories.TOP_RATED_LIMIT)
+            val series = Ratings.topRatedOnly(items.filter { it.kind == ContentKind.SERIES }, CatalogCategories.TOP_RATED_LIMIT)
+            TopRatedSnapshot(items, vod, series).also { topRatedSnapshot = it }
+        }
+        return if (kind == ContentKind.SERIES) snap.series else snap.vod
+    }
+
+    private fun orderedCategories(kind: ContentKind, base: List<Category>): List<Category> {
+        val hasItems = if (kind == ContentKind.SERIES) hasSeriesItems() else hasMovieItems()
+        if (!hasItems) return base
+        return CatalogCategories.build(
+            kind = kind,
+            provider = base,
+            hasItems = true,
+            hasRated = topRated(kind).isNotEmpty(),
+            serviceCategories = StreamingServices.categoriesFor(kind, serviceGroups())
+        )
     }
 
     fun categories(kind: ContentKind? = null): List<Category> {
         val base = if (kind == null) cachedCategories else cachedCategories.filter { it.kind == kind }
         return when (kind) {
-            ContentKind.VOD -> {
-                if (!hasMovieItems()) return base
-                val synthetic = Category(
-                    id = NEWLY_ADDED_VOD_CATEGORY_ID,
-                    name = NEWLY_ADDED_VOD_CATEGORY_NAME,
-                    kind = ContentKind.VOD
-                )
-                val withNewly = if (base.any { it.id == NEWLY_ADDED_VOD_CATEGORY_ID }) base
-                else listOf(synthetic) + base
-                withServiceGroups(ContentKind.VOD, withNewly)
-            }
-            ContentKind.SERIES -> {
-                if (!hasSeriesItems()) return base
-                val synthetic = Category(
-                    id = NEWLY_ADDED_SERIES_CATEGORY_ID,
-                    name = NEWLY_ADDED_VOD_CATEGORY_NAME,
-                    kind = ContentKind.SERIES
-                )
-                val withNewly = if (base.any { it.id == NEWLY_ADDED_SERIES_CATEGORY_ID }) base
-                else listOf(synthetic) + base
-                withServiceGroups(ContentKind.SERIES, withNewly)
-            }
+            ContentKind.VOD -> orderedCategories(ContentKind.VOD, base)
+            ContentKind.SERIES -> orderedCategories(ContentKind.SERIES, base)
             ContentKind.LIVE -> base
             null -> {
                 var out = base
@@ -549,6 +589,8 @@ class CatalogRepository(
         if (categoryId == NEWLY_ADDED_SERIES_CATEGORY_ID) {
             return newlyAddedSeries(NEWLY_ADDED_LIMIT)
         }
+        if (categoryId == CatalogCategories.TOP_RATED_VOD_ID) return topRated(ContentKind.VOD)
+        if (categoryId == CatalogCategories.TOP_RATED_SERIES_ID) return topRated(ContentKind.SERIES)
         StreamingServices.parseCategoryId(categoryId)?.let { key ->
             return serviceGroups()[key].orEmpty()
         }
@@ -667,6 +709,86 @@ class CatalogRepository(
         }
         return item
     }
+
+    /**
+     * Sort a category's items. "Newly added" and "Top rated" already come in their own order,
+     * so the default (Newest) sort keeps it instead of re-sorting.
+     */
+    fun sortCategoryItems(categoryId: String?, items: List<MediaItem>, mode: CatalogSort): List<MediaItem> =
+        if (mode == CatalogSort.RECENTLY_ADDED && CatalogCategories.isOrderedVirtual(categoryId)) items
+        else sortCatalogItems(items, mode)
+
+    // ---- TMDB streaming-service lookup --------------------------------------------------
+
+    private val _serviceLookupStatus = MutableStateFlow("")
+    /** Short user-facing status for Settings ("Updated …", "Looking up 3/12…"). Never contains the key. */
+    val serviceLookupStatus: StateFlow<String> = _serviceLookupStatus.asStateFlow()
+
+    @Volatile
+    private var serviceLookupJob: Job? = null
+
+    private fun serviceCacheFile(): File? = vodCacheDir?.let { File(it, "tmdb-services.json") }
+
+    /**
+     * Load cached TMDB service lists (7-day cache) and refresh them in the background when
+     * stale or when [force] is set. Movies / Series never wait on this.
+     */
+    fun startServiceLookup(force: Boolean = false) {
+        val running = serviceLookupJob
+        if (running?.isActive == true) {
+            if (!force) return
+            running.cancel()
+        }
+        serviceLookupJob = repoScope.launch {
+            runCatching { runServiceLookup(force) }.onFailure { t ->
+                if (t is CancellationException) throw t
+                Log.w(SVC_TAG, "service lookup failed: ${t.javaClass.simpleName}")
+                _serviceLookupStatus.value = "Service lookup failed (${t.javaClass.simpleName})"
+            }
+        }
+    }
+
+    private suspend fun runServiceLookup(force: Boolean) {
+        val file = serviceCacheFile() ?: return
+        val key = prefs.effectiveTmdbApiKey()
+        val fp = TmdbServiceLookup.fingerprint(key)
+        val cache = TmdbServiceLookup.readCache(file)
+        if (cache != null && cache.entries.isNotEmpty() && serviceIndex == null) {
+            serviceIndex = ServiceIndex(cache.entries)
+            bumpRevision()
+        }
+        if (key.isBlank()) {
+            _serviceLookupStatus.value = if (cache != null) "Using saved service lists (no TMDB key set)"
+            else "Add a TMDB API key to fill Netflix / Prime Video / HBO / Max / Apple TV+"
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (!force && TmdbServiceLookup.isFresh(cache, fp, now)) {
+            _serviceLookupStatus.value = "Service groups updated " + formatShortDate(cache!!.fetchedAtMs) +
+                " (${serviceIndex?.size ?: 0} titles)"
+            return
+        }
+        _serviceLookupStatus.value = "Looking up streaming services…"
+        val lookup = TmdbServiceLookup(http)
+        val entries = try {
+            lookup.fetch(key) { done, total -> _serviceLookupStatus.value = "Looking up streaming services… $done/$total" }
+        } catch (e: TmdbServiceLookup.LookupFailed) {
+            _serviceLookupStatus.value = e.message ?: "TMDB lookup failed"
+            return
+        }
+        if (entries.isEmpty()) {
+            _serviceLookupStatus.value = "TMDB returned no service lists (check network)"
+            return
+        }
+        TmdbServiceLookup.writeCache(file, TmdbServiceCache(fetchedAtMs = now, keyFingerprint = fp, entries = entries))
+        val index = ServiceIndex(entries)
+        serviceIndex = index
+        _serviceLookupStatus.value = "Service groups updated " + formatShortDate(now) + " (${index.size} titles)"
+        bumpRevision()
+    }
+
+    private fun formatShortDate(ms: Long): String =
+        java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.US).format(java.util.Date(ms))
 
     fun sortCatalogItems(items: List<MediaItem>, mode: CatalogSort): List<MediaItem> =
         when (mode) {
@@ -1393,9 +1515,9 @@ class CatalogRepository(
     }
 
     companion object {
-        const val NEWLY_ADDED_VOD_CATEGORY_ID = "vod-newly-added"
-        const val NEWLY_ADDED_SERIES_CATEGORY_ID = "series-newly-added"
-        const val NEWLY_ADDED_VOD_CATEGORY_NAME = "Newly added"
+        const val NEWLY_ADDED_VOD_CATEGORY_ID = CatalogCategories.NEWLY_ADDED_VOD_ID
+        const val NEWLY_ADDED_SERIES_CATEGORY_ID = CatalogCategories.NEWLY_ADDED_SERIES_ID
+        const val NEWLY_ADDED_VOD_CATEGORY_NAME = CatalogCategories.NEWLY_ADDED_NAME
         const val NEWLY_ADDED_LIMIT = 150
     }
 }
@@ -1410,5 +1532,6 @@ enum class CatalogSort {
 }
 
 private const val VOD_TAG = "TotalIPTV.Vod"
+private const val SVC_TAG = "TotalIPTV.Services"
 private const val VOD_ATTEMPTS = 3
 private const val VOD_BACKOFF_MS = 2_000L

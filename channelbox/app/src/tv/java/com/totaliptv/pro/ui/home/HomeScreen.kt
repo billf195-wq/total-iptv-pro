@@ -299,8 +299,14 @@ fun HomeScreen(
         categories.associate { it.id to repository.itemsForCategory(it.id).size }
     }
 
-    var selectedCategoryId by remember(hubTab, categories) {
+    var selectedCategoryId by remember(hubTab) {
         mutableStateOf(categories.firstOrNull()?.id)
+    }
+    // Groups can appear later (service lookup); keep the user's pick unless it disappeared.
+    LaunchedEffect(categories) {
+        if (selectedCategoryId == null || categories.none { it.id == selectedCategoryId }) {
+            selectedCategoryId = categories.firstOrNull()?.id
+        }
     }
 
     // Keep displayItems in the same remember-key as category/tab/sort so the grid cannot
@@ -320,7 +326,7 @@ fun HomeScreen(
             }
             else -> {
                 val base = selectedCategoryId?.let { repository.itemsForCategory(it) }.orEmpty()
-                repository.sortCatalogItems(base, catalogSort)
+                repository.sortCategoryItems(selectedCategoryId, base, catalogSort)
             }
         }
     }

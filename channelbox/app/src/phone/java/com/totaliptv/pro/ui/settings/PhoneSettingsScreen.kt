@@ -78,6 +78,10 @@ fun PhoneSettingsScreen(
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var updateBusy by remember { mutableStateOf(false) }
     var pendingInstall by remember { mutableStateOf<UpdateCheckResult.Available?>(null) }
+    val tmdbKey by app.preferences.tmdbApiKey.collectAsState(initial = "")
+    val serviceStatus by repository.serviceLookupStatus.collectAsState()
+    var editingTmdbKey by remember { mutableStateOf(false) }
+    var tmdbDraft by remember(tmdbKey) { mutableStateOf(tmdbKey) }
 
     Column(
         modifier = Modifier
@@ -328,6 +332,65 @@ fun PhoneSettingsScreen(
         )
 
         Spacer(Modifier.height(24.dp))
+        Text("Service groups", style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "TMDB API key (for service groups): " + when {
+                tmdbKey.isNotBlank() -> "Saved"
+                BuildConfig.TMDB_DEFAULT_KEY.isNotBlank() -> "Using the built-in test key"
+                else -> "Not set"
+            },
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = {
+                tmdbDraft = tmdbKey
+                editingTmdbKey = !editingTmdbKey
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (editingTmdbKey) "Cancel TMDB key edit" else "Edit TMDB API key")
+        }
+        if (editingTmdbKey) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = tmdbDraft,
+                onValueChange = { tmdbDraft = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("TMDB API key (for service groups)") },
+                supportingText = { Text("Free key from themoviedb.org (v3 key or v4 read token)") }
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    scope.launch {
+                        app.preferences.setTmdbApiKey(tmdbDraft)
+                        editingTmdbKey = false
+                        repository.startServiceLookup(force = true)
+                        Toast.makeText(context, "TMDB key saved", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Save TMDB API key")
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = { repository.startServiceLookup(force = true) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Refresh service groups")
+        }
+        if (serviceStatus.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(serviceStatus, color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
+        }
+
+        Spacer(Modifier.height(24.dp))
         Text("Sources", style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
         if (sources.isEmpty()) {
@@ -413,6 +476,13 @@ fun PhoneSettingsScreen(
         ) {
             Text("Clear all data & sources")
         }
+        Spacer(Modifier.height(16.dp))
+        Text(
+            com.totaliptv.pro.data.tmdb.TmdbAttribution.TMDB + "\n" +
+                com.totaliptv.pro.data.tmdb.TmdbAttribution.JUSTWATCH,
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
         Spacer(Modifier.height(24.dp))
         }
     }

@@ -109,7 +109,10 @@ class XtreamApi(
         @SerialName("added") val added: JsonElement? = null,
         @SerialName("rating") val rating: String? = null,
         @SerialName("rating_5based") val rating5based: String? = null,
-        @SerialName("youtube_trailer") val youtubeTrailer: String? = null
+        @SerialName("youtube_trailer") val youtubeTrailer: String? = null,
+        @SerialName("tmdb") val tmdbRaw: JsonElement? = null,
+        @SerialName("tmdb_id") val tmdbIdRaw: JsonElement? = null,
+        @SerialName("year") val yearRaw: JsonElement? = null
     ) {
         val num: Int get() = XtreamApi.flexibleInt(numRaw)
         val streamId: Int get() = XtreamApi.flexibleInt(streamIdRaw)
@@ -131,7 +134,11 @@ class XtreamApi(
         @SerialName("releaseDate") val releaseDate: String? = null,
         @SerialName("genre") val genre: String? = null,
         @SerialName("last_modified") val lastModified: JsonElement? = null,
-        @SerialName("added") val added: JsonElement? = null
+        @SerialName("added") val added: JsonElement? = null,
+        @SerialName("tmdb") val tmdbRaw: JsonElement? = null,
+        @SerialName("tmdb_id") val tmdbIdRaw: JsonElement? = null,
+        @SerialName("year") val yearRaw: JsonElement? = null,
+        @SerialName("release_date") val releaseDate2: JsonElement? = null
     ) {
         val num: Int get() = XtreamApi.flexibleInt(numRaw)
         val seriesId: Int get() = XtreamApi.flexibleInt(seriesIdRaw)
@@ -301,7 +308,9 @@ class XtreamApi(
                     xtreamStreamId = s.streamId,
                     addedMs = parseXtreamAdded(s.added),
                     rating = normalizeRating(s.rating, s.rating5based),
-                    youtubeTrailer = s.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() }
+                    youtubeTrailer = s.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() },
+                    year = flexibleYear(s.yearRaw),
+                    tmdbId = flexibleInt(s.tmdbRaw).takeIf { it > 0 } ?: flexibleInt(s.tmdbIdRaw).takeIf { it > 0 }
                 )
             }
             if (vodItems.isEmpty() && vodCategories.isEmpty()) {
@@ -355,7 +364,11 @@ class XtreamApi(
                     xtreamStreamId = sid,
                     addedMs = parseXtreamAdded(s.added) ?: parseXtreamAdded(s.lastModified),
                     rating = normalizeRating(s.rating, s.rating5based),
-                    youtubeTrailer = s.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() }
+                    youtubeTrailer = s.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() },
+                    year = flexibleYear(s.yearRaw)
+                        ?: com.totaliptv.pro.data.tmdb.TitleMatch.yearFromDate(s.releaseDate)
+                        ?: com.totaliptv.pro.data.tmdb.TitleMatch.yearFromDate((s.releaseDate2 as? kotlinx.serialization.json.JsonPrimitive)?.content),
+                    tmdbId = flexibleInt(s.tmdbRaw).takeIf { it > 0 } ?: flexibleInt(s.tmdbIdRaw).takeIf { it > 0 }
                 )
             }
             if (items.isEmpty() && categories.isEmpty()) {
@@ -816,6 +829,11 @@ class XtreamApi(
      * Prefer Xtream `rating` as IMDb/TMDB-style /10 number.
      * Fall back to `rating_5based` converted to /10. Skip zeros / junk.
      */
+    private fun flexibleYear(raw: JsonElement?): Int? {
+        val p = raw as? JsonPrimitive ?: return null
+        return com.totaliptv.pro.data.tmdb.TitleMatch.yearFromDate(p.contentOrNull)
+    }
+
     private fun normalizeRating(rating: String?, rating5based: String?): String? =
         com.totaliptv.pro.data.Ratings.normalizeXtream(rating, rating5based)
 
