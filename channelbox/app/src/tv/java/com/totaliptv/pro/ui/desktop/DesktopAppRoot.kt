@@ -40,6 +40,7 @@ import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.nav.TvBack
 import androidx.compose.ui.text.font.FontWeight
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.data.local.LastPlace
 import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.ui.focus.FocusTrace
@@ -86,11 +87,24 @@ fun DesktopAppRoot(
         var refreshing by remember { mutableStateOf(false) }
         var error by remember { mutableStateOf<String?>(null) }
         var showOnboarding by remember { mutableStateOf(false) }
-        var section by remember { mutableStateOf(DesktopNavSection.HOME) }
+        val initialPlace = remember { app?.lastPlace?.peek() }
+        var section by remember {
+            mutableStateOf(
+                when (initialPlace?.screen) {
+                    LastPlace.SCREEN_LIVE -> DesktopNavSection.LIVE
+                    LastPlace.SCREEN_MOVIES -> DesktopNavSection.MOVIES
+                    LastPlace.SCREEN_SERIES -> DesktopNavSection.SERIES
+                    LastPlace.SCREEN_GUIDE -> DesktopNavSection.GUIDE
+                    LastPlace.SCREEN_SETTINGS -> DesktopNavSection.SETTINGS
+                    LastPlace.SCREEN_RECORDINGS -> DesktopNavSection.RECORDINGS
+                    else -> DesktopNavSection.HOME
+                }
+            )
+        }
         SideEffect { FocusTrace.screen = "desktop:${section.name}" }
         var exitArmedAt by remember { mutableLongStateOf(0L) }
         var search by remember { mutableStateOf("") }
-        var categoryId by remember { mutableStateOf<String?>(null) }
+        var categoryId by remember { mutableStateOf(initialPlace?.categoryId) }
         var browseSort by remember { mutableStateOf("AZ") }
         val posterColumns = posterColumnsPref
         var statusMessage by remember { mutableStateOf<String?>(null) }
@@ -105,6 +119,19 @@ fun DesktopAppRoot(
         var favorites by remember { mutableStateOf<List<FavoriteRef>>(emptyList()) }
         val scope = rememberCoroutineScope()
         val favoriteIds = remember(favorites) { favorites.map { it.id }.toSet() }
+        LaunchedEffect(section, categoryId) {
+            val name = when (section) {
+                DesktopNavSection.LIVE -> LastPlace.SCREEN_LIVE
+                DesktopNavSection.MOVIES -> LastPlace.SCREEN_MOVIES
+                DesktopNavSection.SERIES -> LastPlace.SCREEN_SERIES
+                DesktopNavSection.GUIDE -> LastPlace.SCREEN_GUIDE
+                DesktopNavSection.SETTINGS -> LastPlace.SCREEN_SETTINGS
+                DesktopNavSection.RECORDINGS -> LastPlace.SCREEN_RECORDINGS
+                DesktopNavSection.FAVORITES -> LastPlace.SCREEN_HOME
+                DesktopNavSection.HOME -> LastPlace.SCREEN_HOME
+            }
+            app?.lastPlace?.saveBrowse(name, categoryId)
+        }
         val refreshHomeStart = remember { com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.value }
         val refreshHomeReq by com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.collectAsState()
         LaunchedEffect(refreshHomeReq) {
