@@ -310,7 +310,8 @@ class TmdbServiceLookup(
         }
 
         fun isFresh(cache: TmdbServiceCache?, keyFingerprint: String, nowMs: Long): Boolean =
-            cache != null && cache.keyFingerprint == keyFingerprint &&
+            cache != null && cache.version == TmdbServiceCache.CACHE_VERSION &&
+                cache.keyFingerprint == keyFingerprint &&
                 cache.entries.isNotEmpty() && nowMs - cache.fetchedAtMs in 0 until TTL_MS
     }
 }
