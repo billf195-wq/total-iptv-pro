@@ -1,6 +1,7 @@
 package com.totaliptv.pro
 
 import android.app.Application
+import android.os.StrictMode
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -8,9 +9,11 @@ import coil.memory.MemoryCache
 import com.totaliptv.pro.diagnostics.CrashLog
 import com.totaliptv.pro.data.LogoUrls
 import com.totaliptv.pro.data.local.AppPreferences
+import com.totaliptv.pro.data.local.LastPlaceStore
 import com.totaliptv.pro.data.local.SavedLoginStore
 import com.totaliptv.pro.data.model.SourceType
 import com.totaliptv.pro.data.local.WatchProgressStore
+import java.io.File
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.dvr.DvrRecorder
 import kotlinx.coroutines.CoroutineScope
@@ -30,15 +33,32 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         private set
     lateinit var dvr: DvrRecorder
         private set
+    lateinit var lastPlace: LastPlaceStore
+        private set
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
         CrashLog.install(this)
+        if (BuildConfig.DEBUG) {
+            StrictMode.setThreadPolicy(
+                StrictMode.ThreadPolicy.Builder()
+                    .detectAll()
+                    .penaltyLog()
+                    .build()
+            )
+            StrictMode.setVmPolicy(
+                StrictMode.VmPolicy.Builder()
+                    .detectAll()
+                    .penaltyLog()
+                    .build()
+            )
+        }
         preferences = AppPreferences(this)
         repository = CatalogRepository(preferences)
         repository.attachVodCacheDir(filesDir)
+        lastPlace = LastPlaceStore(File(filesDir, "last-place.json"))
         // Streaming service groups: cached TMDB lists, refreshed in background.
         repository.startServiceLookup()
         watchProgress = WatchProgressStore(this)

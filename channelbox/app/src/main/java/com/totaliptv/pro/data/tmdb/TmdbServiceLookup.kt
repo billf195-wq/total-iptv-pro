@@ -10,11 +10,18 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.decodeFromStream
+import kotlinx.serialization.json.encodeToStream
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Fills the streaming service groups from TMDB "discover" lists
@@ -49,29 +56,71 @@ class TmdbServiceLookup(
 
     class LookupFailed(message: String) : Exception(message)
 
-    /** Fetch all queries. [onProgress] gets (done, total). Throws [LookupFailed] on auth errors. */
-    fun fetch(apiKey: String, onProgress: (Int, Int) -> Unit = { _, _ -> }): List<TmdbServiceEntry> {
+    /**
+     * Fetch all queries with limited concurrency. Entries are merged as pages arrive
+     * so [onBatch] can show Netflix (and the rest) before the full download finishes.
+     * [onProgress] gets (done queries, total queries). Throws [LookupFailed] on auth errors.
+     */
+    fun fetch(
+        apiKey: String,
+        onProgress: (Int, Int) -> Unit = { _, _ -> },
+        onBatch: (List<TmdbServiceEntry>) -> Unit = {},
+        isActive: () -> Boolean = { true },
+        concurrency: Int = DEFAULT_CONCURRENCY
+    ): List<TmdbServiceEntry> {
         val key = normalizeKey(apiKey)
         if (key.isEmpty()) throw LookupFailed("No TMDB API key")
-        val out = ArrayList<TmdbServiceEntry>()
+        val merged = LinkedHashMap<String, TmdbServiceEntry>()
+        val lock = Any()
+        val doneCount = AtomicInteger(0)
+        val failed = AtomicReference<LookupFailed>(null)
         val queries = ALL_QUERIES
-        var done = 0
-        for (q in queries) {
-            var page = 1
-            var totalPages = 1
-            val pageLimit = q.pages ?: pagesPerQuery
-            while (page <= minOf(totalPages, pageLimit)) {
-                val body = get(key, q, page) ?: break
-                val parsed = parseDiscover(body, q.type, q.service)
-                out += parsed.entries
-                totalPages = parsed.totalPages
-                page++
-                if (delayMs > 0) sleep(delayMs)
+        val workers = concurrency.coerceIn(1, MAX_CONCURRENCY)
+        val pool = Executors.newFixedThreadPool(workers)
+        try {
+            val tasks = queries.map { q ->
+                Callable {
+                    if (!isActive() || failed.get() != null) return@Callable
+                    var page = 1
+                    var totalPages = 1
+                    val pageLimit = q.pages ?: pagesPerQuery
+                    while (page <= minOf(totalPages, pageLimit) && isActive() && failed.get() == null) {
+                        val body = try {
+                            get(key, q, page)
+                        } catch (e: LookupFailed) {
+                            failed.compareAndSet(null, e)
+                            return@Callable
+                        } ?: break
+                        val parsed = parseDiscover(body, q.type, q.service)
+                        val snapshot = synchronized(lock) {
+                            for (e in parsed.entries) {
+                                val k = "${e.type}:${e.id}"
+                                val prev = merged[k]
+                                merged[k] = if (prev == null) e else ServiceIndex.mergeEntries(prev, e)
+                            }
+                            merged.values.toList()
+                        }
+                        onBatch(snapshot)
+                        totalPages = parsed.totalPages
+                        page++
+                        if (delayMs > 0 && page <= minOf(totalPages, pageLimit)) {
+                            try {
+                                sleep(delayMs)
+                            } catch (_: InterruptedException) {
+                                Thread.currentThread().interrupt()
+                                return@Callable
+                            }
+                        }
+                    }
+                    onProgress(doneCount.incrementAndGet(), queries.size)
+                }
             }
-            done++
-            onProgress(done, queries.size)
+            pool.invokeAll(tasks)
+            failed.get()?.let { throw it }
+        } finally {
+            pool.shutdownNow()
         }
-        return out
+        return synchronized(lock) { merged.values.toList() }
     }
 
     private fun get(key: String, q: Query, page: Int): String? {
@@ -122,6 +171,9 @@ class TmdbServiceLookup(
         /** Extra pages of globally top-rated titles (not limited to the service groups). */
         const val RATING_PAGES = 40
         const val TTL_MS = 7L * 24 * 60 * 60 * 1000
+        /** Parallel TMDB discover queries. Kept small so we do not trip rate limits or OOM a TV box. */
+        const val DEFAULT_CONCURRENCY = 2
+        const val MAX_CONCURRENCY = 3
 
         /**
          * Verified against TMDB /watch/providers (US) and /network on 2026-11-12:
@@ -229,16 +281,27 @@ class TmdbServiceLookup(
             return p.doubleOrNull ?: p.contentOrNull?.toDoubleOrNull()
         }
 
-        fun readCache(file: File): TmdbServiceCache? = runCatching {
+        @OptIn(ExperimentalSerializationApi::class)
+        fun readCache(file: File, acceptOlderVersion: Boolean = false): TmdbServiceCache? = runCatching {
             if (!file.isFile) return null
-            cacheJson.decodeFromString(TmdbServiceCache.serializer(), file.readText())
-        }.getOrNull()?.takeIf { it.version == TmdbServiceCache.CACHE_VERSION }
+            file.inputStream().buffered().use { ins ->
+                cacheJson.decodeFromStream(TmdbServiceCache.serializer(), ins)
+            }
+        }.getOrNull()?.takeIf { cache ->
+            cache.entries.isNotEmpty() && (acceptOlderVersion || cache.version == TmdbServiceCache.CACHE_VERSION)
+        }
 
+        /** Older cache versions are good enough to show groups instantly while a refresh runs. */
+        fun readUsableCache(file: File): TmdbServiceCache? = readCache(file, acceptOlderVersion = true)
+
+        @OptIn(ExperimentalSerializationApi::class)
         fun writeCache(file: File, cache: TmdbServiceCache) {
             runCatching {
                 file.parentFile?.mkdirs()
                 val tmp = File(file.parentFile, file.name + ".tmp")
-                tmp.writeText(cacheJson.encodeToString(TmdbServiceCache.serializer(), cache))
+                tmp.outputStream().buffered().use { out ->
+                    cacheJson.encodeToStream(TmdbServiceCache.serializer(), cache, out)
+                }
                 if (!tmp.renameTo(file)) {
                     file.delete()
                     tmp.renameTo(file)

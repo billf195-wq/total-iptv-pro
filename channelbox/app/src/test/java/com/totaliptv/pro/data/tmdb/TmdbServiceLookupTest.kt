@@ -130,7 +130,7 @@ class TmdbServiceLookupTest {
     }
 
     @Test
-    fun oldCacheVersionIsRejected() {
+    fun oldCacheVersionIsRejectedForFreshnessButUsableForDisplay() {
         val dir = createTempDir("tmdbcache-v1")
         try {
             val file = java.io.File(dir, "tmdb-services.json")
@@ -138,9 +138,21 @@ class TmdbServiceLookupTest {
                 entries = listOf(TmdbServiceEntry("movie", 1, "X", year = 2020, services = listOf("netflix"))))
             TmdbServiceLookup.writeCache(file, stale)
             assertEquals(null, TmdbServiceLookup.readCache(file))
+            val usable = TmdbServiceLookup.readUsableCache(file)
+            assertEquals(2, usable?.version)
+            assertEquals(1, usable?.entries?.size)
+            assertEquals("X", usable?.entries?.single()?.title)
+            assertFalse(TmdbServiceLookup.isFresh(usable, "abcd1234", 1_000L + 1000))
             assertEquals(3, TmdbServiceCache.CACHE_VERSION)
         } finally {
             dir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun defaultConcurrencyIsLimited() {
+        assertEquals(2, TmdbServiceLookup.DEFAULT_CONCURRENCY)
+        assertEquals(3, TmdbServiceLookup.MAX_CONCURRENCY)
+        assertTrue(TmdbServiceLookup.DEFAULT_CONCURRENCY <= TmdbServiceLookup.MAX_CONCURRENCY)
     }
 }

@@ -198,6 +198,7 @@ class PlayerActivity : ComponentActivity() {
                 else -> null
             }
         }
+        rememberLastPlace(0L)
         runCatching {
             val app = application as TotalIptvProApp
             val seed = app.repository.itemById(mediaId)
@@ -1604,6 +1605,9 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         savePlaybackProgress()
+        if (isFinishing) {
+            runCatching { (application as TotalIptvProApp).lastPlace.clearPlaying() }
+        }
         progressSaveJob?.cancel()
         upNextJob?.cancel()
         hideOverlayJob?.cancel()
@@ -1797,6 +1801,19 @@ class PlayerActivity : ComponentActivity() {
             catalogId = resolvedCatalog
         )
         runCatching { watchProgressStore.save(progress) }
+        rememberLastPlace(pos.coerceAtLeast(0L))
+    }
+
+    private fun rememberLastPlace(positionMs: Long) {
+        runCatching {
+            (application as TotalIptvProApp).lastPlace.savePlaying(
+                itemId = mediaId,
+                kind = mediaKind.name,
+                title = mediaTitle,
+                catalogId = catalogId,
+                positionMs = positionMs
+            )
+        }
     }
 
 

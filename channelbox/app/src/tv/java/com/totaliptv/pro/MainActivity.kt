@@ -53,6 +53,7 @@ import com.totaliptv.pro.ui.desktop.DesktopAppRoot
 import com.totaliptv.pro.ui.splash.LogoBannerSplash
 import com.totaliptv.pro.ui.splash.StartupSplashGate
 import com.totaliptv.pro.data.local.AppLayoutMode
+import com.totaliptv.pro.data.local.LastPlace
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -78,9 +79,12 @@ class MainActivity : ComponentActivity() {
 
     /** Drops piled-up D-pad repeats so a held key cannot freeze the app (ANR). */
     private val dpadGate = com.totaliptv.pro.ui.focus.DpadRepeatGate()
+    /** Cold start only: reopen the title that was playing when the process died. */
+    private var restorePlaybackOnStart = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        restorePlaybackOnStart = savedInstanceState == null
         val app = application as TotalIptvProApp
         // Snapshot layout for THIS activity instance. Hot-swapping Classic root <-> DesktopAppRoot
         // mid-composition freezes Shield TV; recreate cleanly when the preference changes.
@@ -158,6 +162,11 @@ class MainActivity : ComponentActivity() {
                         logoUrl = fav.logoUrl
                     )
                 )
+            }
+            LaunchedEffect(splashDone, layoutReady) {
+                if (!splashDone || !layoutReady || !restorePlaybackOnStart) return@LaunchedEffect
+                restorePlaybackOnStart = false
+                restoreLastPlayback(app)
             }
 
             if (!startupChecked && !switchingLayout) {
@@ -281,6 +290,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun restoreLastPlayback(app: TotalIptvProApp) {
+        val place = app.lastPlace.load() ?: return
+        if (!place.playing) return
+        val id = place.playItemId?.takeIf { it.isNotBlank() } ?: return
+        lifecycleScope.launch {
+            runCatching { app.repository.ensureCatalogLoaded() }
+            val item = app.repository.itemById(id)
+                ?: place.playCatalogId?.takeIf { it.isNotBlank() }?.let { app.repository.itemById(it) }
+                ?: return@launch
+            playResolved(app.repository, item, startOver = false)
+        }
+    }
+
     private fun openPlayer(
         item: MediaItem,
         startOver: Boolean = false,
@@ -334,7 +356,19 @@ private fun AppRoot(
     onPlayFavorite: (FavoriteRef) -> Unit
 ) {
     val sources by repository.sources.collectAsState(initial = emptyList())
-    var screen by remember { mutableStateOf<Screen?>(null) }
+    val app = LocalContext.current.applicationContext as TotalIptvProApp
+    val initialPlace = remember { app.lastPlace.load() }
+    var screen by remember {
+        mutableStateOf<Screen?>(
+            when (initialPlace?.screen) {
+                LastPlace.SCREEN_SETTINGS -> Screen.Settings
+                LastPlace.SCREEN_GUIDE -> Screen.Guide
+                LastPlace.SCREEN_SEARCH -> Screen.Search
+                LastPlace.SCREEN_RECORDINGS -> Screen.Recordings
+                else -> null
+            }
+        )
+    }
     val refreshHomeStart = remember { com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.value }
     val refreshHomeReq by com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.collectAsState()
     LaunchedEffect(refreshHomeReq) {
@@ -389,6 +423,16 @@ private fun AppRoot(
                 }
                 TvBack.Action.EXIT -> (backContext as? android.app.Activity)?.finish()
             }
+        }
+        LaunchedEffect(route) {
+            val name = when (route) {
+                Screen.Settings -> LastPlace.SCREEN_SETTINGS
+                Screen.Guide -> LastPlace.SCREEN_GUIDE
+                Screen.Search -> LastPlace.SCREEN_SEARCH
+                Screen.Recordings -> LastPlace.SCREEN_RECORDINGS
+                else -> return@LaunchedEffect
+            }
+            app.lastPlace.saveBrowse(name)
         }
         when (val s = route) {
             Screen.Onboarding -> OnboardingScreen(

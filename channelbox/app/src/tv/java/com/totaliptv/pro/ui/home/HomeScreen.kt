@@ -43,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -70,6 +71,7 @@ import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.local.WatchProgressStore
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.data.local.LastPlace
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.model.PlaylistSource
 import com.totaliptv.pro.data.model.SourceType
@@ -122,9 +124,21 @@ fun HomeScreen(
     onPlayItem: (MediaItem) -> Unit,
     onPlayFromStart: (MediaItem) -> Unit = onPlayItem
 ) {
-    var hubTab by remember { mutableStateOf(HubTab.Home) }
+    val app = (LocalContext.current.applicationContext as TotalIptvProApp)
+    val initialPlace = remember { app.lastPlace.load() }
+    var hubTab by remember {
+        mutableStateOf(
+            when (initialPlace?.screen?.lowercase()) {
+                LastPlace.SCREEN_LIVE -> HubTab.Live
+                LastPlace.SCREEN_MOVIES -> HubTab.Movies
+                LastPlace.SCREEN_SERIES -> HubTab.Series
+                else -> HubTab.Home
+            }
+        )
+    }
     SideEffect { FocusTrace.screen = "classic:${hubTab.name}" }
     var catalogSort by remember { mutableStateOf(CatalogSort.RECENTLY_ADDED) }
+    var lastVisibleIndex by remember { mutableIntStateOf(initialPlace?.firstVisibleIndex ?: 0) }
     var liveCatCount by remember { mutableIntStateOf(0) }
     var vodCatCount by remember { mutableIntStateOf(0) }
     var seriesCatCount by remember { mutableIntStateOf(0) }
@@ -137,10 +151,26 @@ fun HomeScreen(
     var detailItem by remember { mutableStateOf<MediaItem?>(null) }
     var showGameDay by remember { mutableStateOf(false) }
     // Restore D-pad focus to the *same* poster (stable media id + row/grid index).
-    var restoreFocusId by remember { mutableStateOf<String?>(null) }
-    var restoreFocusIndex by remember { mutableIntStateOf(-1) }
-    var restoreFocusScope by remember { mutableStateOf<String?>(null) }
-    var pendingFocusRestore by remember { mutableStateOf(false) }
+    var restoreFocusId by remember { mutableStateOf(initialPlace?.focusedItemId) }
+    var restoreFocusIndex by remember { mutableIntStateOf(initialPlace?.firstVisibleIndex ?: -1) }
+    var restoreFocusScope by remember {
+        mutableStateOf(
+            when (initialPlace?.screen?.lowercase()) {
+                LastPlace.SCREEN_LIVE -> "live-grid"
+                LastPlace.SCREEN_MOVIES, LastPlace.SCREEN_SERIES -> "vod-grid"
+                else -> null
+            }
+        )
+    }
+    var pendingFocusRestore by remember {
+        mutableStateOf(
+            initialPlace != null &&
+                (initialPlace.focusedItemId != null || initialPlace.firstVisibleIndex > 0) &&
+                initialPlace.screen.lowercase() in setOf(
+                    LastPlace.SCREEN_LIVE, LastPlace.SCREEN_MOVIES, LastPlace.SCREEN_SERIES
+                )
+        )
+    }
     // Per poster FocusRequester keyed by "scope:id" so CW/new/top never share one node.
     val posterFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     fun posterFocus(scope: String, id: String): FocusRequester =
@@ -297,16 +327,34 @@ fun HomeScreen(
     }
 
     val categoryCounts: Map<String, Int> = remember(categories, catalogRevision) {
-        categories.associate { it.id to repository.itemsForCategory(it.id).size }
+        categories.associate { it.id to repository.itemCountForCategory(it.id) }
     }
 
     var selectedCategoryId by remember(hubTab) {
-        mutableStateOf(categories.firstOrNull()?.id)
+        val saved = initialPlace?.takeIf {
+            it.screen.lowercase() == when (hubTab) {
+                HubTab.Live -> LastPlace.SCREEN_LIVE
+                HubTab.Movies -> LastPlace.SCREEN_MOVIES
+                HubTab.Series -> LastPlace.SCREEN_SERIES
+                HubTab.Home -> LastPlace.SCREEN_HOME
+            }
+        }?.categoryId
+        mutableStateOf(saved ?: categories.firstOrNull()?.id)
     }
     // Groups can appear later (service lookup); keep the user's pick unless it disappeared.
-    LaunchedEffect(categories) {
-        if (selectedCategoryId == null || categories.none { it.id == selectedCategoryId }) {
-            selectedCategoryId = categories.firstOrNull()?.id
+    LaunchedEffect(categories, hubTab) {
+        val saved = initialPlace?.categoryId
+        val savedFits = saved != null &&
+            initialPlace?.screen?.lowercase() == when (hubTab) {
+                HubTab.Live -> LastPlace.SCREEN_LIVE
+                HubTab.Movies -> LastPlace.SCREEN_MOVIES
+                HubTab.Series -> LastPlace.SCREEN_SERIES
+                HubTab.Home -> LastPlace.SCREEN_HOME
+            } && categories.any { it.id == saved }
+        if (savedFits && selectedCategoryId == null) {
+            selectedCategoryId = saved
+        } else if (selectedCategoryId == null || categories.none { it.id == selectedCategoryId }) {
+            selectedCategoryId = if (savedFits) saved else categories.firstOrNull()?.id
         }
     }
 
@@ -485,6 +533,25 @@ fun HomeScreen(
         } else {
             // Live/VOD: open synchronously so a later focus change cannot swap the target.
             sink(bound)
+        }
+    }
+
+    fun browseScreenName(): String = when (hubTab) {
+        HubTab.Live -> LastPlace.SCREEN_LIVE
+        HubTab.Movies -> LastPlace.SCREEN_MOVIES
+        HubTab.Series -> LastPlace.SCREEN_SERIES
+        HubTab.Home -> LastPlace.SCREEN_HOME
+    }
+    LaunchedEffect(hubTab, selectedCategoryId, focusedChannel?.id, lastVisibleIndex) {
+        if (hubTab == HubTab.Home) {
+            app.lastPlace.saveBrowse(LastPlace.SCREEN_HOME)
+        } else {
+            app.lastPlace.saveBrowse(
+                screen = browseScreenName(),
+                categoryId = selectedCategoryId,
+                firstVisibleIndex = lastVisibleIndex,
+                focusedItemId = focusedChannel?.id
+            )
         }
     }
 
@@ -698,7 +765,12 @@ fun HomeScreen(
                                     onPlay = { playMedia(it) },
                                     onOpenGuide = onOpenGuide,
                                     onRecordNow = { DvrActions.recordNow(context, it) },
-                                    onGameDay = { showGameDay = true }
+                                    onGameDay = { showGameDay = true },
+                                    restoreFocusId = restoreFocusId,
+                                    restoreFocusIndex = restoreFocusIndex,
+                                    pendingFocusRestore = pendingFocusRestore && restoreFocusScope == "live-grid",
+                                    onRestoreConsumed = { consumeFocusRestore() },
+                                    onVisibleIndex = { lastVisibleIndex = it }
                                 )
                                 HubTab.Movies, HubTab.Series -> VodMainPane(
                                     isSeries = hubTab == HubTab.Series,
@@ -719,6 +791,7 @@ fun HomeScreen(
                                     pendingFocusRestore = pendingFocusRestore,
                                     posterFocus = { scope, id -> posterFocus(scope, id) },
                                     onRestoreConsumed = { consumeFocusRestore() },
+                                    onVisibleIndex = { lastVisibleIndex = it },
                                     onPlay = { playMedia(it) },
                                     onOpenDetail = { item, index ->
                                         openDetailFromPoster(item, focusKey = item.id, index = index, scope = "vod-grid")
@@ -1083,7 +1156,12 @@ private fun LiveMainPane(
     onPlay: (MediaItem) -> Unit,
     onOpenGuide: () -> Unit,
     onRecordNow: (MediaItem) -> Unit = {},
-    onGameDay: () -> Unit = {}
+    onGameDay: () -> Unit = {},
+    restoreFocusId: String? = null,
+    restoreFocusIndex: Int = -1,
+    pendingFocusRestore: Boolean = false,
+    onRestoreConsumed: () -> Unit = {},
+    onVisibleIndex: (Int) -> Unit = {}
 ) {
     val ch = focusedChannel
     val context = LocalContext.current
@@ -1152,8 +1230,28 @@ private fun LiveMainPane(
     } else if (displayItems.isEmpty()) {
         EmptyHub("No channels in this category.")
     } else {
+        val gridState = rememberLazyGridState()
+        LaunchedEffect(selectedCategoryId, catalogSort) {
+            if (!pendingFocusRestore) gridState.scrollToItem(0)
+        }
+        LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, displayItems) {
+            if (!pendingFocusRestore) return@LaunchedEffect
+            val id = restoreFocusId
+            val idx = restoreFocusIndex
+            if (idx >= 0 && idx < displayItems.size) {
+                runCatching { gridState.scrollToItem(idx) }
+            } else if (id != null) {
+                val found = displayItems.indexOfFirst { it.id == id }
+                if (found >= 0) runCatching { gridState.scrollToItem(found) }
+            }
+            onRestoreConsumed()
+        }
+        LaunchedEffect(gridState) {
+            snapshotFlow { gridState.firstVisibleItemIndex }.collect { onVisibleIndex(it) }
+        }
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = ClassicDimens.ChannelGridMin),
+            state = gridState,
             contentPadding = PaddingValues(2.dp, bottom = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1206,6 +1304,7 @@ private fun VodMainPane(
     pendingFocusRestore: Boolean = false,
     posterFocus: (scope: String, id: String) -> FocusRequester = { _, _ -> FocusRequester() },
     onRestoreConsumed: () -> Unit = {},
+    onVisibleIndex: (Int) -> Unit = {},
     onPlay: (MediaItem) -> Unit,
     onOpenDetail: (MediaItem, index: Int) -> Unit,
     onToggleFavorite: (MediaItem) -> Unit,
@@ -1213,8 +1312,12 @@ private fun VodMainPane(
 ) {
     val gridState = rememberLazyGridState()
     LaunchedEffect(selectedCategoryId, catalogSort, isSeries) {
-        // Reset scroll only when category/sort changes — not when detail sheet dismisses.
-        gridState.scrollToItem(0)
+        // Reset scroll only when category/sort changes — not when detail sheet dismisses
+        // or when we are restoring the last spot after a crash.
+        if (!pendingFocusRestore) gridState.scrollToItem(0)
+    }
+    LaunchedEffect(gridState) {
+        snapshotFlow { gridState.firstVisibleItemIndex }.collect { onVisibleIndex(it) }
     }
     LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope) {
         if (!pendingFocusRestore) return@LaunchedEffect

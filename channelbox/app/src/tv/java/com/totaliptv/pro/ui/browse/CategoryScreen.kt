@@ -121,7 +121,7 @@ fun BrowseScreen(
     }
 
     val categoryCounts: Map<String, Int> = remember(categories, catalogRevision) {
-        categories.associate { it.id to repository.itemsForCategory(it.id).size }
+        categories.associate { it.id to repository.itemCountForCategory(it.id) }
     }
 
     var selectedCategoryId by remember(section) {

@@ -32,6 +32,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +55,7 @@ import com.totaliptv.pro.ui.theme.tipScreenBrush
 import com.totaliptv.pro.dvr.DvrActions
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.data.local.LastPlace
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -72,7 +74,20 @@ fun PhoneBrowseScreen(
     val isVodSection = section == BrowseSection.Movies || section == BrowseSection.Series
     var loading by remember { mutableStateOf(true) }
     var categories by remember { mutableStateOf<List<Category>>(emptyList()) }
-    var selectedCat by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val lastPlace = remember { (context.applicationContext as TotalIptvProApp).lastPlace }
+    val initialPlace = remember { lastPlace.load() }
+    val sectionScreen = when (section) {
+        BrowseSection.Live -> LastPlace.SCREEN_LIVE
+        BrowseSection.Movies -> LastPlace.SCREEN_MOVIES
+        BrowseSection.Series -> LastPlace.SCREEN_SERIES
+        else -> null
+    }
+    var selectedCat by remember {
+        mutableStateOf(
+            initialPlace?.takeIf { it.screen == sectionScreen }?.categoryId
+        )
+    }
     var sort by remember { mutableStateOf(CatalogSort.RECENTLY_ADDED) }
     var items by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var detail by remember { mutableStateOf<MediaItem?>(null) }
@@ -80,8 +95,14 @@ fun PhoneBrowseScreen(
     val listState = rememberLazyListState()
     var lastListKey by remember { mutableStateOf("") }
     var pendingScrollTop by remember { mutableStateOf(false) }
-
-    val context = LocalContext.current
+    var pendingRestoreScroll by remember {
+        mutableStateOf(
+            initialPlace != null &&
+                initialPlace.screen == sectionScreen &&
+                initialPlace.firstVisibleIndex > 0
+        )
+    }
+    val restoreIndex = initialPlace?.takeIf { it.screen == sectionScreen }?.firstVisibleIndex ?: 0
     val dvrSnap by remember(context) {
         (context.applicationContext as TotalIptvProApp).dvr.snapshot
     }.collectAsState()
@@ -133,11 +154,31 @@ fun PhoneBrowseScreen(
     }
     // Scroll after the new list is composed; scrolling earlier lets the grid keep the old
     // first item (by key) in view, which lands mid-list after a re-sort.
-    LaunchedEffect(items, pendingScrollTop) {
+    LaunchedEffect(items, pendingScrollTop, pendingRestoreScroll) {
+        if (pendingRestoreScroll) {
+            val idx = restoreIndex
+            if (idx > 0 && items.isNotEmpty()) {
+                runCatching { gridState.scrollToItem(idx.coerceAtMost(items.lastIndex)) }
+                runCatching { listState.scrollToItem(idx.coerceAtMost(items.lastIndex)) }
+            }
+            pendingRestoreScroll = false
+            pendingScrollTop = false
+            return@LaunchedEffect
+        }
         if (!pendingScrollTop) return@LaunchedEffect
         runCatching { gridState.scrollToItem(0) }
         runCatching { listState.scrollToItem(0) }
         pendingScrollTop = false
+    }
+    LaunchedEffect(sectionScreen, selectedCat, gridState) {
+        val screen = sectionScreen ?: return@LaunchedEffect
+        snapshotFlow { gridState.firstVisibleItemIndex }.collect { idx ->
+            lastPlace.saveBrowse(
+                screen = screen,
+                categoryId = selectedCat,
+                firstVisibleIndex = idx
+            )
+        }
     }
 
     val favorites by repository.favorites.collectAsState(initial = emptyList())

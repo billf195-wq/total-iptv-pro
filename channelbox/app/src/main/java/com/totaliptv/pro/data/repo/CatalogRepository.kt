@@ -209,6 +209,7 @@ class CatalogRepository(
         if (loadedForSourceId == id) {
             cachedCategories = emptyList()
             cachedItems = emptyList()
+            refreshDerivedCatalog()
             loadedForSourceId = null
             activeXtreamCreds = null
             forgetEpg()
@@ -227,6 +228,7 @@ class CatalogRepository(
         prefs.clearAll()
         cachedCategories = emptyList()
         cachedItems = emptyList()
+        refreshDerivedCatalog()
         loadedForSourceId = null
         activeXtreamCreds = null
         lastWarning = null
@@ -284,6 +286,7 @@ class CatalogRepository(
                                 if (parsed.items.isEmpty()) error("Playlist contained no channels")
                                 cachedCategories = parsed.categories
                                 cachedItems = parsed.items
+                                refreshDerivedCatalog()
                                 clearXmltv()
                                 xmltvUrl = parsed.xmltvUrl
                                 if (!parsed.xmltvUrl.isNullOrBlank()) {
@@ -319,6 +322,7 @@ class CatalogRepository(
                                 }
                                 cachedCategories = live.categories + keepCats
                                 cachedItems = live.items + keepItems
+                                refreshDerivedCatalog()
                                 lastWarning = null
                                 loadedForSourceId = source.id
                                 bumpRevision()
@@ -402,6 +406,7 @@ class CatalogRepository(
                 val keepItems = cachedItems.filter { it.kind != ContentKind.VOD }
                 cachedCategories = keepCats + vod.categories
                 cachedItems = keepItems + vod.items
+                refreshDerivedCatalog()
                 lastWarning = null
                 _vodError.value = null
             } else {
@@ -439,6 +444,7 @@ class CatalogRepository(
                 val keepItems = cachedItems.filter { it.kind != ContentKind.SERIES }
                 cachedCategories = keepCats + series.categories
                 cachedItems = keepItems + series.items
+                refreshDerivedCatalog()
             } else {
                 Log.w(VOD_TAG, "series refresh failed; keeping cached series problem=$problem")
                 if (cachedItems.none { it.kind == ContentKind.SERIES }) {
@@ -531,6 +537,16 @@ class CatalogRepository(
     private var topRatedSnapshot: TopRatedSnapshot? = null
     private val topRatedComputeRunning = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    @Volatile
+    private var newlyAddedMoviesSnap: List<MediaItem> = emptyList()
+    @Volatile
+    private var newlyAddedSeriesSnap: List<MediaItem> = emptyList()
+    @Volatile
+    private var providerCountSnap: Map<String, Int> = emptyMap()
+    @Volatile
+    private var derivedForItems: List<MediaItem>? = null
+    private val derivedComputeRunning = java.util.concurrent.atomic.AtomicBoolean(false)
+
     /** Rated titles of [kind], highest first, capped at [CatalogCategories.TOP_RATED_LIMIT]. */
     fun topRated(kind: ContentKind): List<MediaItem> {
         val items = cachedItems
@@ -539,12 +555,13 @@ class CatalogRepository(
         if (snap != null && snap.items === items && snap.index === idx) {
             return if (kind == ContentKind.SERIES) snap.series else snap.vod
         }
-        if (snap != null && snap.items === items) {
-            // Same catalog, TMDB ratings arrived or changed: keep the last list, recompute off the UI thread.
-            scheduleTopRatedCompute()
+        // Never sort the whole catalog on the caller / UI thread — that ANR'd low-memory TV boxes
+        // in 1.4.97 after the TMDB lists landed. Return the last result (or empty) immediately.
+        scheduleTopRatedCompute()
+        if (snap != null) {
             return if (kind == ContentKind.SERIES) snap.series else snap.vod
         }
-        return storeTopRated(items, idx, kind)
+        return emptyList()
     }
 
     @Volatile
@@ -578,14 +595,6 @@ class CatalogRepository(
 
     private fun tmdbRatingsEnabled(): Boolean =
         hasEffectiveTmdbKey || BuildConfig.TMDB_DEFAULT_KEY.isNotBlank()
-
-    private fun storeTopRated(items: List<MediaItem>, idx: ServiceIndex?, kind: ContentKind): List<MediaItem> {
-        val tmdb = tmdbScoreFn(idx)
-        val vod = Ratings.topRatedOnly(items.filter { it.kind == ContentKind.VOD }, CatalogCategories.TOP_RATED_LIMIT, tmdb)
-        val series = Ratings.topRatedOnly(items.filter { it.kind == ContentKind.SERIES }, CatalogCategories.TOP_RATED_LIMIT, tmdb)
-        topRatedSnapshot = TopRatedSnapshot(items, idx, vod, series)
-        return if (kind == ContentKind.SERIES) series else vod
-    }
 
     private fun scheduleTopRatedCompute() {
         if (!topRatedComputeRunning.compareAndSet(false, true)) return
@@ -690,20 +699,77 @@ class CatalogRepository(
 
     /** Newest movie titles for the Movies "Newly added" rail. */
     fun newlyAddedMovies(limit: Int = NEWLY_ADDED_LIMIT): List<MediaItem> {
-        val movies = cachedItems.filter { item ->
-            item.kind == ContentKind.VOD &&
-                item.categoryId != NEWLY_ADDED_VOD_CATEGORY_ID
-        }
-        return sortByRecentlyAdded(movies).take(limit)
+        if (derivedForItems !== cachedItems) scheduleDerivedCatalog()
+        val snap = newlyAddedMoviesSnap
+        return if (limit >= snap.size) snap else snap.take(limit)
     }
 
     /** Newest series titles for the Series "Newly added" rail. */
     fun newlyAddedSeries(limit: Int = NEWLY_ADDED_LIMIT): List<MediaItem> {
-        val series = cachedItems.filter { item ->
-            item.kind == ContentKind.SERIES &&
-                item.categoryId != NEWLY_ADDED_SERIES_CATEGORY_ID
+        if (derivedForItems !== cachedItems) scheduleDerivedCatalog()
+        val snap = newlyAddedSeriesSnap
+        return if (limit >= snap.size) snap else snap.take(limit)
+    }
+
+    /**
+     * Precompute Newly added lists and provider category counts on the thread that
+     * just published [cachedItems] (IO). The UI must not scan the full catalog.
+     */
+    private fun refreshDerivedCatalog() {
+        val items = cachedItems
+        val cats = cachedCategories
+        newlyAddedMoviesSnap = sortByRecentlyAdded(
+            items.filter { item ->
+                item.kind == ContentKind.VOD && item.categoryId != NEWLY_ADDED_VOD_CATEGORY_ID
+            }
+        ).take(NEWLY_ADDED_LIMIT)
+        newlyAddedSeriesSnap = sortByRecentlyAdded(
+            items.filter { item ->
+                item.kind == ContentKind.SERIES && item.categoryId != NEWLY_ADDED_SERIES_CATEGORY_ID
+            }
+        ).take(NEWLY_ADDED_LIMIT)
+        val counts = HashMap<String, Int>()
+        for (item in items) {
+            val id = item.categoryId ?: continue
+            counts[id] = (counts[id] ?: 0) + 1
         }
-        return sortByRecentlyAdded(series).take(limit)
+        for (cat in cats) {
+            if (cat.kind == ContentKind.LIVE) {
+                counts[cat.id] = LiveChannelMapping.filterLiveChannels(items, cat.id).size
+            }
+        }
+        providerCountSnap = counts
+        derivedForItems = items
+        scheduleTopRatedCompute()
+        scheduleServiceGroupCompute()
+    }
+
+    private fun scheduleDerivedCatalog() {
+        if (derivedForItems === cachedItems) return
+        if (!derivedComputeRunning.compareAndSet(false, true)) return
+        repoScope.launch {
+            try {
+                if (derivedForItems !== cachedItems) {
+                    refreshDerivedCatalog()
+                    bumpRevision()
+                }
+            } finally {
+                derivedComputeRunning.set(false)
+            }
+        }
+    }
+
+    /** Instant count for the group rail; never walks the whole catalog on the UI thread. */
+    fun itemCountForCategory(categoryId: String): Int {
+        if (categoryId == NEWLY_ADDED_VOD_CATEGORY_ID) return newlyAddedMovies().size
+        if (categoryId == NEWLY_ADDED_SERIES_CATEGORY_ID) return newlyAddedSeries().size
+        if (categoryId == CatalogCategories.TOP_RATED_VOD_ID) return topRated(ContentKind.VOD).size
+        if (categoryId == CatalogCategories.TOP_RATED_SERIES_ID) return topRated(ContentKind.SERIES).size
+        StreamingServices.parseCategoryId(categoryId)?.let { key ->
+            return serviceGroups()[key]?.size ?: 0
+        }
+        if (derivedForItems !== cachedItems) scheduleDerivedCatalog()
+        return providerCountSnap[categoryId] ?: 0
     }
 
     /** Featured hero candidate: newest movie (fallback any VOD/SERIES). */
@@ -834,42 +900,85 @@ class CatalogRepository(
 
     private suspend fun runServiceLookup(force: Boolean) {
         val file = serviceCacheFile() ?: return
-        val key = prefs.effectiveTmdbApiKey()
-        hasEffectiveTmdbKey = key.isNotBlank()
-        val fp = TmdbServiceLookup.fingerprint(key)
-        val cache = TmdbServiceLookup.readCache(file)
-        if (cache != null && cache.entries.isNotEmpty() && serviceIndex == null) {
-            serviceIndex = ServiceIndex(cache.entries)
-            bumpRevision()
-        }
-        if (key.isBlank()) {
-            _serviceLookupStatus.value = if (cache != null) "Using saved service lists (no TMDB key set)"
-            else "Add a TMDB API key to fill Netflix / Prime Video / HBO / Max / Apple TV+ / Hulu / Disney+ / Paramount+"
-            return
-        }
-        val now = System.currentTimeMillis()
-        if (!force && TmdbServiceLookup.isFresh(cache, fp, now)) {
-            _serviceLookupStatus.value = "Service groups updated " + formatShortDate(cache!!.fetchedAtMs) +
+        try {
+            val key = prefs.effectiveTmdbApiKey()
+            hasEffectiveTmdbKey = key.isNotBlank()
+            val fp = TmdbServiceLookup.fingerprint(key)
+            // Show last lists immediately, even if the cache version is older (1.4.97 bumped it
+            // and forced a long first-run fetch that locked up TV boxes).
+            val usable = TmdbServiceLookup.readUsableCache(file)
+            if (usable != null && usable.entries.isNotEmpty() && serviceIndex == null) {
+                applyServiceIndex(usable.entries)
+            }
+            if (key.isBlank()) {
+                _serviceLookupStatus.value = if (usable != null) "Using saved service lists (no TMDB key set)"
+                else "Add a TMDB API key to fill Netflix / Prime Video / HBO / Max / Apple TV+ / Hulu / Disney+ / Paramount+"
+                return
+            }
+            val now = System.currentTimeMillis()
+            val current = TmdbServiceLookup.readCache(file)
+            if (!force && TmdbServiceLookup.isFresh(current, fp, now)) {
+                _serviceLookupStatus.value = "Service groups updated " + formatShortDate(current!!.fetchedAtMs) +
+                    " (${serviceIndex?.size ?: 0} titles)"
+                return
+            }
+            _serviceLookupStatus.value = "Looking up streaming services…"
+            val lookup = TmdbServiceLookup(http)
+            var lastBumpMs = 0L
+            val entries = try {
+                lookup.fetch(
+                    apiKey = key,
+                    onProgress = { done, total ->
+                        _serviceLookupStatus.value = "Looking up streaming services… $done/$total"
+                    },
+                    onBatch = { snapshot ->
+                        val t = System.currentTimeMillis()
+                        if (lastBumpMs == 0L || t - lastBumpMs >= 1_500L) {
+                            lastBumpMs = t
+                            applyServiceIndex(snapshot)
+                        }
+                    },
+                    isActive = { kotlinx.coroutines.currentCoroutineContext().isActive }
+                )
+            } catch (e: TmdbServiceLookup.LookupFailed) {
+                _serviceLookupStatus.value = e.message ?: "TMDB lookup failed"
+                return
+            }
+            if (entries.isEmpty()) {
+                _serviceLookupStatus.value = if (serviceIndex != null) {
+                    "Service lookup failed; using saved lists"
+                } else {
+                    "TMDB returned no service lists (check network)"
+                }
+                return
+            }
+            TmdbServiceLookup.writeCache(
+                file,
+                TmdbServiceCache(fetchedAtMs = now, keyFingerprint = fp, entries = entries)
+            )
+            applyServiceIndex(entries)
+            _serviceLookupStatus.value = "Service groups updated " + formatShortDate(now) +
                 " (${serviceIndex?.size ?: 0} titles)"
-            return
+        } catch (oom: OutOfMemoryError) {
+            runCatching { System.gc() }
+            Log.w(SVC_TAG, "service lookup ran out of memory; keeping saved lists")
+            _serviceLookupStatus.value = "Service lookup ran out of memory; using saved lists"
         }
-        _serviceLookupStatus.value = "Looking up streaming services…"
-        val lookup = TmdbServiceLookup(http)
-        val entries = try {
-            lookup.fetch(key) { done, total -> _serviceLookupStatus.value = "Looking up streaming services… $done/$total" }
-        } catch (e: TmdbServiceLookup.LookupFailed) {
-            _serviceLookupStatus.value = e.message ?: "TMDB lookup failed"
-            return
+    }
+
+    /** Build the in-memory index off the UI thread. Never throws on OOM — keep the last index. */
+    private fun applyServiceIndex(entries: List<com.totaliptv.pro.data.tmdb.TmdbServiceEntry>): Boolean {
+        if (entries.isEmpty()) return false
+        return try {
+            val index = ServiceIndex(entries)
+            serviceIndex = index
+            bumpRevision()
+            true
+        } catch (oom: OutOfMemoryError) {
+            runCatching { System.gc() }
+            Log.w(SVC_TAG, "service index ran out of memory; keeping previous lists")
+            false
         }
-        if (entries.isEmpty()) {
-            _serviceLookupStatus.value = "TMDB returned no service lists (check network)"
-            return
-        }
-        TmdbServiceLookup.writeCache(file, TmdbServiceCache(fetchedAtMs = now, keyFingerprint = fp, entries = entries))
-        val index = ServiceIndex(entries)
-        serviceIndex = index
-        _serviceLookupStatus.value = "Service groups updated " + formatShortDate(now) + " (${index.size} titles)"
-        bumpRevision()
     }
 
     private fun formatShortDate(ms: Long): String =

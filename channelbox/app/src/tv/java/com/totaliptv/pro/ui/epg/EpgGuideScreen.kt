@@ -124,7 +124,7 @@ fun EpgGuideScreen(
         repository.categories(ContentKind.LIVE)
     }
     val categoryCounts: Map<String, Int> = remember(liveCategories) {
-        liveCategories.associate { it.id to repository.itemsForCategory(it.id).size }
+        liveCategories.associate { it.id to repository.itemCountForCategory(it.id) }
     }
     val allLiveCount = remember { repository.liveItems().size }
 

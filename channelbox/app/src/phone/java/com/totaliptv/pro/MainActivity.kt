@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.totaliptv.pro.ui.nav.TvBack
 import androidx.lifecycle.lifecycleScope
+import com.totaliptv.pro.data.local.LastPlace
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.model.MediaItem
@@ -77,9 +78,11 @@ class MainActivity : ComponentActivity() {
 
     /** Drops piled-up D-pad repeats so a held key cannot freeze the app (ANR). */
     private val dpadGate = com.totaliptv.pro.ui.focus.DpadRepeatGate()
+    private var restorePlaybackOnStart = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        restorePlaybackOnStart = savedInstanceState == null
         val app = application as TotalIptvProApp
         setContent {
             val appearance by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
@@ -89,7 +92,8 @@ class MainActivity : ComponentActivity() {
                 PhoneAppRoot(
                     repository = app.repository,
                     onPlay = { item -> playResolved(app.repository, item, startOver = false) },
-                    onPlayFromStart = { item -> playResolved(app.repository, item, startOver = true) }
+                    onPlayFromStart = { item -> playResolved(app.repository, item, startOver = true) },
+                    onReady = { restoreLastPlayback(app) }
                 )
                 com.totaliptv.pro.ui.splash.RefreshSplashOverlay()
                 }
@@ -144,6 +148,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun restoreLastPlayback(app: TotalIptvProApp) {
+        if (!restorePlaybackOnStart) return
+        restorePlaybackOnStart = false
+        val place = app.lastPlace.load() ?: return
+        if (!place.playing) return
+        val id = place.playItemId?.takeIf { it.isNotBlank() } ?: return
+        lifecycleScope.launch {
+            runCatching { app.repository.ensureCatalogLoaded() }
+            val item = app.repository.itemById(id)
+                ?: place.playCatalogId?.takeIf { it.isNotBlank() }?.let { app.repository.itemById(it) }
+                ?: return@launch
+            playResolved(app.repository, item, startOver = false)
+        }
+    }
+
     private fun openPlayer(
         item: MediaItem,
         startOver: Boolean = false,
@@ -191,12 +210,27 @@ private enum class PhoneTab(val label: String) {
 private fun PhoneAppRoot(
     repository: CatalogRepository,
     onPlay: (MediaItem) -> Unit,
-    onPlayFromStart: (MediaItem) -> Unit
+    onPlayFromStart: (MediaItem) -> Unit,
+    onReady: () -> Unit = {}
 ) {
     val sources by repository.sources.collectAsState(initial = emptyList())
+    val app = LocalContext.current.applicationContext as TotalIptvProApp
+    val initialPlace = remember { app.lastPlace.load() }
     var prefsReady by remember { mutableStateOf(false) }
     var showOnboarding by remember { mutableStateOf(false) }
-    var tab by remember { mutableStateOf(PhoneTab.Home) }
+    var tab by remember {
+        mutableStateOf(
+            when (initialPlace?.screen) {
+                LastPlace.SCREEN_LIVE -> PhoneTab.Live
+                LastPlace.SCREEN_MOVIES -> PhoneTab.Movies
+                LastPlace.SCREEN_SERIES -> PhoneTab.Series
+                LastPlace.SCREEN_SEARCH -> PhoneTab.Search
+                LastPlace.SCREEN_RECORDINGS -> PhoneTab.Recordings
+                LastPlace.SCREEN_SETTINGS -> PhoneTab.Settings
+                else -> PhoneTab.Home
+            }
+        )
+    }
     var splashDone by remember { mutableStateOf(StartupSplashGate.shownThisProcess) }
     val refreshHomeStart = remember { com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.value }
     val refreshHomeReq by com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.collectAsState()
@@ -245,6 +279,26 @@ private fun PhoneAppRoot(
             }
         )
         return
+    }
+
+    LaunchedEffect(splashDone, prefsReady, showOnboarding, sources) {
+        if (splashDone && prefsReady && sources.isNotEmpty() && !showOnboarding &&
+            !com.totaliptv.pro.ui.onboarding.SignInForm.active
+        ) {
+            onReady()
+        }
+    }
+    LaunchedEffect(tab) {
+        val name = when (tab) {
+            PhoneTab.Home -> LastPlace.SCREEN_HOME
+            PhoneTab.Live -> LastPlace.SCREEN_LIVE
+            PhoneTab.Movies -> LastPlace.SCREEN_MOVIES
+            PhoneTab.Series -> LastPlace.SCREEN_SERIES
+            PhoneTab.Search -> LastPlace.SCREEN_SEARCH
+            PhoneTab.Recordings -> LastPlace.SCREEN_RECORDINGS
+            PhoneTab.Settings -> LastPlace.SCREEN_SETTINGS
+        }
+        app.lastPlace.saveBrowse(name)
     }
 
     val pageBlack = LocalTipColors.current.isDark
