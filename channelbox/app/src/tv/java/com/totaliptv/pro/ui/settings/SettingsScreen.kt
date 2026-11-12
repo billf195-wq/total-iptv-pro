@@ -627,7 +627,7 @@ fun SettingsScreen(
             item {
                 FocusableCard(
                     title = "Refresh service groups",
-                    subtitle = serviceStatus.ifBlank { "Netflix, Prime Video, HBO / Max and Apple TV+ lists from TMDB (US)" },
+                    subtitle = serviceStatus.ifBlank { "Netflix, Prime Video, HBO / Max, Apple TV+, Hulu, Disney+ and Paramount+ lists from TMDB (US)" },
                     onClick = { repository.startServiceLookup(force = true) }
                 )
             }

@@ -79,6 +79,52 @@ class StreamingServicesTest {
     }
 
     @Test
+    fun huluCategoriesAndTitles() {
+        assertEquals(setOf(StreamingService.HULU), cat("Hulu Series"))
+        assertEquals(setOf(StreamingService.HULU), cat("HULU MOVIES"))
+        assertEquals(setOf(StreamingService.HULU), cat("EN | Hulu"))
+        assertEquals(setOf(StreamingService.HULU), title("The Handmaid's Tale (Hulu)"))
+        assertEquals(setOf(StreamingService.HULU), title("Only Murders - Hulu"))
+        assertTrue(title("The Handmaid's Tale").isEmpty())
+        assertTrue(cat("Huludao Sports").isEmpty())
+    }
+
+    @Test
+    fun disneyCategoriesAndTitles() {
+        assertEquals(setOf(StreamingService.DISNEY), cat("Disney+ Series"))
+        assertEquals(setOf(StreamingService.DISNEY), cat("DISNEY PLUS MOVIES"))
+        assertEquals(setOf(StreamingService.DISNEY), cat("DisneyPlus"))
+        assertEquals(setOf(StreamingService.DISNEY), cat("Disney + Originals"))
+        assertEquals(setOf(StreamingService.DISNEY), title("Loki (Disney+)"))
+        assertEquals(setOf(StreamingService.DISNEY), title("The Mandalorian - Disney Plus"))
+        // Bare "Disney" is the studio / linear brand, not the Disney+ group.
+        assertTrue(title("The Lion King (Disney)").isEmpty())
+        assertTrue(title("Walt Disney Pictures").isEmpty())
+        assertTrue(cat("Disney Movies").isEmpty())
+        assertTrue(cat("Disney Channel").isEmpty())
+        assertTrue(cat("Disney Junior").isEmpty())
+        assertTrue(title("Disneyland").isEmpty())
+    }
+
+    @Test
+    fun paramountCategoriesAndTitles() {
+        assertEquals(setOf(StreamingService.PARAMOUNT), cat("Paramount+ Series"))
+        assertEquals(setOf(StreamingService.PARAMOUNT), cat("PARAMOUNT PLUS MOVIES"))
+        assertEquals(setOf(StreamingService.PARAMOUNT), cat("ParamountPlus"))
+        assertEquals(setOf(StreamingService.PARAMOUNT), cat("Paramount + 4K"))
+        assertEquals(setOf(StreamingService.PARAMOUNT), cat("Paramount+ with Showtime"))
+        assertEquals(setOf(StreamingService.PARAMOUNT), title("Yellowstone (Paramount+)"))
+        assertEquals(setOf(StreamingService.PARAMOUNT), title("Tulsa King - Paramount Plus"))
+        // Bare "Paramount" is the studio / cable network, not the Paramount+ group.
+        assertTrue(title("Transformers (Paramount)").isEmpty())
+        assertTrue(title("Once Upon a Time in Hollywood").isEmpty())
+        assertTrue(cat("Paramount Pictures").isEmpty())
+        assertTrue(cat("Paramount Movies").isEmpty())
+        assertTrue(cat("Paramount Network").isEmpty())
+        assertTrue(cat("Showtime Series").isEmpty())
+    }
+
+    @Test
     fun plainGroupsMatchNothing() {
         listOf("English Series", "Action Movies", "4K UHD", "Kids", "Uncategorized", "Documentaries")
             .forEach { assertTrue(cat(it).isEmpty(), it) }

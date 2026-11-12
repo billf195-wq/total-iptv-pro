@@ -56,6 +56,27 @@ class TmdbServiceLookupTest {
     }
 
     @Test
+    fun queriesUseVerifiedUsProviderAndNetworkIds() {
+        fun ids(type: String, param: String, svc: StreamingService) =
+            TmdbServiceLookup.QUERIES.filter { it.type == type && it.param == param && it.service == svc }
+                .map { it.value }
+        assertEquals(listOf("8"), ids("movie", "with_watch_providers", StreamingService.NETFLIX))
+        assertEquals(listOf("9"), ids("movie", "with_watch_providers", StreamingService.PRIME))
+        assertEquals(listOf("1899"), ids("movie", "with_watch_providers", StreamingService.HBO))
+        assertEquals(listOf("350"), ids("movie", "with_watch_providers", StreamingService.APPLE))
+        assertEquals(listOf("15"), ids("movie", "with_watch_providers", StreamingService.HULU))
+        assertEquals(listOf("337"), ids("movie", "with_watch_providers", StreamingService.DISNEY))
+        assertEquals(listOf("531|1770|582"), ids("movie", "with_watch_providers", StreamingService.PARAMOUNT))
+        assertEquals(listOf("453"), ids("tv", "with_networks", StreamingService.HULU))
+        assertEquals(listOf("2739"), ids("tv", "with_networks", StreamingService.DISNEY))
+        assertEquals(listOf("4330"), ids("tv", "with_networks", StreamingService.PARAMOUNT))
+        assertEquals(listOf("15"), ids("tv", "with_watch_providers", StreamingService.HULU))
+        assertEquals(listOf("337"), ids("tv", "with_watch_providers", StreamingService.DISNEY))
+        assertEquals(listOf("531|1770|582"), ids("tv", "with_watch_providers", StreamingService.PARAMOUNT))
+        assertEquals("US", TmdbServiceLookup.QUERIES.filter { it.service != null }.map { it.watchRegion }.distinct().single())
+    }
+
+    @Test
     fun cacheRoundTripAndFreshness() {
         val dir = createTempDir("tmdbcache")
         try {
@@ -113,10 +134,11 @@ class TmdbServiceLookupTest {
         val dir = createTempDir("tmdbcache-v1")
         try {
             val file = java.io.File(dir, "tmdb-services.json")
-            val stale = TmdbServiceCache(version = 1, fetchedAtMs = 1_000L, keyFingerprint = "abcd1234",
+            val stale = TmdbServiceCache(version = 2, fetchedAtMs = 1_000L, keyFingerprint = "abcd1234",
                 entries = listOf(TmdbServiceEntry("movie", 1, "X", year = 2020, services = listOf("netflix"))))
             TmdbServiceLookup.writeCache(file, stale)
             assertEquals(null, TmdbServiceLookup.readCache(file))
+            assertEquals(3, TmdbServiceCache.CACHE_VERSION)
         } finally {
             dir.deleteRecursively()
         }

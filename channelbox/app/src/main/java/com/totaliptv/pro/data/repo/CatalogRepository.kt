@@ -468,7 +468,7 @@ class CatalogRepository(
     private var serviceIndex: ServiceIndex? = null
 
     /**
-     * Netflix / Prime Video / HBO / Max / Apple TV+ virtual groups. Built off the main thread
+     * Streaming service virtual groups. Built off the main thread
      * (55k-title catalogs); returns the last finished result immediately and bumps
      * [catalogRevision] when a newer one is ready. Provider categories are never modified.
      */
@@ -844,7 +844,7 @@ class CatalogRepository(
         }
         if (key.isBlank()) {
             _serviceLookupStatus.value = if (cache != null) "Using saved service lists (no TMDB key set)"
-            else "Add a TMDB API key to fill Netflix / Prime Video / HBO / Max / Apple TV+"
+            else "Add a TMDB API key to fill Netflix / Prime Video / HBO / Max / Apple TV+ / Hulu / Disney+ / Paramount+"
             return
         }
         val now = System.currentTimeMillis()

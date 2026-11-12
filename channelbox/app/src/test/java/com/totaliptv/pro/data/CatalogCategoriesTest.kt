@@ -17,10 +17,20 @@ class CatalogCategoriesTest {
 
     @Test
     fun orderIsNewlyTopRatedServicesThenProvider() {
-        val services = listOf(svc(StreamingService.APPLE), svc(StreamingService.NETFLIX), svc(StreamingService.HBO), svc(StreamingService.PRIME))
+        val services = listOf(
+            svc(StreamingService.APPLE), svc(StreamingService.NETFLIX), svc(StreamingService.HBO),
+            svc(StreamingService.PRIME), svc(StreamingService.PARAMOUNT), svc(StreamingService.HULU),
+            svc(StreamingService.DISNEY)
+        )
         val names = CatalogCategories.build(ContentKind.VOD, provider, hasItems = true, hasRated = true, serviceCategories = services)
             .map { it.name }
-        assertEquals(listOf("Newly added", "Top rated", "Netflix", "Prime Video", "HBO / Max", "Apple TV+", "Action", "Drama"), names)
+        assertEquals(
+            listOf(
+                "Newly added", "Top rated", "Netflix", "Prime Video", "HBO / Max", "Apple TV+",
+                "Hulu", "Disney+", "Paramount+", "Action", "Drama"
+            ),
+            names
+        )
     }
 
     @Test

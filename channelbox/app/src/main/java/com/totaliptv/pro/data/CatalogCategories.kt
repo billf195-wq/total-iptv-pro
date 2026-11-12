@@ -5,7 +5,7 @@ import com.totaliptv.pro.data.model.ContentKind
 
 /**
  * Movies / Series category order:
- * Newly added, Top rated, Netflix, Prime Video, HBO / Max, Apple TV+, then provider groups
+ * Newly added, Top rated, Netflix, Prime Video, HBO / Max, Apple TV+, Hulu, Disney+, Paramount+, then provider groups
  * (unchanged order). Pure helper so the order is unit-tested.
  */
 object CatalogCategories {
@@ -47,7 +47,7 @@ object CatalogCategories {
     ): List<Category> {
         val base = provider.filter { !isVirtual(it.id) }
         if (!hasItems) return base
-        val out = ArrayList<Category>(base.size + 6)
+        val out = ArrayList<Category>(base.size + 2 + StreamingService.entries.size)
         out += Category(newlyAddedId(kind), NEWLY_ADDED_NAME, kind)
         if (hasRated) out += Category(topRatedId(kind), TOP_RATED_NAME, kind)
         for (svc in StreamingService.entries) {

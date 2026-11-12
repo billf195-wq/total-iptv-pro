@@ -17,9 +17,9 @@ import java.io.File
 import java.security.MessageDigest
 
 /**
- * Fills the Netflix / Prime Video / HBO / Max / Apple TV+ groups from TMDB "discover" lists
+ * Fills the streaming service groups from TMDB "discover" lists
  * (US watch providers + TV networks) and collects vote_average / vote_count from those pages
- * plus a light top-rated discover (titles not on the four services). Only list pages are
+ * plus a light top-rated discover (titles not on those services). Only list pages are
  * fetched; catalog titles are never sent to TMDB. Streaming availability on TMDB is provided
  * by JustWatch.
  *
@@ -119,32 +119,45 @@ class TmdbServiceLookup(
 
     companion object {
         const val DEFAULT_PAGES = 30
-        /** Extra pages of globally top-rated titles (not limited to the four services). */
+        /** Extra pages of globally top-rated titles (not limited to the service groups). */
         const val RATING_PAGES = 40
         const val TTL_MS = 7L * 24 * 60 * 60 * 1000
 
         /**
-         * Verified against TMDB /watch/providers (US) and /network on 2026-11-11:
-         * providers Netflix 8, Amazon Prime Video 9, HBO Max 1899, Apple TV (TV+) 350;
-         * networks Netflix 213, Prime Video 1024, HBO 49, HBO Max 3186, Apple TV 2552.
+         * Verified against TMDB /watch/providers (US) and /network on 2026-11-12:
+         * providers Netflix 8, Amazon Prime Video 9, HBO Max 1899, Apple TV (TV+) 350,
+         * Hulu 15, Disney Plus 337, Paramount Plus 531, Paramount+ with Showtime 1770,
+         * Paramount+ Amazon Channel 582;
+         * networks Netflix 213, Prime Video 1024, HBO 49, HBO Max 3186, Apple TV 2552,
+         * Hulu 453, Disney+ 2739, Paramount+ 4330.
+         * Paramount Network (2076) and Disney Channel / Junior are not included.
          */
         val QUERIES: List<Query> = listOf(
             Query("movie", "with_watch_providers", "8", StreamingService.NETFLIX),
             Query("movie", "with_watch_providers", "9", StreamingService.PRIME),
             Query("movie", "with_watch_providers", "1899", StreamingService.HBO),
             Query("movie", "with_watch_providers", "350", StreamingService.APPLE),
+            Query("movie", "with_watch_providers", "15", StreamingService.HULU),
+            Query("movie", "with_watch_providers", "337", StreamingService.DISNEY),
+            Query("movie", "with_watch_providers", "531|1770|582", StreamingService.PARAMOUNT),
             Query("tv", "with_networks", "213", StreamingService.NETFLIX),
             Query("tv", "with_networks", "1024", StreamingService.PRIME),
             Query("tv", "with_networks", "49|3186", StreamingService.HBO),
             Query("tv", "with_networks", "2552", StreamingService.APPLE),
+            Query("tv", "with_networks", "453", StreamingService.HULU),
+            Query("tv", "with_networks", "2739", StreamingService.DISNEY),
+            Query("tv", "with_networks", "4330", StreamingService.PARAMOUNT),
             Query("tv", "with_watch_providers", "8", StreamingService.NETFLIX),
             Query("tv", "with_watch_providers", "9", StreamingService.PRIME),
             Query("tv", "with_watch_providers", "1899", StreamingService.HBO),
-            Query("tv", "with_watch_providers", "350", StreamingService.APPLE)
+            Query("tv", "with_watch_providers", "350", StreamingService.APPLE),
+            Query("tv", "with_watch_providers", "15", StreamingService.HULU),
+            Query("tv", "with_watch_providers", "337", StreamingService.DISNEY),
+            Query("tv", "with_watch_providers", "531|1770|582", StreamingService.PARAMOUNT)
         )
 
         /**
-         * Light top-rated lists so titles that are not on Netflix / Prime / HBO / Apple
+         * Light top-rated lists so titles that are not on the service groups
          * still have a TMDB score. Sorted by vote_average with the same vote-count floor
          * used when ranking; no watch-region filter so the list is global.
          */

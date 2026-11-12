@@ -31,8 +31,8 @@ data class TmdbServiceCache(
     val entries: List<TmdbServiceEntry> = emptyList()
 ) {
     companion object {
-        /** Bumped when entries gained voteAverage / voteCount so old caches refetch. */
-        const val CACHE_VERSION = 2
+        /** Bumped when Hulu / Disney+ / Paramount+ queries were added so old caches refetch. */
+        const val CACHE_VERSION = 3
     }
 }
 

@@ -9,7 +9,10 @@ enum class StreamingService(val key: String, val label: String) {
     NETFLIX("netflix", "Netflix"),
     PRIME("prime", "Prime Video"),
     HBO("hbo", "HBO / Max"),
-    APPLE("apple", "Apple TV+")
+    APPLE("apple", "Apple TV+"),
+    HULU("hulu", "Hulu"),
+    DISNEY("disney", "Disney+"),
+    PARAMOUNT("paramount", "Paramount+")
 }
 
 /**
@@ -37,8 +40,16 @@ object StreamingServices {
     private val hbo = rx("""hbo(?:\s*max)?|hbomax|max\s+originals?""")
     // "tv+" / "apple+" / "atv+" end in '+', so the right boundary is implied by the '+'.
     private val apple = Regex("""$L(?:apple\s*tv\s*\+|apple\s*\+|appletv\s*\+|atv\s*\+|apple\s*tv$R|appletv$R)""")
+    // Bare "hulu" is distinctive. Bare "disney" / "paramount" are studios or linear
+    // brands, so those only match with + / plus (old Disney movies come in via TMDB).
+    private val hulu = rx("""hulu""")
+    private val disney = rx("""disney\s*\+|disney\s*plus|disneyplus""")
+    private val paramount = rx("""paramount\s*\+|paramount\s*plus|paramountplus""")
 
-    private val TITLE_HINTS = listOf("netflix", "nflx", "amazon", "prime", "amzn", "hbo", "max", "apple", "atv")
+    private val TITLE_HINTS = listOf(
+        "netflix", "nflx", "amazon", "prime", "amzn", "hbo", "max", "apple", "atv",
+        "hulu", "disney", "paramount"
+    )
 
     private val segmentSplit = Regex("""[|:\-–—/\[\]()•*#]+""")
 
@@ -51,6 +62,9 @@ object StreamingServices {
         if (matchesPrimeCategory(n)) out += StreamingService.PRIME
         if (hbo.containsMatchIn(n)) out += StreamingService.HBO
         if (apple.containsMatchIn(n)) out += StreamingService.APPLE
+        if (hulu.containsMatchIn(n)) out += StreamingService.HULU
+        if (disney.containsMatchIn(n)) out += StreamingService.DISNEY
+        if (paramount.containsMatchIn(n)) out += StreamingService.PARAMOUNT
         return out
     }
 
@@ -65,6 +79,9 @@ object StreamingServices {
         if (primeStrong.containsMatchIn(n)) out += StreamingService.PRIME
         if (hbo.containsMatchIn(n)) out += StreamingService.HBO
         if (apple.containsMatchIn(n)) out += StreamingService.APPLE
+        if (hulu.containsMatchIn(n)) out += StreamingService.HULU
+        if (disney.containsMatchIn(n)) out += StreamingService.DISNEY
+        if (paramount.containsMatchIn(n)) out += StreamingService.PARAMOUNT
         return out
     }
 

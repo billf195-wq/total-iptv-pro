@@ -532,7 +532,7 @@ fun BrowseGridPane(
         var list = when {
             isNewlyAdded -> sortDesktopRecentlyAdded(items)
                 .take(CatalogRepository.NEWLY_ADDED_LIMIT)
-            // Top rated + Netflix / Prime Video / HBO / Max / Apple TV+ come from the repository
+            // Top rated + service groups come from the repository
             // (includes the TMDB service lookup).
             virtualOther && categoryId != null -> desktopRepo?.itemsForCategory(categoryId).orEmpty()
             categoryId == null -> items
@@ -915,7 +915,7 @@ fun DesktopSettingsPane(
         val serviceStatus by repository.serviceLookupStatus.collectAsState()
         Text(
             "TMDB API key (for service groups): set it in Classic layout > Settings. " +
-                serviceStatus.ifBlank { "Netflix, Prime Video, HBO / Max and Apple TV+ lists from TMDB (US)." },
+                serviceStatus.ifBlank { "Netflix, Prime Video, HBO / Max, Apple TV+, Hulu, Disney+ and Paramount+ lists from TMDB (US)." },
             color = TipGoldMuted,
             fontSize = TipDimens.BodyMediumSp
         )

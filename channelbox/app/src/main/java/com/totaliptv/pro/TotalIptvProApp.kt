@@ -39,7 +39,7 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         preferences = AppPreferences(this)
         repository = CatalogRepository(preferences)
         repository.attachVodCacheDir(filesDir)
-        // Netflix / Prime Video / HBO / Max / Apple TV+ groups: cached TMDB lists, refreshed in background.
+        // Streaming service groups: cached TMDB lists, refreshed in background.
         repository.startServiceLookup()
         watchProgress = WatchProgressStore(this)
         dvr = DvrRecorder(this)

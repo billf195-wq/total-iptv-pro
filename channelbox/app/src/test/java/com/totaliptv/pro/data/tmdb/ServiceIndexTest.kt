@@ -96,7 +96,7 @@ class ServiceIndexTest {
         )
         assertEquals(7.8, rated.ratingScore(movie("The Irishman (2019)")))
         assertEquals("7.8", rated.ratingDisplay(movie("EN - Irishman", year = 2020))) // ±1
-        // Ratings-only title (not on the four services) still matches; it is not a service group.
+        // Ratings-only title (not on a service group) still matches; it is not a service group.
         assertEquals(8.7, rated.ratingScore(movie("The Shawshank Redemption (1994)")))
         assertTrue(rated.lookup(movie("The Shawshank Redemption (1994)")).isEmpty())
         assertNull(rated.ratingScore(movie("Obscure Indie (2021)")))
