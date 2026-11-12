@@ -1,5 +1,7 @@
 package com.totaliptv.pro.data.repo
 
+import com.totaliptv.pro.BuildConfig
+
 import android.util.Log
 import com.totaliptv.pro.data.GuideBulkCache
 import com.totaliptv.pro.data.LiveChannelMapping
@@ -545,8 +547,22 @@ class CatalogRepository(
         return storeTopRated(items, idx, kind)
     }
 
-    private fun tmdbScoreFn(idx: ServiceIndex?): ((MediaItem) -> Double?)? =
-        idx?.let { index -> { item -> index.ratingScore(item) } }
+    @Volatile
+    private var hasEffectiveTmdbKey = false
+
+    /**
+     * When a TMDB key is set, Top rated / the Top rated sort use TMDB scores only
+     * (or nothing, if the index has not loaded yet). Provider ratings are used only
+     * when no key is set.
+     */
+    private fun tmdbScoreFn(idx: ServiceIndex?): ((MediaItem) -> Double?)? {
+        if (!tmdbRatingsEnabled()) return null
+        if (idx != null) return { item -> idx.ratingScore(item) }
+        return { null }
+    }
+
+    private fun tmdbRatingsEnabled(): Boolean =
+        hasEffectiveTmdbKey || BuildConfig.TMDB_DEFAULT_KEY.isNotBlank()
 
     private fun storeTopRated(items: List<MediaItem>, idx: ServiceIndex?, kind: ContentKind): List<MediaItem> {
         val tmdb = tmdbScoreFn(idx)
@@ -804,6 +820,7 @@ class CatalogRepository(
     private suspend fun runServiceLookup(force: Boolean) {
         val file = serviceCacheFile() ?: return
         val key = prefs.effectiveTmdbApiKey()
+        hasEffectiveTmdbKey = key.isNotBlank()
         val fp = TmdbServiceLookup.fingerprint(key)
         val cache = TmdbServiceLookup.readCache(file)
         if (cache != null && cache.entries.isNotEmpty() && serviceIndex == null) {

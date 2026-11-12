@@ -87,17 +87,25 @@ class RatingsTest {
     }
 
     @Test
-    fun scorePrefersProviderOverTmdbFallback() {
-        assertEquals(7.0, Ratings.score(m("A", "7.0"), tmdbFallback = 9.5))
-        assertEquals(9.5, Ratings.score(m("B", null), tmdbFallback = 9.5))
-        assertEquals(9.5, Ratings.score(m("C", "0"), tmdbFallback = 9.5))
-        assertEquals(9.5, Ratings.score(m("D", "N/A"), tmdbFallback = 9.5))
-        assertNull(Ratings.score(m("E", null), tmdbFallback = null))
+    fun scoreUsesTmdbOnlyWhenKeySetOtherwiseProvider() {
+        // No TMDB key: provider ratings only; a TMDB score is ignored.
+        assertEquals(7.0, Ratings.score(m("A", "7.0"), tmdbScore = 9.5, tmdbOnly = false))
+        assertEquals(7.0, Ratings.score(m("A", "7.0")))
+        assertNull(Ratings.score(m("B", null), tmdbScore = 9.5, tmdbOnly = false))
+        assertNull(Ratings.score(m("C", "0"), tmdbScore = 9.5, tmdbOnly = false))
+        assertNull(Ratings.score(m("D", "N/A"), tmdbScore = 9.5, tmdbOnly = false))
+        assertNull(Ratings.score(m("E", null), tmdbScore = null))
         assertNull(Ratings.score(m("F", null)))
+
+        // TMDB key set: TMDB score only; a high provider rating cannot beat a lower TMDB score.
+        assertEquals(4.0, Ratings.score(m("HighProvider", "9.9"), tmdbScore = 4.0, tmdbOnly = true))
+        assertEquals(9.5, Ratings.score(m("A", "7.0"), tmdbScore = 9.5, tmdbOnly = true))
+        assertEquals(8.6, Ratings.score(m("Unrated", null), tmdbScore = 8.6, tmdbOnly = true))
+        assertNull(Ratings.score(m("NoTmdb", "9.9"), tmdbScore = null, tmdbOnly = true))
     }
 
     @Test
-    fun topRatedAndSortUseMergedRatingAndStampFallback() {
+    fun topRatedAndSortUseTmdbOnlyWhenLookupProvided() {
         val items = listOf(
             m("Gamma", "9.1"),
             m("UnratedHit", null),
@@ -108,20 +116,29 @@ class RatingsTest {
         val tmdb: (MediaItem) -> Double? = { item ->
             when (item.name) {
                 "UnratedHit" -> 8.6
-                "Obscure" -> Ratings.tmdbScore(9.9, 12) // too few votes
-                "Gamma" -> 4.0 // must not beat the provider 9.1
+                "Obscure" -> Ratings.tmdbScore(9.9, 12) // too few votes: stay out
+                "Gamma" -> 4.0 // lower than provider 9.1; TMDB still wins
                 else -> null
             }
         }
         val top = Ratings.topRatedOnly(items, 500, tmdb)
-        assertEquals(listOf("Gamma", "UnratedHit", "Alpha"), top.map { it.name })
-        assertEquals("8.6", top[1].rating) // stamped for badges
-        assertEquals("9.1", top[0].rating) // provider left alone
-        assertEquals(listOf("Gamma", "UnratedHit"), Ratings.topRatedOnly(items, 2, tmdb).map { it.name })
+        // Alpha has a provider rating but no TMDB match, so it stays out of Top rated.
+        assertEquals(listOf("UnratedHit", "Gamma"), top.map { it.name })
+        assertEquals("8.6", top[0].rating)
+        assertEquals("4.0", top[1].rating) // TMDB stamped over provider 9.1
+        assertEquals(listOf("UnratedHit"), Ratings.topRatedOnly(items, 1, tmdb).map { it.name })
 
         val sorted = Ratings.sortTopRated(items, tmdb)
-        assertEquals(listOf("Gamma", "UnratedHit", "Alpha", "Obscure", "Zed"), sorted.map { it.name })
-        assertEquals("8.6", sorted[1].rating)
+        assertEquals(listOf("UnratedHit", "Gamma", "Alpha", "Obscure", "Zed"), sorted.map { it.name })
+        assertEquals("4.0", sorted[1].rating)
+        assertEquals("7.0", sorted.first { it.name == "Alpha" }.rating) // leftover provider text; not used to rank
         assertNull(sorted.first { it.name == "Obscure" }.displayRating())
+    }
+
+    @Test
+    fun topRatedWithoutTmdbLookupStillUsesProviderRatings() {
+        val items = listOf(m("Gamma", "9.1"), m("Alpha", "7.0"), m("Zed", null))
+        assertEquals(listOf("Gamma", "Alpha"), Ratings.topRatedOnly(items, 500).map { it.name })
+        assertEquals(listOf("Gamma", "Alpha", "Zed"), Ratings.sortTopRated(items).map { it.name })
     }
 }

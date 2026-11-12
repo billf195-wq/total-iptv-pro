@@ -72,11 +72,15 @@ object Ratings {
     fun tmdbDisplay(voteAverage: Double?, voteCount: Int?): String? =
         formatTen(tmdbScore(voteAverage, voteCount))
 
-    /** Numeric /10 score for sorting; null = unrated. Provider rating wins over [tmdbFallback]. */
-    fun score(item: MediaItem, tmdbFallback: Double? = null): Double? {
-        val provider = providerScore(item)
-        if (provider != null) return provider
-        return tmdbFallback?.takeIf { it > 0.0 && it <= 10.0 }
+    /**
+     * Numeric /10 score for sorting; null = unrated.
+     * When [tmdbOnly] is true (a TMDB key is set), only [tmdbScore] counts and the
+     * provider rating is ignored. When [tmdbOnly] is false (no key), the provider
+     * rating is used and [tmdbScore] is ignored.
+     */
+    fun score(item: MediaItem, tmdbScore: Double? = null, tmdbOnly: Boolean = false): Double? {
+        if (tmdbOnly) return tmdbScore?.takeIf { it > 0.0 && it <= 10.0 }
+        return providerScore(item)
     }
 
     private fun providerScore(item: MediaItem): Double? {
@@ -85,9 +89,13 @@ object Ratings {
         return tenBased.takeIf { it > 0.0 && it <= 10.0 }
     }
 
-    /** Copy [score] onto the item when the provider sent no rating, so poster badges can show it. */
-    fun withMergedRating(item: MediaItem, score: Double?): MediaItem {
-        if (item.displayRating() != null || score == null) return item
+    /**
+     * Copy [score] onto the item for poster badges. When [overwriteProvider] is true
+     * (TMDB-only mode), a TMDB score replaces the provider rating on the copy.
+     */
+    fun withMergedRating(item: MediaItem, score: Double?, overwriteProvider: Boolean = false): MediaItem {
+        if (score == null) return item
+        if (!overwriteProvider && item.displayRating() != null) return item
         return formatTen(score)?.let { item.copy(rating = it) } ?: item
     }
 
@@ -96,22 +104,27 @@ object Ratings {
         items: List<MediaItem>,
         limit: Int,
         tmdbScore: ((MediaItem) -> Double?)? = null
-    ): List<MediaItem> =
-        items.mapNotNull { item -> score(item, tmdbScore?.invoke(item))?.let { item to it } }
+    ): List<MediaItem> {
+        val tmdbOnly = tmdbScore != null
+        return items.mapNotNull { item ->
+            score(item, tmdbScore?.invoke(item), tmdbOnly = tmdbOnly)?.let { item to it }
+        }
             .sortedWith(compareByDescending<Pair<MediaItem, Double>> { it.second }.thenBy { it.first.name.lowercase() })
             .take(limit)
-            .map { withMergedRating(it.first, it.second) }
+            .map { withMergedRating(it.first, it.second, overwriteProvider = tmdbOnly) }
+    }
 
     /** Highest rating first, unrated at the bottom, ties A–Z. */
     fun sortTopRated(
         items: List<MediaItem>,
         tmdbScore: ((MediaItem) -> Double?)? = null
     ): List<MediaItem> {
-        val scored = items.map { it to score(it, tmdbScore?.invoke(it)) }
+        val tmdbOnly = tmdbScore != null
+        val scored = items.map { it to score(it, tmdbScore?.invoke(it), tmdbOnly = tmdbOnly) }
         return scored.sortedWith(
             compareBy<Pair<MediaItem, Double?>> { if (it.second == null) 1 else 0 }
                 .thenByDescending { it.second ?: 0.0 }
                 .thenBy { it.first.name.lowercase() }
-        ).map { withMergedRating(it.first, it.second) }
+        ).map { withMergedRating(it.first, it.second, overwriteProvider = tmdbOnly) }
     }
 }
