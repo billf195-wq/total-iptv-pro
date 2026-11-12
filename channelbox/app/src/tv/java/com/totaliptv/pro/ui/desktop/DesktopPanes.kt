@@ -130,6 +130,8 @@ fun HomePane(
     var topSeries by remember {
         mutableStateOf(TopRatedCache.series(catalogRevision) ?: TopRatedRow("Top rated series", emptyList()))
     }
+    val tmdbLookup = (LocalContext.current.applicationContext as? TotalIptvProApp)
+        ?.repository?.tmdbScoreLookup()
     LaunchedEffect(catalogRevision, movies.size, series.size) {
         TopRatedCache.movies(catalogRevision)?.let { cachedM ->
             TopRatedCache.series(catalogRevision)?.let { cachedS ->
@@ -141,7 +143,7 @@ fun HomePane(
         // Paint Home chrome first; ranking can wait one frame.
         yield()
         val ranked = withContext(Dispatchers.Default) {
-            pickTopRatedMovies(movies) to pickTopRatedSeries(series)
+            pickTopRatedMovies(movies, tmdbLookup) to pickTopRatedSeries(series, tmdbLookup)
         }
         TopRatedCache.put(catalogRevision, ranked.first, ranked.second)
         top = ranked.first

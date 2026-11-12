@@ -93,6 +93,7 @@ import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
 import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.ui.theme.ClassicDimens
+import com.totaliptv.pro.ui.mergedDisplayRating
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.tipScreenBrush
 import com.totaliptv.pro.ui.theme.CinemaBg
@@ -955,7 +956,7 @@ private fun HomeTabContent(
                             },
                             isFavorite = item.id in favoriteIds,
                             onLongClick = { onToggleFavorite(item) },
-                            rating = item.displayRating(),
+                            rating = mergedDisplayRating(item),
                             progressPercent = pct,
                             focusRequester = posterFocus("new", item.id),
                             imageHeight = HomeShelfFit.classicPosterImage,
@@ -989,7 +990,7 @@ private fun HomeTabContent(
                             },
                             isFavorite = item.id in favoriteIds,
                             onLongClick = { onToggleFavorite(item) },
-                            rating = item.displayRating(),
+                            rating = mergedDisplayRating(item),
                             progressPercent = pct,
                             focusRequester = posterFocus("top", item.id),
                             imageHeight = HomeShelfFit.classicPosterImage,
@@ -1301,7 +1302,7 @@ private fun VodMainPane(
                         onClick = { onOpenDetail(item, index) },
                         isFavorite = item.id in favoriteIds,
                         onLongClick = { onToggleFavorite(item) },
-                        rating = shown.displayRating(),
+                        rating = mergedDisplayRating(shown),
                         progressPercent = pct,
                         focusRequester = posterFocus("vod-grid", item.id)
                     )

@@ -131,8 +131,32 @@ class RatingsTest {
         val sorted = Ratings.sortTopRated(items, tmdb)
         assertEquals(listOf("UnratedHit", "Gamma", "Alpha", "Obscure", "Zed"), sorted.map { it.name })
         assertEquals("4.0", sorted[1].rating)
-        assertEquals("7.0", sorted.first { it.name == "Alpha" }.rating) // leftover provider text; not used to rank
+        // No TMDB match + key set: provider rating is cleared so no star is shown.
+        assertNull(sorted.first { it.name == "Alpha" }.displayRating())
         assertNull(sorted.first { it.name == "Obscure" }.displayRating())
+        assertNull(sorted.first { it.name == "Zed" }.displayRating())
+    }
+
+    @Test
+    fun displayTextMatchesTopRatedRules() {
+        val provider = m("HighProvider", "9.9")
+        val unrated = m("Unrated", null)
+        assertEquals("9.9", Ratings.displayText(provider, tmdbScore = 4.0, tmdbOnly = false))
+        assertEquals("9.9", Ratings.displayText(provider))
+        assertNull(Ratings.displayText(unrated, tmdbScore = 8.6, tmdbOnly = false))
+        assertEquals("4.0", Ratings.displayText(provider, tmdbScore = 4.0, tmdbOnly = true))
+        assertEquals("8.6", Ratings.displayText(unrated, tmdbScore = 8.6, tmdbOnly = true))
+        assertNull(Ratings.displayText(provider, tmdbScore = null, tmdbOnly = true))
+        assertNull(Ratings.displayText(unrated, tmdbScore = Ratings.tmdbScore(9.9, 12), tmdbOnly = true))
+
+        val stamped = Ratings.withMergedRating(provider, 4.0, overwriteProvider = true)
+        assertEquals("4.0", stamped.displayRating())
+        val cleared = Ratings.withMergedRating(provider, null, overwriteProvider = true)
+        assertNull(cleared.displayRating())
+        val kept = Ratings.withMergedRating(provider, 4.0, overwriteProvider = false)
+        assertEquals("9.9", kept.displayRating())
+        val filled = Ratings.withMergedRating(unrated, 8.6, overwriteProvider = false)
+        assertEquals("8.6", filled.displayRating())
     }
 
     @Test

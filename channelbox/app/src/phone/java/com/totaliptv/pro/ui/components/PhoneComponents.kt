@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.totaliptv.pro.data.model.MediaItem
+import com.totaliptv.pro.ui.mergedDisplayRating
 import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.splash.AppBrandName
 import com.totaliptv.pro.data.model.WatchProgress
@@ -78,7 +79,7 @@ fun PhonePosterCard(
                     modifier = Modifier.align(Alignment.Center)
                 )
             }
-            val rating = item.displayRating()
+            val rating = mergedDisplayRating(item)
             if (rating != null) {
                 Surface(
                     color = Color.Black.copy(alpha = 0.72f),

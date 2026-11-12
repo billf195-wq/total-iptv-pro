@@ -51,6 +51,7 @@ import com.totaliptv.pro.ui.theme.LiveMarker
 import com.totaliptv.pro.ui.focus.FocusTrace
 import com.totaliptv.pro.ui.focus.SafeFocus
 import com.totaliptv.pro.ui.home.HomeShelfFit
+import com.totaliptv.pro.ui.mergedDisplayRating
 import com.totaliptv.pro.ui.splash.AppBrandName
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -164,7 +165,7 @@ fun DesktopPosterCard(
                         )
                     }
                 }
-                val ratingLabel = item.displayRating()
+                val ratingLabel = mergedDisplayRating(item)
                 if (ratingLabel != null) {
                     Text(
                         text = "★ $ratingLabel",

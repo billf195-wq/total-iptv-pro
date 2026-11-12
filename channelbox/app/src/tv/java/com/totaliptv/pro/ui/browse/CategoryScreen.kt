@@ -68,6 +68,7 @@ import com.totaliptv.pro.ui.components.SortChip
 import com.totaliptv.pro.ui.components.TopBarChip
 import com.totaliptv.pro.ui.player.GameDayPicker
 import com.totaliptv.pro.ui.theme.ClassicDimens
+import com.totaliptv.pro.ui.mergedDisplayRating
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.tipScreenBrush
 import com.totaliptv.pro.ui.theme.CinemaBg
@@ -473,7 +474,7 @@ fun BrowseScreen(
                                         onClick = { openDetail(item, index, "browse-vod") },
                                         isFavorite = item.id in favoriteIds,
                                         onLongClick = { toggleFavoriteToast(item) },
-                                        rating = item.displayRating(),
+                                        rating = mergedDisplayRating(item),
                                         focusRequester = posterFocus("browse-vod", item.id)
                                     )
                                 }

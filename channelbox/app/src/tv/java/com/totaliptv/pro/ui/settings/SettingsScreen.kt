@@ -9,6 +9,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -35,8 +36,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
@@ -341,25 +345,25 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    AppLayoutMode.entries.forEach { mode ->
-                        ThemeChoiceCard(
-                            label = mode.label,
-                            subtitle = if (mode == AppLayoutMode.CLASSIC) "Current TV UI (default)" else "Amber sidebar / Ubuntu look",
-                            selected = appLayoutMode == mode,
-                            swatch = null,
-                            modifier = Modifier.weight(1f),
-                            onClick = {
-                                scope.launch {
-                                    app.preferences.setAppLayoutMode(mode)
-                                    Toast.makeText(context, "Layout: ${mode.label}", Toast.LENGTH_SHORT).show()
-                                }
+            }
+            // Stacked full-width cards so a D-pad / remote can reach Desktop the same
+            // way it reaches every other Settings row. A side-by-side Row was skipped
+            // by focus search, and the cards also ignored emulator taps.
+            AppLayoutMode.entries.forEach { mode ->
+                item(key = "layout-${mode.storageValue}") {
+                    ThemeChoiceCard(
+                        label = mode.label,
+                        subtitle = if (mode == AppLayoutMode.CLASSIC) "Current TV UI (default)" else "Amber sidebar / Ubuntu look",
+                        selected = appLayoutMode == mode,
+                        swatch = null,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            scope.launch {
+                                app.preferences.setAppLayoutMode(mode)
+                                Toast.makeText(context, "Layout: ${mode.label}", Toast.LENGTH_SHORT).show()
                             }
-                        )
-                    }
+                        }
+                    )
                 }
             }
 
@@ -697,11 +701,21 @@ private fun ThemeChoiceCard(
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
+    val latestClick = rememberUpdatedState(onClick)
+    var lastClickMs by remember { mutableStateOf(0L) }
+    fun fireClick() {
+        val now = System.currentTimeMillis()
+        if (now - lastClickMs < 450L) return
+        lastClickMs = now
+        latestClick.value()
+    }
     val shape = RoundedCornerShape(14.dp)
     Surface(
-        onClick = onClick,
+        onClick = { fireClick() },
         modifier = modifier
             .height(88.dp)
+            .pointerInput(label) { detectTapGestures(onTap = { fireClick() }) }
+            .onFocusChanged { focused = it.isFocused }
             .border(
                 width = when {
                     focused -> 3.dp
@@ -772,12 +786,22 @@ private fun ThemeAccentCard(
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
+    val latestClick = rememberUpdatedState(onClick)
+    var lastClickMs by remember { mutableStateOf(0L) }
+    fun fireClick() {
+        val now = System.currentTimeMillis()
+        if (now - lastClickMs < 450L) return
+        lastClickMs = now
+        latestClick.value()
+    }
     val shape = RoundedCornerShape(14.dp)
     Surface(
-        onClick = onClick,
+        onClick = { fireClick() },
         modifier = modifier
             .width(132.dp)
             .height(100.dp)
+            .pointerInput(label) { detectTapGestures(onTap = { fireClick() }) }
+            .onFocusChanged { focused = it.isFocused }
             .border(
                 width = when {
                     focused -> 3.dp

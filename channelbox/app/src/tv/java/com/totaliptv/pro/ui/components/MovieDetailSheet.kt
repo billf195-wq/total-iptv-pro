@@ -63,6 +63,7 @@ import com.totaliptv.pro.ui.theme.FocusBorder
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.focus.FocusTrace
+import com.totaliptv.pro.ui.mergedDisplayRating
 import com.totaliptv.pro.util.YoutubePreview
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -278,7 +279,7 @@ fun MovieDetailSheet(
                 )
                 val meta = listOfNotNull(
                     enriched.groupTitle?.takeIf { it.isNotBlank() },
-                    enriched.displayRating()?.let { "★ $it" },
+                    mergedDisplayRating(enriched)?.let { "★ $it" },
                     if (canResume && pct != null) "Resume at $pct%" else null
                 ).joinToString("  ·  ")
                 if (meta.isNotBlank()) {

@@ -551,14 +551,29 @@ class CatalogRepository(
     private var hasEffectiveTmdbKey = false
 
     /**
-     * When a TMDB key is set, Top rated / the Top rated sort use TMDB scores only
-     * (or nothing, if the index has not loaded yet). Provider ratings are used only
-     * when no key is set.
+     * When a TMDB key is set, Top rated / the Top rated sort / poster stars use
+     * TMDB scores only (or nothing, if the index has not loaded yet). Provider
+     * ratings are used only when no key is set.
      */
     private fun tmdbScoreFn(idx: ServiceIndex?): ((MediaItem) -> Double?)? {
         if (!tmdbRatingsEnabled()) return null
         if (idx != null) return { item -> idx.ratingScore(item) }
         return { null }
+    }
+
+    /** Public lookup used by Desktop home ranking and any caller that needs the same rules as Top rated. */
+    fun tmdbScoreLookup(): ((MediaItem) -> Double?)? = tmdbScoreFn(serviceIndex)
+
+    /**
+     * Poster / detail badge text: TMDB (50+ votes) when a key is set, otherwise the
+     * provider rating. Null means no star. Does not fall back to the provider when
+     * a key is set but TMDB has no qualifying score.
+     */
+    fun displayRatingOf(item: MediaItem): String? {
+        if (item.kind == ContentKind.LIVE) return null
+        val tmdbOnly = tmdbRatingsEnabled()
+        val score = if (tmdbOnly) serviceIndex?.ratingScore(item) else null
+        return Ratings.displayText(item, score, tmdbOnly = tmdbOnly)
     }
 
     private fun tmdbRatingsEnabled(): Boolean =
@@ -1104,15 +1119,26 @@ class CatalogRepository(
         val needsPoster = item.artworkUrl().isNullOrBlank()
         val needsTrailer = item.youtubeTrailer.isNullOrBlank() && isVodOrSeries
         val needsPlot = item.plot.isNullOrBlank() && isVodOrSeries
-        val needsRating = item.displayRating() == null && isVodOrSeries
-        if (!needsPoster && !needsTrailer && !needsPlot && !needsRating) return@withContext item
-        val sid = item.xtreamStreamId ?: return@withContext item
-        val creds = activeXtreamCreds ?: return@withContext item
+        val tmdbOnly = tmdbRatingsEnabled()
+        fun stamped(it: MediaItem): MediaItem = Ratings.withMergedRating(
+            it,
+            serviceIndex?.ratingScore(it),
+            overwriteProvider = tmdbOnly
+        )
+        // When a TMDB key is set, stars come from TMDB only, so do not fetch a
+        // provider rating just to show a badge.
+        val needsRating = !tmdbOnly && item.displayRating() == null && isVodOrSeries
+        if (!needsPoster && !needsTrailer && !needsPlot && !needsRating) {
+            return@withContext stamped(item)
+        }
+        val sid = item.xtreamStreamId ?: return@withContext stamped(item)
+        val creds = activeXtreamCreds ?: return@withContext stamped(item)
         // Poster-only fast path when trailer/plot/rating already known
         if (needsPoster && !needsTrailer && !needsPlot && !needsRating) {
             val cached = posterMutex.withLock { posterCache[sid] }
             if (cached != null) {
-                return@withContext if (cached.isBlank()) item else item.copy(posterUrl = cached)
+                val withPoster = if (cached.isBlank()) item else item.copy(posterUrl = cached)
+                return@withContext stamped(withPoster)
             }
         }
         val details = xtreamApi.fetchMediaDetails(creds, sid, item.kind == ContentKind.SERIES)
@@ -1136,10 +1162,7 @@ class CatalogRepository(
         if (needsRating && !details.rating.isNullOrBlank()) {
             out = out.copy(rating = details.rating)
         }
-        if (out.displayRating() == null) {
-            serviceIndex?.ratingDisplay(out)?.let { out = out.copy(rating = it) }
-        }
-        out
+        stamped(out)
     }
 
     /** Resolve youtube trailer for Preview; uses cached field or get_vod_info. */

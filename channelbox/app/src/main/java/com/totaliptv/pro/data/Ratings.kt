@@ -90,13 +90,32 @@ object Ratings {
     }
 
     /**
-     * Copy [score] onto the item for poster badges. When [overwriteProvider] is true
-     * (TMDB-only mode), a TMDB score replaces the provider rating on the copy.
+     * Badge / sort text using the same rules as [score]: TMDB only when [tmdbOnly]
+     * is true, otherwise the provider rating. Null means no star.
+     */
+    fun displayText(item: MediaItem, tmdbScore: Double? = null, tmdbOnly: Boolean = false): String? {
+        if (tmdbOnly) return formatTen(tmdbScore)
+        return item.displayRating()
+    }
+
+    /**
+     * Copy the merged score onto the item for poster badges. When [overwriteProvider]
+     * is true (TMDB-only mode), a TMDB score replaces the provider rating, and a
+     * missing TMDB score clears the provider rating so no star is shown.
      */
     fun withMergedRating(item: MediaItem, score: Double?, overwriteProvider: Boolean = false): MediaItem {
-        if (score == null) return item
-        if (!overwriteProvider && item.displayRating() != null) return item
-        return formatTen(score)?.let { item.copy(rating = it) } ?: item
+        if (!overwriteProvider) {
+            if (score == null) return item
+            if (item.displayRating() != null) return item
+            return formatTen(score)?.let { item.copy(rating = it) } ?: item
+        }
+        val text = formatTen(score)
+        return when {
+            text != null && item.rating == text -> item
+            text != null -> item.copy(rating = text)
+            item.rating != null -> item.copy(rating = null)
+            else -> item
+        }
     }
 
     /** Rated titles only, highest first, ties A–Z, capped at [limit]. */

@@ -319,15 +319,24 @@ fun FocusableCard(
     onLongClick: (() -> Unit)? = null
 ) {
     var focused by remember { mutableStateOf(false) }
+    val latestClick = rememberUpdatedState(onClick)
+    var lastClickMs by remember { mutableStateOf(0L) }
+    fun fireClick() {
+        val now = System.currentTimeMillis()
+        if (now - lastClickMs < 450L) return
+        lastClickMs = now
+        latestClick.value()
+    }
     val shape = RoundedCornerShape(12.dp)
     val mod = (if (focusRequester != null) {
         modifier.widthIn(min = 200.dp, max = 320.dp).focusRequester(focusRequester)
     } else {
         modifier.widthIn(min = 200.dp, max = 320.dp)
     }).onFocusChanged { focused = it.isFocused }
+        .pointerInput(title) { detectTapGestures(onTap = { fireClick() }) }
 
     Surface(
-        onClick = onClick,
+        onClick = { fireClick() },
         onLongClick = onLongClick,
         modifier = mod.then(
             if (focused) Modifier.border(2.dp, FocusBorder, shape) else Modifier

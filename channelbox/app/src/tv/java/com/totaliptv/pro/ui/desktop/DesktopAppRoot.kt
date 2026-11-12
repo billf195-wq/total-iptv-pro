@@ -287,7 +287,8 @@ fun DesktopAppRoot(
                     }
                     yield()
                     val ranked = withContext(Dispatchers.Default) {
-                        pickTopRatedMovies(movies) to pickTopRatedSeries(series)
+                        val tmdb = repository.tmdbScoreLookup()
+                        pickTopRatedMovies(movies, tmdb) to pickTopRatedSeries(series, tmdb)
                     }
                     TopRatedCache.put(revision, ranked.first, ranked.second)
                 }

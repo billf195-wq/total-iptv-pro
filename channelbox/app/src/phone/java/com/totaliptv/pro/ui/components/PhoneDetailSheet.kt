@@ -67,6 +67,7 @@ import com.totaliptv.pro.ui.theme.CinemaSurfaceHigh
 import com.totaliptv.pro.ui.theme.LiveMarker
 import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
+import com.totaliptv.pro.ui.mergedDisplayRating
 import com.totaliptv.pro.util.YoutubePreview
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -203,7 +204,7 @@ fun PhoneDetailSheet(
                         color = OnCinemaMuted,
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    enriched.displayRating()?.let {
+                    mergedDisplayRating(enriched)?.let {
                         Text("Rating $it", color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
                     }
                     if (canResume && progress != null) {
