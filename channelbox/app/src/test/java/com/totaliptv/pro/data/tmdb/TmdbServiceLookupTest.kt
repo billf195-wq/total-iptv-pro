@@ -1,11 +1,13 @@
 package com.totaliptv.pro.data.tmdb
 
+import com.totaliptv.pro.data.Ratings
 import com.totaliptv.pro.data.StreamingService
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TmdbServiceLookupTest {
@@ -67,6 +69,54 @@ class TmdbServiceLookupTest {
             assertTrue(TmdbServiceLookup.isFresh(back, "abcd1234", now + 1000))
             assertFalse(TmdbServiceLookup.isFresh(back, "other", now + 1000))
             assertFalse(TmdbServiceLookup.isFresh(back, "abcd1234", now + TmdbServiceLookup.TTL_MS + 1))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun parseDiscoverReadsVoteAverageAndCount() {
+        val movies = TmdbServiceLookup.parseDiscover(
+            """{"total_pages":1,"results":[
+              {"id":278,"title":"The Shawshank Redemption","release_date":"1994-09-23",
+               "vote_average":8.711,"vote_count":26855}]}""",
+            "movie", null
+        )
+        val m = movies.entries.single()
+        assertEquals(emptyList(), m.services)
+        assertEquals(8.711, m.voteAverage)
+        assertEquals(26855, m.voteCount)
+
+        val tv = TmdbServiceLookup.parseDiscover(
+            """{"results":[{"id":1,"name":"Show","first_air_date":"2020-01-01","vote_average":"7.5","vote_count":80}]}""",
+            "tv", com.totaliptv.pro.data.StreamingService.APPLE
+        )
+        assertEquals(listOf("apple"), tv.entries.single().services)
+        assertEquals(7.5, tv.entries.single().voteAverage)
+        assertEquals(80, tv.entries.single().voteCount)
+    }
+
+    @Test
+    fun ratingQueriesAreServiceFreeAndUseVoteFloor() {
+        assertEquals(2, TmdbServiceLookup.RATING_QUERIES.size)
+        for (q in TmdbServiceLookup.RATING_QUERIES) {
+            assertEquals(null, q.service)
+            assertEquals("vote_average.desc", q.sortBy)
+            assertEquals(null, q.watchRegion)
+            assertEquals(Ratings.TMDB_MIN_VOTE_COUNT.toString(), q.extraParams["vote_count.gte"])
+        }
+        assertTrue(TmdbServiceLookup.ALL_QUERIES.size == TmdbServiceLookup.QUERIES.size + 2)
+    }
+
+    @Test
+    fun oldCacheVersionIsRejected() {
+        val dir = createTempDir("tmdbcache-v1")
+        try {
+            val file = java.io.File(dir, "tmdb-services.json")
+            val stale = TmdbServiceCache(version = 1, fetchedAtMs = 1_000L, keyFingerprint = "abcd1234",
+                entries = listOf(TmdbServiceEntry("movie", 1, "X", year = 2020, services = listOf("netflix"))))
+            TmdbServiceLookup.writeCache(file, stale)
+            assertEquals(null, TmdbServiceLookup.readCache(file))
         } finally {
             dir.deleteRecursively()
         }

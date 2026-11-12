@@ -5,6 +5,9 @@ import java.util.Locale
 
 /** Provider rating parsing / ordering shared by Xtream, M3U and the "Top rated" sort. */
 object Ratings {
+    /** Ignore TMDB ratings with fewer votes than this so obscure titles cannot top the list. */
+    const val TMDB_MIN_VOTE_COUNT = 50
+
     private val leadingNumber = Regex("""^\s*(\d+(?:[.,]\d+)?)\s*(?:/\s*(\d+(?:[.,]\d+)?))?""")
 
     /**
@@ -49,27 +52,66 @@ object Ratings {
         return String.format(Locale.US, "%.1f", tenBased)
     }
 
-    /** Numeric /10 score for sorting; null = unrated. */
-    fun score(item: MediaItem): Double? {
+    /**
+     * Usable TMDB score (0–10) when [voteCount] is at least [TMDB_MIN_VOTE_COUNT].
+     * Null for missing, zero, out of range, or too few votes.
+     */
+    fun tmdbScore(voteAverage: Double?, voteCount: Int?): Double? {
+        if (voteAverage == null || voteCount == null) return null
+        if (voteCount < TMDB_MIN_VOTE_COUNT) return null
+        return voteAverage.takeIf { it > 0.0 && it <= 10.0 }
+    }
+
+    /** "8.2"-style text for a 0–10 score; null when [score] is not usable. */
+    fun formatTen(score: Double?): String? {
+        val v = score ?: return null
+        if (v <= 0.0 || v > 10.0) return null
+        return String.format(Locale.US, "%.1f", v)
+    }
+
+    fun tmdbDisplay(voteAverage: Double?, voteCount: Int?): String? =
+        formatTen(tmdbScore(voteAverage, voteCount))
+
+    /** Numeric /10 score for sorting; null = unrated. Provider rating wins over [tmdbFallback]. */
+    fun score(item: MediaItem, tmdbFallback: Double? = null): Double? {
+        val provider = providerScore(item)
+        if (provider != null) return provider
+        return tmdbFallback?.takeIf { it > 0.0 && it <= 10.0 }
+    }
+
+    private fun providerScore(item: MediaItem): Double? {
         val v = item.displayRating()?.replace(',', '.')?.toDoubleOrNull() ?: return null
         val tenBased = if (v > 10.0 && v <= 100.0) v / 10.0 else v
         return tenBased.takeIf { it > 0.0 && it <= 10.0 }
     }
 
+    /** Copy [score] onto the item when the provider sent no rating, so poster badges can show it. */
+    fun withMergedRating(item: MediaItem, score: Double?): MediaItem {
+        if (item.displayRating() != null || score == null) return item
+        return formatTen(score)?.let { item.copy(rating = it) } ?: item
+    }
+
     /** Rated titles only, highest first, ties A–Z, capped at [limit]. */
-    fun topRatedOnly(items: List<MediaItem>, limit: Int): List<MediaItem> =
-        items.mapNotNull { item -> score(item)?.let { item to it } }
+    fun topRatedOnly(
+        items: List<MediaItem>,
+        limit: Int,
+        tmdbScore: ((MediaItem) -> Double?)? = null
+    ): List<MediaItem> =
+        items.mapNotNull { item -> score(item, tmdbScore?.invoke(item))?.let { item to it } }
             .sortedWith(compareByDescending<Pair<MediaItem, Double>> { it.second }.thenBy { it.first.name.lowercase() })
             .take(limit)
-            .map { it.first }
+            .map { withMergedRating(it.first, it.second) }
 
     /** Highest rating first, unrated at the bottom, ties A–Z. */
-    fun sortTopRated(items: List<MediaItem>): List<MediaItem> {
-        val scored = items.map { it to score(it) }
+    fun sortTopRated(
+        items: List<MediaItem>,
+        tmdbScore: ((MediaItem) -> Double?)? = null
+    ): List<MediaItem> {
+        val scored = items.map { it to score(it, tmdbScore?.invoke(it)) }
         return scored.sortedWith(
             compareBy<Pair<MediaItem, Double?>> { if (it.second == null) 1 else 0 }
                 .thenByDescending { it.second ?: 0.0 }
                 .thenBy { it.first.name.lowercase() }
-        ).map { it.first }
+        ).map { withMergedRating(it.first, it.second) }
     }
 }

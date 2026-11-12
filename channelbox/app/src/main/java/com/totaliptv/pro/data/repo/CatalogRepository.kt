@@ -518,20 +518,73 @@ class CatalogRepository(
     private fun groupSignature(g: Map<Pair<StreamingService, ContentKind>, List<MediaItem>>): Map<String, Int> =
         g.entries.associate { "${it.key.first.key}|${it.key.second}" to it.value.size }
 
-    private class TopRatedSnapshot(val items: List<MediaItem>, val vod: List<MediaItem>, val series: List<MediaItem>)
+    private class TopRatedSnapshot(
+        val items: List<MediaItem>,
+        val index: ServiceIndex?,
+        val vod: List<MediaItem>,
+        val series: List<MediaItem>
+    )
 
     @Volatile
     private var topRatedSnapshot: TopRatedSnapshot? = null
+    private val topRatedComputeRunning = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /** Rated titles of [kind], highest first, capped at [CatalogCategories.TOP_RATED_LIMIT]. */
     fun topRated(kind: ContentKind): List<MediaItem> {
         val items = cachedItems
-        val snap = topRatedSnapshot?.takeIf { it.items === items } ?: run {
-            val vod = Ratings.topRatedOnly(items.filter { it.kind == ContentKind.VOD }, CatalogCategories.TOP_RATED_LIMIT)
-            val series = Ratings.topRatedOnly(items.filter { it.kind == ContentKind.SERIES }, CatalogCategories.TOP_RATED_LIMIT)
-            TopRatedSnapshot(items, vod, series).also { topRatedSnapshot = it }
+        val idx = serviceIndex
+        val snap = topRatedSnapshot
+        if (snap != null && snap.items === items && snap.index === idx) {
+            return if (kind == ContentKind.SERIES) snap.series else snap.vod
         }
-        return if (kind == ContentKind.SERIES) snap.series else snap.vod
+        if (snap != null && snap.items === items) {
+            // Same catalog, TMDB ratings arrived or changed: keep the last list, recompute off the UI thread.
+            scheduleTopRatedCompute()
+            return if (kind == ContentKind.SERIES) snap.series else snap.vod
+        }
+        return storeTopRated(items, idx, kind)
+    }
+
+    private fun tmdbScoreFn(idx: ServiceIndex?): ((MediaItem) -> Double?)? =
+        idx?.let { index -> { item -> index.ratingScore(item) } }
+
+    private fun storeTopRated(items: List<MediaItem>, idx: ServiceIndex?, kind: ContentKind): List<MediaItem> {
+        val tmdb = tmdbScoreFn(idx)
+        val vod = Ratings.topRatedOnly(items.filter { it.kind == ContentKind.VOD }, CatalogCategories.TOP_RATED_LIMIT, tmdb)
+        val series = Ratings.topRatedOnly(items.filter { it.kind == ContentKind.SERIES }, CatalogCategories.TOP_RATED_LIMIT, tmdb)
+        topRatedSnapshot = TopRatedSnapshot(items, idx, vod, series)
+        return if (kind == ContentKind.SERIES) series else vod
+    }
+
+    private fun scheduleTopRatedCompute() {
+        if (!topRatedComputeRunning.compareAndSet(false, true)) return
+        repoScope.launch(Dispatchers.Default) {
+            var changed = false
+            try {
+                while (true) {
+                    val items = cachedItems
+                    val idx = serviceIndex
+                    val tmdb = tmdbScoreFn(idx)
+                    val vod = Ratings.topRatedOnly(
+                        items.filter { it.kind == ContentKind.VOD },
+                        CatalogCategories.TOP_RATED_LIMIT,
+                        tmdb
+                    )
+                    val series = Ratings.topRatedOnly(
+                        items.filter { it.kind == ContentKind.SERIES },
+                        CatalogCategories.TOP_RATED_LIMIT,
+                        tmdb
+                    )
+                    val prev = topRatedSnapshot
+                    topRatedSnapshot = TopRatedSnapshot(items, idx, vod, series)
+                    if (prev == null || prev.vod != vod || prev.series != series) changed = true
+                    if (items === cachedItems && idx === serviceIndex) break
+                }
+            } finally {
+                topRatedComputeRunning.set(false)
+            }
+            if (changed) bumpRevision()
+        }
     }
 
     private fun orderedCategories(kind: ContentKind, base: List<Category>): List<Category> {
@@ -795,7 +848,7 @@ class CatalogRepository(
             CatalogSort.AZ -> items.sortedBy { it.name.lowercase() }
             CatalogSort.ZA -> items.sortedByDescending { it.name.lowercase() }
             CatalogSort.RECENTLY_ADDED -> sortByRecentlyAdded(items)
-            CatalogSort.TOP_RATED -> Ratings.sortTopRated(items)
+            CatalogSort.TOP_RATED -> Ratings.sortTopRated(items, tmdbScoreFn(serviceIndex))
         }
 
     private fun hasVodItems(): Boolean =
@@ -1065,6 +1118,9 @@ class CatalogRepository(
         }
         if (needsRating && !details.rating.isNullOrBlank()) {
             out = out.copy(rating = details.rating)
+        }
+        if (out.displayRating() == null) {
+            serviceIndex?.ratingDisplay(out)?.let { out = out.copy(rating = it) }
         }
         out
     }
@@ -1527,7 +1583,7 @@ enum class CatalogSort {
     AZ,
     ZA,
     RECENTLY_ADDED,
-    /** Highest provider rating first; unrated at the bottom; ties A–Z. */
+    /** Highest rating first (provider, else TMDB); unrated at the bottom; ties A–Z. */
     TOP_RATED
 }
 

@@ -84,6 +84,7 @@ import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
+import com.totaliptv.pro.data.repo.CatalogSort
 import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.home.NoVerticalHomeScroll
@@ -538,7 +539,7 @@ fun BrowseGridPane(
         list = list.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
         list = when (sort) {
             "ZA" -> list.sortedByDescending { it.name.lowercase() }
-            "TOP" -> Ratings.sortTopRated(list)
+            "TOP" -> desktopRepo?.sortCatalogItems(list, CatalogSort.TOP_RATED) ?: Ratings.sortTopRated(list)
             "RECENT" -> if (CatalogCategories.isTopRatedId(categoryId)) list else sortDesktopRecentlyAdded(list)
             else -> list.sortedBy { it.name.lowercase() }
         }

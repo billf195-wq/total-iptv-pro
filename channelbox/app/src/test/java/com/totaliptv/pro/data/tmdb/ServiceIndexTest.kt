@@ -5,6 +5,7 @@ import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ServiceIndexTest {
@@ -73,5 +74,57 @@ class ServiceIndexTest {
         // Series usually have no year: a bare "Formula 1" must not take the Drive to Survive entry.
         assertTrue(index.lookup(show("Formula 1")).isEmpty())
         assertEquals(setOf(StreamingService.NETFLIX), index.lookup(show("Formula 1: Drive to Survive")))
+    }
+
+    @Test
+    fun tmdbRatingLookupAndVoteThreshold() {
+        val rated = ServiceIndex(
+            listOf(
+                TmdbServiceEntry("movie", 1, "The Irishman", year = 2019, services = listOf("netflix"),
+                    voteAverage = 7.8, voteCount = 6_000),
+                TmdbServiceEntry("movie", 20, "The Shawshank Redemption", year = 1994, services = emptyList(),
+                    voteAverage = 8.7, voteCount = 26_000),
+                TmdbServiceEntry("movie", 21, "Obscure Indie", year = 2021, services = emptyList(),
+                    voteAverage = 9.9, voteCount = 12),
+                TmdbServiceEntry("movie", 2, "Dune", year = 2021, services = listOf("hbo"),
+                    voteAverage = 7.9, voteCount = 49), // just under the floor
+                TmdbServiceEntry("movie", 6, "Glass Onion: A Knives Out Mystery", year = 2022, services = listOf("netflix"),
+                    voteAverage = 7.1, voteCount = 5_000),
+                TmdbServiceEntry("tv", 11, "Severance", year = 2022, services = listOf("apple"),
+                    voteAverage = 8.5, voteCount = 2_000)
+            )
+        )
+        assertEquals(7.8, rated.ratingScore(movie("The Irishman (2019)")))
+        assertEquals("7.8", rated.ratingDisplay(movie("EN - Irishman", year = 2020))) // ±1
+        // Ratings-only title (not on the four services) still matches; it is not a service group.
+        assertEquals(8.7, rated.ratingScore(movie("The Shawshank Redemption (1994)")))
+        assertTrue(rated.lookup(movie("The Shawshank Redemption (1994)")).isEmpty())
+        assertNull(rated.ratingScore(movie("Obscure Indie (2021)")))
+        assertNull(rated.ratingScore(movie("Dune (2021)"))) // 49 votes
+        // Short/colon form needs the same year, not ±1.
+        assertEquals(7.1, rated.ratingScore(movie("Glass Onion (2022)")))
+        assertNull(rated.ratingScore(movie("Glass Onion (2021)")))
+        assertNull(rated.ratingScore(movie("Glass Onion"))) // no year, short key only
+        // TMDB id wins; kinds stay separate.
+        assertEquals(7.8, rated.ratingScore(movie("Wrong Name", tmdb = 1)))
+        assertNull(rated.ratingScore(movie("Severance (2022)")))
+        assertEquals(8.5, rated.ratingScore(show("Severance")))
+        // size counts service titles only, so Shawshank / Obscure Indie do not inflate it.
+        assertEquals(4, rated.size)
+        assertEquals(4, rated.ratedSize)
+    }
+
+    @Test
+    fun mergeEntriesKeepsHigherVoteCountAndUnionsServices() {
+        val a = TmdbServiceEntry("movie", 4, "CODA", year = 2021, services = listOf("apple"),
+            voteAverage = 7.9, voteCount = 100)
+        val b = TmdbServiceEntry("movie", 4, "CODA", year = 2021, services = listOf("prime"),
+            voteAverage = 8.0, voteCount = 500)
+        val merged = ServiceIndex.mergeEntries(a, b)
+        assertEquals(listOf("apple", "prime"), merged.services)
+        assertEquals(8.0, merged.voteAverage)
+        assertEquals(500, merged.voteCount)
+        val index = ServiceIndex(listOf(a, b))
+        assertEquals(8.0, index.ratingScore(movie("CODA (2021)")))
     }
 }

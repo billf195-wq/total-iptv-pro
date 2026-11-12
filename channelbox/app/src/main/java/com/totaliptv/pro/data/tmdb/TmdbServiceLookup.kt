@@ -1,9 +1,11 @@
 package com.totaliptv.pro.data.tmdb
 
+import com.totaliptv.pro.data.Ratings
 import com.totaliptv.pro.data.StreamingService
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -16,8 +18,10 @@ import java.security.MessageDigest
 
 /**
  * Fills the Netflix / Prime Video / HBO / Max / Apple TV+ groups from TMDB "discover" lists
- * (US watch providers + TV networks). Only popular list pages are fetched; catalog titles are
- * never sent to TMDB. Streaming availability on TMDB is provided by JustWatch.
+ * (US watch providers + TV networks) and collects vote_average / vote_count from those pages
+ * plus a light top-rated discover (titles not on the four services). Only list pages are
+ * fetched; catalog titles are never sent to TMDB. Streaming availability on TMDB is provided
+ * by JustWatch.
  *
  * Plain JVM (OkHttp + kotlinx.serialization) so it also runs in unit tests.
  */
@@ -28,8 +32,20 @@ class TmdbServiceLookup(
     private val delayMs: Long = 120L,
     private val sleep: (Long) -> Unit = { Thread.sleep(it) }
 ) {
-    /** One discover query: TMDB type, filter param, value, service. */
-    data class Query(val type: String, val param: String, val value: String, val service: StreamingService)
+    /**
+     * One discover query: TMDB type plus an optional provider/network filter and service.
+     * [service] is null for ratings-only queries (top-rated movies / TV).
+     */
+    data class Query(
+        val type: String,
+        val param: String? = null,
+        val value: String? = null,
+        val service: StreamingService? = null,
+        val sortBy: String = "popularity.desc",
+        val watchRegion: String? = "US",
+        val extraParams: Map<String, String> = emptyMap(),
+        val pages: Int? = null
+    )
 
     class LookupFailed(message: String) : Exception(message)
 
@@ -38,12 +54,13 @@ class TmdbServiceLookup(
         val key = normalizeKey(apiKey)
         if (key.isEmpty()) throw LookupFailed("No TMDB API key")
         val out = ArrayList<TmdbServiceEntry>()
-        val queries = QUERIES
+        val queries = ALL_QUERIES
         var done = 0
         for (q in queries) {
             var page = 1
             var totalPages = 1
-            while (page <= minOf(totalPages, pagesPerQuery)) {
+            val pageLimit = q.pages ?: pagesPerQuery
+            while (page <= minOf(totalPages, pageLimit)) {
                 val body = get(key, q, page) ?: break
                 val parsed = parseDiscover(body, q.type, q.service)
                 out += parsed.entries
@@ -59,13 +76,16 @@ class TmdbServiceLookup(
 
     private fun get(key: String, q: Query, page: Int): String? {
         val url = "$baseUrl/discover/${q.type}".toHttpUrl().newBuilder()
-            .addQueryParameter("watch_region", "US")
             .addQueryParameter("language", "en-US")
-            .addQueryParameter("sort_by", "popularity.desc")
+            .addQueryParameter("sort_by", q.sortBy)
             .addQueryParameter("include_adult", "false")
-            .addQueryParameter(q.param, q.value)
             .addQueryParameter("page", page.toString())
-            .apply { if (!isV4Token(key)) addQueryParameter("api_key", key) }
+            .apply {
+                q.watchRegion?.let { addQueryParameter("watch_region", it) }
+                if (!q.param.isNullOrBlank() && q.value != null) addQueryParameter(q.param, q.value)
+                q.extraParams.forEach { (k, v) -> addQueryParameter(k, v) }
+                if (!isV4Token(key)) addQueryParameter("api_key", key)
+            }
             .build()
         val req = Request.Builder().url(url)
             .header("Accept", "application/json")
@@ -99,6 +119,8 @@ class TmdbServiceLookup(
 
     companion object {
         const val DEFAULT_PAGES = 30
+        /** Extra pages of globally top-rated titles (not limited to the four services). */
+        const val RATING_PAGES = 40
         const val TTL_MS = 7L * 24 * 60 * 60 * 1000
 
         /**
@@ -121,6 +143,30 @@ class TmdbServiceLookup(
             Query("tv", "with_watch_providers", "350", StreamingService.APPLE)
         )
 
+        /**
+         * Light top-rated lists so titles that are not on Netflix / Prime / HBO / Apple
+         * still have a TMDB score. Sorted by vote_average with the same vote-count floor
+         * used when ranking; no watch-region filter so the list is global.
+         */
+        val RATING_QUERIES: List<Query> = listOf(
+            Query(
+                type = "movie",
+                sortBy = "vote_average.desc",
+                watchRegion = null,
+                extraParams = mapOf("vote_count.gte" to Ratings.TMDB_MIN_VOTE_COUNT.toString()),
+                pages = RATING_PAGES
+            ),
+            Query(
+                type = "tv",
+                sortBy = "vote_average.desc",
+                watchRegion = null,
+                extraParams = mapOf("vote_count.gte" to Ratings.TMDB_MIN_VOTE_COUNT.toString()),
+                pages = RATING_PAGES
+            )
+        )
+
+        val ALL_QUERIES: List<Query> = QUERIES + RATING_QUERIES
+
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
         private val cacheJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -138,7 +184,7 @@ class TmdbServiceLookup(
             return d.take(4).joinToString("") { "%02x".format(it) }
         }
 
-        fun parseDiscover(body: String, type: String, service: StreamingService): Page {
+        fun parseDiscover(body: String, type: String, service: StreamingService?): Page {
             val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
                 ?: return Page(emptyList(), 0)
             val total = root["total_pages"]?.jsonPrimitive?.intOrNull ?: 1
@@ -157,10 +203,17 @@ class TmdbServiceLookup(
                     title = title,
                     originalTitle = original?.takeIf { it != title },
                     year = TitleMatch.yearFromDate(date),
-                    services = listOf(service.key)
+                    services = listOfNotNull(service?.key),
+                    voteAverage = jsonDouble(o, "vote_average"),
+                    voteCount = o["vote_count"]?.jsonPrimitive?.intOrNull
                 )
             }
             return Page(entries, total)
+        }
+
+        private fun jsonDouble(o: JsonObject, key: String): Double? {
+            val p = o[key]?.jsonPrimitive ?: return null
+            return p.doubleOrNull ?: p.contentOrNull?.toDoubleOrNull()
         }
 
         fun readCache(file: File): TmdbServiceCache? = runCatching {
