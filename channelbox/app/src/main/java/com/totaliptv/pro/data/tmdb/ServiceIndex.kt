@@ -114,7 +114,7 @@ class ServiceIndex(entries: List<TmdbServiceEntry>) {
         val key = TitleMatch.normalize(item.name)
         if (key.isEmpty()) return emptySet()
         val hits = (if (tv) byKeyTv else byKeyMovie)[key] ?: return emptySet()
-        val matched = yearMatches(item, hits) { it.year } { it.exact }
+        val matched = yearMatches(item, hits, yearOf = { it.year }, exactOf = { it.exact })
         if (matched.isEmpty()) return emptySet()
         return matched.flatMapTo(LinkedHashSet()) { it.services }
     }
@@ -139,7 +139,7 @@ class ServiceIndex(entries: List<TmdbServiceEntry>) {
         val key = TitleMatch.normalize(item.name)
         if (key.isEmpty()) return null
         val hits = (if (tv) ratingByKeyTv else ratingByKeyMovie)[key] ?: return null
-        val matched = yearMatches(item, hits) { it.year } { it.exact }
+        val matched = yearMatches(item, hits, yearOf = { it.year }, exactOf = { it.exact })
         if (matched.isEmpty()) return null
         return matched.maxWithOrNull(compareBy<RatingHit> { it.voteCount }.thenBy { it.average })
     }
