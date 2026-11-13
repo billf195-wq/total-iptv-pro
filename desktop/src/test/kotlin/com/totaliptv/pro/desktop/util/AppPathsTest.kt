@@ -14,7 +14,7 @@ class AppPathsTest {
             home = "/Users/bill",
             appData = null
         )
-        assertEquals("/Users/bill/Library/Application Support/total-iptv-pro", dir.toString())
+        assertEquals(Path.of("/Users/bill", "Library", "Application Support", "total-iptv-pro"), dir)
     }
 
     @Test
@@ -28,7 +28,7 @@ class AppPathsTest {
     @Test
     fun linuxUsesDotConfig() {
         val dir = configDirFor(false, false, "/home/bill", null)
-        assertEquals("/home/bill/.config/total-iptv-pro", dir.toString())
+        assertEquals(Path.of("/home/bill", ".config", "total-iptv-pro"), dir)
     }
 
     @Test
@@ -40,8 +40,8 @@ class AppPathsTest {
             appData = null,
             xdgConfigHome = "/custom/config"
         )
-        assertEquals("/custom/config/total-iptv-pro", dir.toString())
+        assertEquals(Path.of("/custom/config", "total-iptv-pro"), dir)
         val fallback = configDirFor(false, false, "/home/bill", null, xdgConfigHome = "  ")
-        assertEquals("/home/bill/.config/total-iptv-pro", fallback.toString())
+        assertEquals(Path.of("/home/bill", ".config", "total-iptv-pro"), fallback)
     }
 }

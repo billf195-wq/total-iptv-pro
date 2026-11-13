@@ -679,8 +679,8 @@ class StreamPlayerTest {
     fun macVlcLooksInApplicationsAndSkipsX11Placer() {
         val home = "/Users/bill"
         val found = StreamPlayer.macVlcCandidates(home).map { it.path }
-        assertEquals("/Applications/VLC.app/Contents/MacOS/VLC", found[0])
-        assertEquals("/Users/bill/Applications/VLC.app/Contents/MacOS/VLC", found[1])
+        assertEquals(java.nio.file.Path.of("/Applications/VLC.app/Contents/MacOS/VLC").toString(), found[0])
+        assertEquals(java.nio.file.Path.of("/Users/bill/Applications/VLC.app/Contents/MacOS/VLC").toString(), found[1])
         assertFalse(
             StreamPlayer.useX11MonitorFullscreen(
                 windows = false,

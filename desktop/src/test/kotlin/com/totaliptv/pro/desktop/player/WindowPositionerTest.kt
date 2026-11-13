@@ -2,6 +2,7 @@ package com.totaliptv.pro.desktop.player
 
 import com.totaliptv.pro.desktop.player.SplitSide
 import kotlin.test.Test
+import org.junit.Assume
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
@@ -333,6 +334,10 @@ class WindowPositionerTest {
 
     @Test
     fun xresClientIdSpecMatchesLp64Layout() {
+        Assume.assumeTrue(
+            "XResClientIdSpec is the Linux LP64 layout",
+            System.getProperty("os.name").orEmpty().lowercase().contains("linux")
+        )
         assertEquals(16, LinuxX11WindowPlacer.xresSpecSize())
         assertEquals(0, LinuxX11WindowPlacer.xresSpecFieldOffset("client"))
         assertEquals(8, LinuxX11WindowPlacer.xresSpecFieldOffset("mask"))
