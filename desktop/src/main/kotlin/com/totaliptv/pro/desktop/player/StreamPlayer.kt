@@ -98,10 +98,25 @@ object StreamPlayer {
      * macOS VLC.app fullscreen. Official VLC.app ships the Cocoa interface, not
      * Qt, so `--no-qt-fs-controller` / `--qt-minimal-view` are unknown options
      * and VLC exits 1 immediately (1.2.32).
+     * `--no-macosx-nativefullscreenmode` (accepted by VLC.app 3.0) keeps VLC on
+     * the app's Space instead of creating a new one that leaves the app off to
+     * the side when playback ends (1.2.33).
      */
     internal val VLC_MAC_TRUE_FULLSCREEN: List<String> = listOf(
         "--no-video-title-show",
-        "--no-video-deco"
+        "--no-video-deco",
+        "--no-macosx-nativefullscreenmode"
+    )
+
+    /**
+     * Esc in Mac VLC would otherwise only leave fullscreen (the picture
+     * "shrinks"). Unset that binding and make Esc quit so Stop is reliable.
+     * Verified present on official VLC.app; not passed on Windows/Linux.
+     */
+    internal val VLC_MAC_STOP_KEYS: List<String> = listOf(
+        "--key-leave-fullscreen=Unset",
+        "--key-quit=Esc",
+        "--global-key-quit=Esc"
     )
 
     /** VLC RC: force fullscreen. `fullscreen` alone toggles; `on` stays on. */
@@ -258,6 +273,10 @@ object StreamPlayer {
             WindowPositioner.fullscreenOnAppMonitorAsync(scope, proc, proc.pid())
         }
         armWindowsPlaybackMenu(launchCommand, proc, fullscreen)
+        if (AppPaths.isMac) {
+            MacPlaybackOverlay.arm()
+            MacStopHotkey.arm()
+        }
         syncPlaybackGate()
         if (onProgress != null && scope != null && !treatLive && resolved.command.first().contains("vlc", ignoreCase = true)) {
             progressJob = scope.launch(Dispatchers.IO) {
@@ -442,6 +461,8 @@ object StreamPlayer {
 
     private fun stopProcessOnly() {
         WindowsPlaybackMenu.disarm()
+        MacPlaybackOverlay.disarm()
+        MacStopHotkey.disarm()
         current?.destroyForcibly()
         current = null
     }
@@ -478,6 +499,8 @@ object StreamPlayer {
             }
             val natural = !stoppedByUser
             if (current === proc) current = null
+            MacPlaybackOverlay.disarm()
+            MacStopHotkey.disarm()
             syncPlaybackGate()
             WindowPositioner.restoreAppWindowAfterPlayback()
             natural
@@ -756,7 +779,7 @@ object StreamPlayer {
                     qtFullscreenScreenArg(fullscreenScreen)?.let { args += it }
                 }
                 macos -> {
-                    // macOS VLC.app: hide title/deco; no Qt flags, no X11 placer.
+                    // macOS VLC.app: hide title/deco; stay on this Space; no Qt / X11.
                     args += VLC_MAC_TRUE_FULLSCREEN
                 }
                 else -> {
@@ -785,6 +808,9 @@ object StreamPlayer {
         if (!macos) {
             args += "--no-one-instance"
             args += "--no-playlist-enqueue"
+        }
+        if (macos) {
+            args += VLC_MAC_STOP_KEYS
         }
         args += "--no-repeat"
         args += "--no-loop"

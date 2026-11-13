@@ -270,9 +270,12 @@ fun SettingsScreen(
             Spacer(Modifier.height(10.dp))
             Text("Series next episode", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
             Text(
-                if (AppPaths.isWindows) {
+                when {
+                    AppPaths.isWindows ->
                     "Windows: both a floating always-on-top Next episode button and Ctrl+Right / Media Next skip to SxxE(n+1) while VLC is fullscreen. Auto-advance only after ~20s of real play (failed VLC exits do not skip ahead). On the last episode the Next control is disabled and shows “Last episode of this series.” VLC’s own Next stays on the same episode (one URL). Debug: ${AppPaths.configDir.resolve("playback-debug.log")}"
-                } else {
+                    AppPaths.isMac ->
+                    "Mac: click the floating Stop button or press Esc to end playback and return to the title page (Space in VLC only pauses). Quit VLC with Cmd+Q and this app comes back by itself. Auto-advance only after ~20s of real play near the end of an episode. Debug: ${AppPaths.configDir.resolve("playback-debug.log")}"
+                    else ->
                     "Linux launches one episode URL (same as Windows) and auto-advances to a different SxxE(n+1) URL when VLC/mpv exits after ~20s of real play. Skip with the always-on-top Next control, the in-app Next button, or Ctrl+Right / Media Next while this window is focused. Global hotkeys are not registered on Linux (they would need root). Fullscreen VLC often keeps keyboard focus — if Next keys do nothing, wait for the episode to finish or Alt+Tab back here. On the last episode Next is disabled and shows “Last episode of this series.” VLC’s own Next stays on the same episode. Debug: ${AppPaths.configDir.resolve("playback-debug.log")}"
                 },
                 style = MaterialTheme.typography.bodyMedium

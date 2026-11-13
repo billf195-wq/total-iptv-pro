@@ -12,16 +12,25 @@ object WindowFullscreen {
     /** Settings sets this to ask the main window to enter (true) or leave (false) full screen now. */
     var request by mutableStateOf<Boolean?>(null)
 
-    enum class EscAction { DISMISS_BANNER, STOP_SPLIT, PASS_TO_PLAYER, LEAVE_FULLSCREEN, NONE }
+    enum class EscAction { DISMISS_BANNER, STOP_SPLIT, STOP_PLAYBACK, PASS_TO_PLAYER, LEAVE_FULLSCREEN, NONE }
 
     /**
      * What Esc does in the app window. Order matches 1.2.27 so nothing changes
      * during playback: the Next banner and Game Day split keep their old jobs,
      * and while a video plays Esc does NOT drop the app out of full screen.
+ * On macOS, [stopPlaybackOnEsc] makes Esc stop the player instead of only
+ * leaving VLC fullscreen (which looked like the picture shrinking).
      */
-    fun escAction(fullscreen: Boolean, bannerShowing: Boolean, splitActive: Boolean, playing: Boolean): EscAction = when {
+    fun escAction(
+        fullscreen: Boolean,
+        bannerShowing: Boolean,
+        splitActive: Boolean,
+        playing: Boolean,
+        stopPlaybackOnEsc: Boolean = false
+    ): EscAction = when {
         bannerShowing -> EscAction.DISMISS_BANNER
         splitActive -> EscAction.STOP_SPLIT
+        playing && stopPlaybackOnEsc -> EscAction.STOP_PLAYBACK
         playing -> EscAction.PASS_TO_PLAYER
         fullscreen -> EscAction.LEAVE_FULLSCREEN
         else -> EscAction.NONE

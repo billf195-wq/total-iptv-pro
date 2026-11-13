@@ -89,6 +89,10 @@ object WindowPositioner {
      * redraw. All of this runs on the AWT EDT after the player has exited.
      */
     fun restoreAppWindowAfterPlayback() {
+        if (AppPaths.isMac) {
+            restoreMacAppAfterPlayback()
+            return
+        }
         if (!AppPaths.isWindows) return
         if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return
         val ticket = restoreTicket.incrementAndGet()
@@ -125,6 +129,102 @@ object WindowPositioner {
         } else {
             SwingUtilities.invokeLater { schedule(0, forceRepaint = true) }
         }
+    }
+
+    internal const val MAC_BUNDLE_ID: String = "com.totaliptv.pro.desktop"
+
+    /**
+     * Activate this app after VLC leaves so its fullscreen Space comes back
+     * without a Dock click. `open -b` first; AppleScript activate as fallback.
+     */
+    internal fun macActivateCommands(bundleId: String = MAC_BUNDLE_ID): List<List<String>> = listOf(
+        listOf("open", "-b", bundleId),
+        listOf("osascript", "-e", "tell application id \"$bundleId\" to activate")
+    )
+
+    internal fun activateMacApp(commands: List<List<String>> = macActivateCommands()): Boolean {
+        for (cmd in commands) {
+            val ok = runCatching {
+                val proc = ProcessBuilder(cmd)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start()
+                proc.waitFor(2, TimeUnit.SECONDS) && proc.exitValue() == 0
+            }.getOrDefault(false)
+            if (ok) return true
+        }
+        return false
+    }
+
+    /**
+     * Bring the macOS app back to the front of its own Space after VLC exits
+     * (natural end, Esc, the Stop button, or Cmd+Q). Activate first — that is
+     * what a Dock click does — then toFront / requestFocus / repaint on the EDT.
+     */
+    internal fun restoreMacAppAfterPlayback() {
+        if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return
+        val ticket = restoreTicket.incrementAndGet()
+        Thread({
+            if (ticket != restoreTicket.get()) return@Thread
+            activateMacApp()
+        }, "mac-activate-app").apply { isDaemon = true; start() }
+        fun schedule(delayMs: Int, activateAgain: Boolean) {
+            val run = Runnable {
+                if (ticket != restoreTicket.get()) return@Runnable
+                if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return@Runnable
+                if (activateAgain) {
+                    Thread({
+                        if (ticket != restoreTicket.get()) return@Thread
+                        activateMacApp()
+                    }, "mac-activate-app").apply { isDaemon = true; start() }
+                }
+                raiseMacAppWindow()
+            }
+            if (delayMs <= 0) {
+                if (SwingUtilities.isEventDispatchThread()) run.run() else SwingUtilities.invokeLater(run)
+            } else {
+                SwingUtilities.invokeLater {
+                    javax.swing.Timer(delayMs) { ev ->
+                        (ev.source as javax.swing.Timer).stop()
+                        run.run()
+                    }.apply { isRepeats = false; start() }
+                }
+            }
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            schedule(0, activateAgain = false)
+        } else {
+            SwingUtilities.invokeLater { schedule(0, activateAgain = false) }
+        }
+        // Space switching is animated; retry after VLC's Space has closed.
+        schedule(80, activateAgain = true)
+        schedule(250, activateAgain = true)
+        schedule(700, activateAgain = true)
+    }
+
+    internal fun raiseMacAppWindow() {
+        val window = appWindow ?: return
+        val work = Runnable {
+            if (!window.isVisible) window.isVisible = true
+            if (window is java.awt.Frame && isIconifiedState(window.extendedState)) {
+                window.extendedState = withoutIconified(window.extendedState)
+            }
+            val compose = window as? androidx.compose.ui.awt.ComposeWindow
+            if (compose != null && compose.isMinimized) {
+                compose.isMinimized = false
+            }
+            val before = window.bounds
+            if (needsBoundsRepair(before.width, before.height)) {
+                repairWindowBounds(window, compose)
+            }
+            window.toFront()
+            runCatching { window.requestFocus() }
+            refreshComposeSurface(window, nudge = needsBoundsRepair(window.bounds.width, window.bounds.height))
+            com.totaliptv.pro.desktop.WindowFullscreen.log(
+                "mac restore after playback bounds=${window.bounds} visible=${window.isVisible}"
+            )
+        }
+        if (SwingUtilities.isEventDispatchThread()) work.run() else SwingUtilities.invokeLater(work)
     }
 
     private data class RestoreResult(

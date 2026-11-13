@@ -712,7 +712,23 @@ class StreamPlayerTest {
         assertFalse("--no-playlist-enqueue" in cmd)
         assertFalse("--rc-quiet" in cmd)
         assertFalse(cmd.any { it.startsWith("--qt-fullscreen-screennumber=") })
+        assertTrue("--no-macosx-nativefullscreenmode" in cmd)
+        assertTrue("--key-leave-fullscreen=Unset" in cmd)
+        assertTrue("--key-quit=Esc" in cmd)
+        assertTrue("--global-key-quit=Esc" in cmd)
         assertEquals("http://example.test/movie.mp4", cmd.last())
+    }
+
+    @Test
+    fun macVlcStopKeysDoNotAffectWindowsOrLinux() {
+        val linux = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf("http://example.test/a.mp4"), windows = false, macos = false)
+        val windows = StreamPlayer.vlcCommand("""C:\Program Files\VideoLAN\VLC\vlc.exe""", listOf("http://example.test/a.mp4"), windows = true, macos = false)
+        assertFalse("--no-macosx-nativefullscreenmode" in linux)
+        assertFalse("--no-macosx-nativefullscreenmode" in windows)
+        assertFalse("--key-quit=Esc" in linux)
+        assertFalse("--key-quit=Esc" in windows)
+        assertTrue("--no-one-instance" in linux)
+        assertTrue("--no-one-instance" in windows)
     }
 
     @Test

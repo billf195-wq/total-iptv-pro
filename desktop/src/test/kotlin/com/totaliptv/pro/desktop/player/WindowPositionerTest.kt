@@ -417,4 +417,28 @@ class WindowPositionerTest {
         assertFalse("BringWindowToTop" in restoreFn)
         assertTrue("isEventDispatchThread()" in src.substringAfter("fun restoreAppWindowAfterPlayback()"))
     }
+
+    @Test
+    fun macActivateCommandsUseBundleIdAndOpenThenOsascript() {
+        val cmds = WindowPositioner.macActivateCommands()
+        assertEquals(listOf("open", "-b", WindowPositioner.MAC_BUNDLE_ID), cmds[0])
+        assertEquals("osascript", cmds[1][0])
+        assertEquals("-e", cmds[1][1])
+        assertTrue("com.totaliptv.pro.desktop" in cmds[1][2])
+        assertTrue("activate" in cmds[1][2])
+        assertEquals("com.totaliptv.pro.desktop", WindowPositioner.MAC_BUNDLE_ID)
+    }
+
+    @Test
+    fun restoreAfterPlaybackHasAMacActivatePath() {
+        val src = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/WindowPositioner.kt").readText()
+        val restore = src.substringAfter("fun restoreAppWindowAfterPlayback()")
+        assertTrue("AppPaths.isMac" in restore)
+        assertTrue("restoreMacAppAfterPlayback()" in restore)
+        assertTrue("activateMacApp()" in src)
+        assertTrue("raiseMacAppWindow()" in src)
+        assertTrue("window.toFront()" in src.substringAfter("internal fun raiseMacAppWindow()"))
+        assertTrue("requestFocus()" in src.substringAfter("internal fun raiseMacAppWindow()"))
+        assertTrue("refreshComposeSurface" in src.substringAfter("internal fun raiseMacAppWindow()"))
+    }
 }

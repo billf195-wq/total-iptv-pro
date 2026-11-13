@@ -31,6 +31,16 @@ class WindowFullscreenTest {
     @Test fun escDuringPlaybackDoesNotLeaveFullscreen() =
         assertEquals(EscAction.PASS_TO_PLAYER, WindowFullscreen.escAction(fullscreen = true, bannerShowing = false, splitActive = false, playing = true))
 
+    @Test fun escOnMacStopsPlaybackInsteadOfPassingToPlayer() {
+        assertEquals(
+            EscAction.STOP_PLAYBACK,
+            WindowFullscreen.escAction(fullscreen = true, bannerShowing = false, splitActive = false, playing = true, stopPlaybackOnEsc = true)
+        )
+        // Banner and split still win over stop-on-Esc.
+        assertEquals(EscAction.DISMISS_BANNER, WindowFullscreen.escAction(true, bannerShowing = true, splitActive = true, playing = true, stopPlaybackOnEsc = true))
+        assertEquals(EscAction.STOP_SPLIT, WindowFullscreen.escAction(true, bannerShowing = false, splitActive = true, playing = true, stopPlaybackOnEsc = true))
+    }
+
     @Test fun escKeepsOldJobsForBannerAndSplit() {
         assertEquals(EscAction.DISMISS_BANNER, WindowFullscreen.escAction(true, bannerShowing = true, splitActive = true, playing = true))
         assertEquals(EscAction.STOP_SPLIT, WindowFullscreen.escAction(true, bannerShowing = false, splitActive = true, playing = true))

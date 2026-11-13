@@ -55,8 +55,14 @@ package com.totaliptv.pro.desktop
  * 1.2.32: macOS playback — official VLC.app has no Qt module, so Qt and other
  *         Windows/Linux-only flags (unknown options) made VLC exit 1 before
  *         the stream started. Mac launches use only flags that VLC.app accepts.
+ * 1.2.33: After VLC exits (end, Esc, Stop, or Cmd+Q), the macOS app is
+ *         reactivated on its title page instead of leaving its fullscreen
+ *         Space off to the side. VLC uses --no-macosx-nativefullscreenmode
+ *         so it does not create its own Space. Esc quits VLC (it no longer
+ *         only leaves fullscreen), and a floating Stop button is shown while
+ *         a title plays.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 44
-    const val VERSION_NAME: String = "1.2.32"
+    const val VERSION_CODE: Int = 45
+    const val VERSION_NAME: String = "1.2.33"
 }

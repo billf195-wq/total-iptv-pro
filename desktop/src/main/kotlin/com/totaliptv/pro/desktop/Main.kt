@@ -154,13 +154,19 @@ fun main() {
                         fullscreen = state.placement == WindowPlacement.Fullscreen,
                         bannerShowing = seriesNextHost.isBannerShowing(),
                         splitActive = StreamPlayer.isSplitActive(),
-                        playing = StreamPlayer.isPlaying()
+                        playing = StreamPlayer.isPlaying(),
+                        stopPlaybackOnEsc = AppPaths.isMac
                     )) {
                         WindowFullscreen.EscAction.DISMISS_BANNER -> { seriesNextHost.dismiss("esc"); true }
                         WindowFullscreen.EscAction.STOP_SPLIT -> {
                             // unchanged from 1.2.27
                             StreamPlayer.stop()
                             if (state.placement == WindowPlacement.Fullscreen) state.placement = WindowPlacement.Floating
+                            true
+                        }
+                        WindowFullscreen.EscAction.STOP_PLAYBACK -> {
+                            // Stop the player; keep the app on its fullscreen title page.
+                            StreamPlayer.stop()
                             true
                         }
                         WindowFullscreen.EscAction.PASS_TO_PLAYER -> false   // a video is playing: Esc keeps its old job
