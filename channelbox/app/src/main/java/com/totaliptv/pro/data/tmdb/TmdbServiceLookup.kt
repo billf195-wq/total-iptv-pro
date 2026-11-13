@@ -52,7 +52,19 @@ class TmdbServiceLookup(
         val watchRegion: String? = "US",
         val extraParams: Map<String, String> = emptyMap(),
         val pages: Int? = null
-    )
+    ) {
+        fun cursorKey(): String = buildString {
+            append(type); append('|')
+            append(param.orEmpty()); append('|')
+            append(value.orEmpty()); append('|')
+            append(sortBy); append('|')
+            append(watchRegion.orEmpty()); append('|')
+            append(service?.key.orEmpty())
+            extraParams.entries.sortedBy { it.key }.forEach { (k, v) ->
+                append('|'); append(k); append('='); append(v)
+            }
+        }
+    }
 
     class LookupFailed(message: String) : Exception(message)
 
@@ -61,30 +73,81 @@ class TmdbServiceLookup(
      * so [onBatch] can show Netflix (and the rest) before the full download finishes.
      * [onProgress] gets (done queries, total queries). Throws [LookupFailed] on auth errors.
      */
+    data class FetchResult(
+        val entries: List<TmdbServiceEntry>,
+        val complete: Boolean,
+        val progress: List<TmdbQueryCursor>,
+        val paused: Boolean = false
+    )
+
+    /**
+     * Fetch all queries with limited concurrency. Entries are merged as pages arrive
+     * so [onBatch] can show Netflix (and the rest) before the full download finishes.
+     * [onProgress] gets (done queries, total queries). Throws [LookupFailed] on auth errors.
+     * Pass [seed] / [progress] to resume an interrupted run instead of starting over.
+     * [shouldPause] (e.g. while a video is playing) stops after the current page and
+     * returns an incomplete result so the caller can persist and continue later.
+     */
     fun fetch(
         apiKey: String,
         onProgress: (Int, Int) -> Unit = { _, _ -> },
         onBatch: (List<TmdbServiceEntry>) -> Unit = {},
+        onPersist: (List<TmdbServiceEntry>, List<TmdbQueryCursor>, Boolean) -> Unit = { _, _, _ -> },
         isActive: () -> Boolean = { true },
+        shouldPause: () -> Boolean = { false },
+        seed: List<TmdbServiceEntry> = emptyList(),
+        progress: List<TmdbQueryCursor> = emptyList(),
         concurrency: Int = DEFAULT_CONCURRENCY
-    ): List<TmdbServiceEntry> {
+    ): FetchResult {
         val key = normalizeKey(apiKey)
         if (key.isEmpty()) throw LookupFailed("No TMDB API key")
         val merged = LinkedHashMap<String, TmdbServiceEntry>()
+        for (e in seed) {
+            merged["${e.type}:${e.id}"] = e
+        }
         val lock = Any()
-        val doneCount = AtomicInteger(0)
+        val doneCount = AtomicInteger(progress.count { it.done })
         val failed = AtomicReference<LookupFailed>(null)
+        val paused = java.util.concurrent.atomic.AtomicBoolean(false)
         val queries = ALL_QUERIES
+        val cursors = LinkedHashMap<String, TmdbQueryCursor>()
+        for (c in progress) cursors[c.key] = c
+        fun snapshotProgress(): List<TmdbQueryCursor> = queries.map { q ->
+            cursors[q.cursorKey()] ?: TmdbQueryCursor(q.cursorKey())
+        }
+        fun persist(done: Boolean) {
+            val (entries, prog) = synchronized(lock) {
+                merged.values.toList() to snapshotProgress()
+            }
+            onPersist(entries, prog, done)
+        }
         val workers = concurrency.coerceIn(1, MAX_CONCURRENCY)
         val pool = Executors.newFixedThreadPool(workers)
         try {
             val tasks = queries.map { q ->
                 Callable {
+                    val qKey = q.cursorKey()
+                    val start = synchronized(lock) { cursors[qKey] }
+                    if (start?.done == true) {
+                        onProgress(doneCount.get(), queries.size)
+                        return@Callable
+                    }
                     if (!isActive() || failed.get() != null) return@Callable
-                    var page = 1
+                    if (shouldPause()) {
+                        paused.set(true)
+                        return@Callable
+                    }
+                    var page = (start?.nextPage ?: 1).coerceAtLeast(1)
                     var totalPages = 1
                     val pageLimit = q.pages ?: pagesPerQuery
                     while (page <= minOf(totalPages, pageLimit) && isActive() && failed.get() == null) {
+                        if (shouldPause()) {
+                            paused.set(true)
+                            synchronized(lock) {
+                                cursors[qKey] = TmdbQueryCursor(qKey, nextPage = page, done = false)
+                            }
+                            return@Callable
+                        }
                         val body = try {
                             get(key, q, page)
                         } catch (e: LookupFailed) {
@@ -98,9 +161,11 @@ class TmdbServiceLookup(
                                 val prev = merged[k]
                                 merged[k] = if (prev == null) e else ServiceIndex.mergeEntries(prev, e)
                             }
+                            cursors[qKey] = TmdbQueryCursor(qKey, nextPage = page + 1, done = false)
                             merged.values.toList()
                         }
                         onBatch(snapshot)
+                        if (page == 1 || page % PERSIST_EVERY_PAGES == 0) persist(false)
                         totalPages = parsed.totalPages
                         page++
                         if (delayMs > 0 && page <= minOf(totalPages, pageLimit)) {
@@ -108,11 +173,19 @@ class TmdbServiceLookup(
                                 sleep(delayMs)
                             } catch (_: InterruptedException) {
                                 Thread.currentThread().interrupt()
+                                synchronized(lock) {
+                                    cursors[qKey] = TmdbQueryCursor(qKey, nextPage = page, done = false)
+                                }
                                 return@Callable
                             }
                         }
                     }
-                    onProgress(doneCount.incrementAndGet(), queries.size)
+                    val finished = failed.get() == null && isActive() && !paused.get()
+                    if (finished) {
+                        synchronized(lock) { cursors[qKey] = TmdbQueryCursor(qKey, nextPage = page, done = true) }
+                        onProgress(doneCount.incrementAndGet(), queries.size)
+                        persist(false)
+                    }
                 }
             }
             pool.invokeAll(tasks)
@@ -120,7 +193,12 @@ class TmdbServiceLookup(
         } finally {
             pool.shutdownNow()
         }
-        return synchronized(lock) { merged.values.toList() }
+        val complete = !paused.get() && isActive() &&
+            synchronized(lock) { snapshotProgress().all { it.done } || queries.all { (cursors[it.cursorKey()]?.done == true) } }
+        val (entries, prog) = synchronized(lock) { merged.values.toList() to snapshotProgress() }
+        val reallyComplete = complete && prog.all { it.done } && failed.get() == null
+        persist(reallyComplete)
+        return FetchResult(entries, reallyComplete, prog, paused = paused.get())
     }
 
     private fun get(key: String, q: Query, page: Int): String? {
@@ -174,6 +252,7 @@ class TmdbServiceLookup(
         /** Parallel TMDB discover queries. Kept small so we do not trip rate limits or OOM a TV box. */
         const val DEFAULT_CONCURRENCY = 2
         const val MAX_CONCURRENCY = 3
+        const val PERSIST_EVERY_PAGES = 8
 
         /**
          * Verified against TMDB /watch/providers (US) and /network on 2026-11-12:
@@ -186,25 +265,25 @@ class TmdbServiceLookup(
          */
         val QUERIES: List<Query> = listOf(
             Query("movie", "with_watch_providers", "8", StreamingService.NETFLIX),
-            Query("movie", "with_watch_providers", "9", StreamingService.PRIME),
-            Query("movie", "with_watch_providers", "1899", StreamingService.HBO),
-            Query("movie", "with_watch_providers", "350", StreamingService.APPLE),
-            Query("movie", "with_watch_providers", "15", StreamingService.HULU),
-            Query("movie", "with_watch_providers", "337", StreamingService.DISNEY),
-            Query("movie", "with_watch_providers", "531|1770|582", StreamingService.PARAMOUNT),
             Query("tv", "with_networks", "213", StreamingService.NETFLIX),
-            Query("tv", "with_networks", "1024", StreamingService.PRIME),
-            Query("tv", "with_networks", "49|3186", StreamingService.HBO),
-            Query("tv", "with_networks", "2552", StreamingService.APPLE),
-            Query("tv", "with_networks", "453", StreamingService.HULU),
-            Query("tv", "with_networks", "2739", StreamingService.DISNEY),
-            Query("tv", "with_networks", "4330", StreamingService.PARAMOUNT),
             Query("tv", "with_watch_providers", "8", StreamingService.NETFLIX),
+            Query("movie", "with_watch_providers", "9", StreamingService.PRIME),
+            Query("tv", "with_networks", "1024", StreamingService.PRIME),
             Query("tv", "with_watch_providers", "9", StreamingService.PRIME),
+            Query("movie", "with_watch_providers", "1899", StreamingService.HBO),
+            Query("tv", "with_networks", "49|3186", StreamingService.HBO),
             Query("tv", "with_watch_providers", "1899", StreamingService.HBO),
+            Query("movie", "with_watch_providers", "350", StreamingService.APPLE),
+            Query("tv", "with_networks", "2552", StreamingService.APPLE),
             Query("tv", "with_watch_providers", "350", StreamingService.APPLE),
+            Query("movie", "with_watch_providers", "15", StreamingService.HULU),
+            Query("tv", "with_networks", "453", StreamingService.HULU),
             Query("tv", "with_watch_providers", "15", StreamingService.HULU),
+            Query("movie", "with_watch_providers", "337", StreamingService.DISNEY),
+            Query("tv", "with_networks", "2739", StreamingService.DISNEY),
             Query("tv", "with_watch_providers", "337", StreamingService.DISNEY),
+            Query("movie", "with_watch_providers", "531|1770|582", StreamingService.PARAMOUNT),
+            Query("tv", "with_networks", "4330", StreamingService.PARAMOUNT),
             Query("tv", "with_watch_providers", "531|1770|582", StreamingService.PARAMOUNT)
         )
 
@@ -295,23 +374,34 @@ class TmdbServiceLookup(
         fun readUsableCache(file: File): TmdbServiceCache? = readCache(file, acceptOlderVersion = true)
 
         @OptIn(ExperimentalSerializationApi::class)
-        fun writeCache(file: File, cache: TmdbServiceCache) {
+        fun writeCache(file: File, cache: TmdbServiceCache): Boolean =
             runCatching {
                 file.parentFile?.mkdirs()
                 val tmp = File(file.parentFile, file.name + ".tmp")
                 tmp.outputStream().buffered().use { out ->
                     cacheJson.encodeToStream(TmdbServiceCache.serializer(), cache, out)
+                    out.flush()
                 }
                 if (!tmp.renameTo(file)) {
                     file.delete()
-                    tmp.renameTo(file)
+                    if (!tmp.renameTo(file)) return@runCatching false
                 }
-            }
+                file.isFile && file.length() > 0L
+            }.getOrDefault(false)
+
+        /** Why a cache cannot be reused as-is. Never includes the key or fingerprint. */
+        fun staleReason(cache: TmdbServiceCache?, keyFingerprint: String, nowMs: Long): String? {
+            if (cache == null) return "missing"
+            if (cache.entries.isEmpty()) return "empty"
+            if (cache.version != TmdbServiceCache.CACHE_VERSION) return "version ${cache.version}"
+            if (cache.keyFingerprint != keyFingerprint) return "fingerprint"
+            if (!cache.complete) return "incomplete"
+            val age = nowMs - cache.fetchedAtMs
+            if (age !in 0 until TTL_MS) return "age"
+            return null
         }
 
         fun isFresh(cache: TmdbServiceCache?, keyFingerprint: String, nowMs: Long): Boolean =
-            cache != null && cache.version == TmdbServiceCache.CACHE_VERSION &&
-                cache.keyFingerprint == keyFingerprint &&
-                cache.entries.isNotEmpty() && nowMs - cache.fetchedAtMs in 0 until TTL_MS
+            staleReason(cache, keyFingerprint, nowMs) == null
     }
 }

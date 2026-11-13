@@ -155,4 +155,84 @@ class TmdbServiceLookupTest {
         assertEquals(3, TmdbServiceLookup.MAX_CONCURRENCY)
         assertTrue(TmdbServiceLookup.DEFAULT_CONCURRENCY <= TmdbServiceLookup.MAX_CONCURRENCY)
     }
+
+    @Test
+    fun incompleteCacheIsNotFreshAndReportsReason() {
+        val now = 1_000_000_000_000L
+        val partial = TmdbServiceCache(
+            version = TmdbServiceCache.CACHE_VERSION,
+            fetchedAtMs = now,
+            keyFingerprint = "abcd1234",
+            entries = listOf(TmdbServiceEntry("movie", 1, "X", year = 2020, services = listOf("hulu"))),
+            complete = false,
+            progress = listOf(TmdbQueryCursor(key = "tv|with_networks|453|popularity.desc|US|hulu", nextPage = 3, done = false))
+        )
+        assertEquals("incomplete", TmdbServiceLookup.staleReason(partial, "abcd1234", now + 1000))
+        assertFalse(TmdbServiceLookup.isFresh(partial, "abcd1234", now + 1000))
+
+        val dir = createTempDir("tmdbcache-partial")
+        try {
+            val file = File(dir, "tmdb-services.json")
+            assertTrue(TmdbServiceLookup.writeCache(file, partial))
+            val back = TmdbServiceLookup.readCache(file)
+            assertEquals(false, back?.complete)
+            assertEquals(1, back?.progress?.size)
+            assertEquals(3, back?.progress?.single()?.nextPage)
+            assertFalse(TmdbServiceLookup.isFresh(back, "abcd1234", now + 1000))
+            // Still usable for display while a fetch resumes.
+            assertEquals(1, TmdbServiceLookup.readUsableCache(file)?.entries?.size)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun finishedCacheWithoutProgressStaysFresh() {
+        val now = 1_000_000_000_000L
+        val done = TmdbServiceCache(
+            fetchedAtMs = now,
+            keyFingerprint = "abcd1234",
+            entries = listOf(TmdbServiceEntry("tv", 2, "Y", year = 2021, services = listOf("disney")))
+        )
+        assertEquals(true, done.complete)
+        assertEquals(null, TmdbServiceLookup.staleReason(done, "abcd1234", now + 1000))
+        assertTrue(TmdbServiceLookup.isFresh(done, "abcd1234", now + 1000))
+    }
+
+    @Test
+    fun cursorKeyIncludesTypeParamAndService() {
+        val q = TmdbServiceLookup.Query("tv", "with_networks", "453", com.totaliptv.pro.data.StreamingService.HULU)
+        assertEquals("tv|with_networks|453|popularity.desc|US|hulu", q.cursorKey())
+    }
+
+    @Test
+    fun serviceQueriesInterleaveMovieAndTvSoSeriesFillsEarly() {
+        val q = TmdbServiceLookup.QUERIES
+        assertEquals(21, q.size)
+        // Each service should appear as movie, then tv network, then tv watch-provider
+        // before the next service starts, so Series Hulu/Disney+/Paramount+ are not last.
+        fun triple(start: Int, service: com.totaliptv.pro.data.StreamingService) {
+            assertEquals("movie", q[start].type)
+            assertEquals("with_watch_providers", q[start].param)
+            assertEquals(service, q[start].service)
+            assertEquals("tv", q[start + 1].type)
+            assertEquals("with_networks", q[start + 1].param)
+            assertEquals(service, q[start + 1].service)
+            assertEquals("tv", q[start + 2].type)
+            assertEquals("with_watch_providers", q[start + 2].param)
+            assertEquals(service, q[start + 2].service)
+        }
+        triple(0, com.totaliptv.pro.data.StreamingService.NETFLIX)
+        triple(3, com.totaliptv.pro.data.StreamingService.PRIME)
+        triple(6, com.totaliptv.pro.data.StreamingService.HBO)
+        triple(9, com.totaliptv.pro.data.StreamingService.APPLE)
+        triple(12, com.totaliptv.pro.data.StreamingService.HULU)
+        triple(15, com.totaliptv.pro.data.StreamingService.DISNEY)
+        triple(18, com.totaliptv.pro.data.StreamingService.PARAMOUNT)
+        // Series queries for the late services are no longer stuck after every movie query.
+        val huluTv = q.indexOfFirst { it.service == com.totaliptv.pro.data.StreamingService.HULU && it.type == "tv" }
+        val lastMovie = q.indexOfLast { it.type == "movie" }
+        assertTrue(huluTv < lastMovie)
+    }
+
 }

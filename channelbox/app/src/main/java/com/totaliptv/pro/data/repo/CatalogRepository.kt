@@ -43,6 +43,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -149,13 +150,20 @@ class CatalogRepository(
         _vodError.value = null
         vodJob = repoScope.launch {
             try {
+                awaitPlaybackIdle(VOD_TAG)
                 mergeVodInBackground(sourceId, base, user, pass)
                 // Save movies now: series can take minutes more on big providers.
+                awaitPlaybackIdle(VOD_TAG)
                 persistVodCache(sourceId)
+                awaitPlaybackIdle(VOD_TAG)
                 mergeSeriesInBackground(sourceId, base, user, pass)
             } finally {
                 _vodLoading.value = false
-                persistVodCache(sourceId)
+                if (com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) {
+                    persistVodCache(sourceId)
+                } else {
+                    catalogWorkDeferredForPlayback.set(true)
+                }
             }
         }
     }
@@ -502,8 +510,13 @@ class CatalogRepository(
     }
 
     private fun scheduleServiceGroupCompute() {
+        if (deferCatalogWorkForPlayback()) return
         if (!serviceComputeRunning.compareAndSet(false, true)) return
         repoScope.launch {
+            if (deferCatalogWorkForPlayback()) {
+                serviceComputeRunning.set(false)
+                return@launch
+            }
             var changed = false
             try {
                 while (true) {
@@ -597,8 +610,13 @@ class CatalogRepository(
         hasEffectiveTmdbKey || BuildConfig.TMDB_DEFAULT_KEY.isNotBlank()
 
     private fun scheduleTopRatedCompute() {
+        if (deferCatalogWorkForPlayback()) return
         if (!topRatedComputeRunning.compareAndSet(false, true)) return
         repoScope.launch(Dispatchers.Default) {
+            if (deferCatalogWorkForPlayback()) {
+                topRatedComputeRunning.set(false)
+                return@launch
+            }
             var changed = false
             try {
                 while (true) {
@@ -746,8 +764,13 @@ class CatalogRepository(
 
     private fun scheduleDerivedCatalog() {
         if (derivedForItems === cachedItems) return
+        if (deferCatalogWorkForPlayback()) return
         if (!derivedComputeRunning.compareAndSet(false, true)) return
         repoScope.launch {
+            if (deferCatalogWorkForPlayback()) {
+                derivedComputeRunning.set(false)
+                return@launch
+            }
             try {
                 if (derivedForItems !== cachedItems) {
                     refreshDerivedCatalog()
@@ -876,6 +899,22 @@ class CatalogRepository(
 
     @Volatile
     private var serviceLookupJob: Job? = null
+    private val serviceLookupDeferredForPlayback = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val catalogWorkDeferredForPlayback = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun deferCatalogWorkForPlayback(): Boolean {
+        if (com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) return false
+        catalogWorkDeferredForPlayback.set(true)
+        return true
+    }
+
+    private suspend fun awaitPlaybackIdle(tag: String) {
+        if (com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) return
+        Log.i(tag, "paused for playback")
+        com.totaliptv.pro.data.PlaybackGate.active.first { playing -> !playing }
+        Log.i(tag, "resumed after playback")
+    }
+
 
     private fun serviceCacheFile(): File? = vodCacheDir?.let { File(it, "tmdb-services.json") }
 
@@ -898,8 +937,35 @@ class CatalogRepository(
         }
     }
 
+    private fun persistServiceCache(
+        file: File,
+        fp: String,
+        entries: List<com.totaliptv.pro.data.tmdb.TmdbServiceEntry>,
+        progress: List<com.totaliptv.pro.data.tmdb.TmdbQueryCursor>,
+        complete: Boolean,
+        fetchedAtMs: Long
+    ) {
+        if (entries.isEmpty()) return
+        val ok = TmdbServiceLookup.writeCache(
+            file,
+            TmdbServiceCache(
+                fetchedAtMs = fetchedAtMs,
+                keyFingerprint = fp,
+                entries = entries,
+                complete = complete,
+                progress = if (complete) emptyList() else progress
+            )
+        )
+        if (ok) {
+            Log.i(SVC_TAG, "service cache write ok bytes=${file.length()} complete=$complete entries=${entries.size}")
+        } else {
+            Log.w(SVC_TAG, "service cache write failed complete=$complete entries=${entries.size}")
+        }
+    }
+
     private suspend fun runServiceLookup(force: Boolean) {
         val file = serviceCacheFile() ?: return
+        ensurePlaybackWatch()
         try {
             val key = prefs.effectiveTmdbApiKey()
             hasEffectiveTmdbKey = key.isNotBlank()
@@ -918,34 +984,64 @@ class CatalogRepository(
             val now = System.currentTimeMillis()
             val current = TmdbServiceLookup.readCache(file)
             if (!force && TmdbServiceLookup.isFresh(current, fp, now)) {
-                _serviceLookupStatus.value = "Service groups updated " + formatShortDate(current!!.fetchedAtMs) +
+                Log.i(SVC_TAG, "service cache fresh entries=${current!!.entries.size} ageMs=${now - current.fetchedAtMs}")
+                _serviceLookupStatus.value = "Service groups updated " + formatShortDate(current.fetchedAtMs) +
                     " (${serviceIndex?.size ?: 0} titles)"
+                return
+            }
+            val reason = TmdbServiceLookup.staleReason(current, fp, now) ?: "forced"
+            Log.i(SVC_TAG, "service cache refresh reason=$reason entries=${current?.entries?.size ?: 0}")
+            if (!com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) {
+                serviceLookupDeferredForPlayback.set(true)
+                _serviceLookupStatus.value = if (serviceIndex != null) {
+                    "Service groups updated " + formatShortDate(usable?.fetchedAtMs ?: now) +
+                        " (${serviceIndex?.size ?: 0} titles)"
+                } else {
+                    "Looking up streaming services… (paused during playback)"
+                }
+                Log.i(SVC_TAG, "service lookup deferred; playback active")
                 return
             }
             _serviceLookupStatus.value = "Looking up streaming services…"
             val lookup = TmdbServiceLookup(http)
             var lastBumpMs = 0L
+            var lastPersistMs = 0L
             val lookupJob = kotlin.coroutines.coroutineContext[Job]
-            val entries = try {
+            val startedAt = now
+            val seed = usable?.entries.orEmpty()
+            val resumeProgress = if (current?.keyFingerprint == fp) current.progress else emptyList()
+            val result = try {
                 lookup.fetch(
                     apiKey = key,
+                    seed = seed,
+                    progress = resumeProgress,
                     onProgress = { done, total ->
                         _serviceLookupStatus.value = "Looking up streaming services… $done/$total"
                     },
                     onBatch = { snapshot ->
-                        val t = System.currentTimeMillis()
-                        if (lastBumpMs == 0L || t - lastBumpMs >= 1_500L) {
-                            lastBumpMs = t
+                        if (!com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) return@onBatch
+                        val ts = System.currentTimeMillis()
+                        if (lastBumpMs == 0L || ts - lastBumpMs >= 5_000L) {
+                            lastBumpMs = ts
                             applyServiceIndex(snapshot)
                         }
                     },
-                    isActive = { lookupJob?.isActive != false }
+                    onPersist = { entries, progress, complete ->
+                        if (!com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) return@onPersist
+                        val ts = System.currentTimeMillis()
+                        if (complete || lastPersistMs == 0L || ts - lastPersistMs >= 8_000L) {
+                            lastPersistMs = ts
+                            persistServiceCache(file, fp, entries, progress, complete, startedAt)
+                        }
+                    },
+                    isActive = { lookupJob?.isActive != false },
+                    shouldPause = { !com.totaliptv.pro.data.PlaybackGate.refreshAllowed() }
                 )
             } catch (e: TmdbServiceLookup.LookupFailed) {
                 _serviceLookupStatus.value = e.message ?: "TMDB lookup failed"
                 return
             }
-            if (entries.isEmpty()) {
+            if (result.entries.isEmpty()) {
                 _serviceLookupStatus.value = if (serviceIndex != null) {
                     "Service lookup failed; using saved lists"
                 } else {
@@ -953,12 +1049,24 @@ class CatalogRepository(
                 }
                 return
             }
-            TmdbServiceLookup.writeCache(
-                file,
-                TmdbServiceCache(fetchedAtMs = now, keyFingerprint = fp, entries = entries)
-            )
-            applyServiceIndex(entries)
-            _serviceLookupStatus.value = "Service groups updated " + formatShortDate(now) +
+            persistServiceCache(file, fp, result.entries, result.progress, result.complete, startedAt)
+            if (!result.complete) {
+                if (result.paused) {
+                    serviceLookupDeferredForPlayback.set(true)
+                    Log.i(SVC_TAG, "service lookup paused for playback entries=${result.entries.size}")
+                    _serviceLookupStatus.value = "Looking up streaming services… (paused during playback)"
+                } else {
+                    Log.i(SVC_TAG, "service lookup incomplete entries=${result.entries.size}")
+                    _serviceLookupStatus.value = "Service lookup paused; saved progress " +
+                        "(${result.entries.size} titles)"
+                }
+                if (com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) {
+                    applyServiceIndex(result.entries)
+                }
+                return
+            }
+            applyServiceIndex(result.entries)
+            _serviceLookupStatus.value = "Service groups updated " + formatShortDate(startedAt) +
                 " (${serviceIndex?.size ?: 0} titles)"
         } catch (oom: OutOfMemoryError) {
             runCatching { System.gc() }
@@ -1391,14 +1499,30 @@ class CatalogRepository(
                         job.cancel()
                         Log.i("TotalIPTV.Guide", "bulkDownload paused for playback")
                     }
-                } else if (bulkDeferredForPlayback.getAndSet(false)) {
-                    val c = bulkPendingCreds
-                    val f = bulkPendingFile
-                    if (c != null && f != null && activeXtreamCreds == c &&
-                        !GuideBulkCache.isFresh(f, System.currentTimeMillis())
-                    ) {
-                        Log.i("TotalIPTV.Guide", "bulkDownload resumed after playback")
-                        startBulkDownload(c, f)
+                    if (serviceLookupJob?.isActive == true) {
+                        serviceLookupDeferredForPlayback.set(true)
+                    }
+                } else {
+                    if (bulkDeferredForPlayback.getAndSet(false)) {
+                        val c = bulkPendingCreds
+                        val f = bulkPendingFile
+                        if (c != null && f != null && activeXtreamCreds == c &&
+                            !GuideBulkCache.isFresh(f, System.currentTimeMillis())
+                        ) {
+                            Log.i("TotalIPTV.Guide", "bulkDownload resumed after playback")
+                            startBulkDownload(c, f)
+                        }
+                    }
+                    if (serviceLookupDeferredForPlayback.getAndSet(false)) {
+                        Log.i(SVC_TAG, "service lookup resumed after playback")
+                        startServiceLookup(force = false)
+                    }
+                    if (catalogWorkDeferredForPlayback.getAndSet(false)) {
+                        Log.i(VOD_TAG, "catalog work resumed after playback")
+                        persistVodCache(loadedForSourceId ?: "")
+                        scheduleDerivedCatalog()
+                        scheduleTopRatedCompute()
+                        scheduleServiceGroupCompute()
                     }
                 }
             }
@@ -1669,7 +1793,9 @@ class CatalogRepository(
     private fun ensureXmltvLoaded() {
         val url = xmltvUrl?.takeIf { it.isNotBlank() } ?: return
         if (xmltvLoaded) return
+        if (deferCatalogWorkForPlayback()) return
         synchronized(xmltvLock) {
+            if (deferCatalogWorkForPlayback()) return
             if (xmltvLoaded) return
             runCatching {
                 val loaded = XmltvParser.loadFromUrl(url)

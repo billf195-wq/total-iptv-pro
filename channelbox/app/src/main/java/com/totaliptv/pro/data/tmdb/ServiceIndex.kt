@@ -22,13 +22,28 @@ data class TmdbServiceEntry(
     val voteCount: Int? = null
 )
 
+/** Progress for one discover query so an interrupted fetch can resume. */
+@Serializable
+data class TmdbQueryCursor(
+    val key: String,
+    val nextPage: Int = 1,
+    val done: Boolean = false
+)
+
 @Serializable
 data class TmdbServiceCache(
     val version: Int = CACHE_VERSION,
     val fetchedAtMs: Long = 0L,
     /** Short fingerprint of the key used, so a new key refetches. Never the key itself. */
     val keyFingerprint: String = "",
-    val entries: List<TmdbServiceEntry> = emptyList()
+    val entries: List<TmdbServiceEntry> = emptyList(),
+    /**
+     * True when every query finished. Absent in caches written before 1.4.100, which
+     * only stored a finished snapshot, so the default keeps those reusable.
+     */
+    val complete: Boolean = true,
+    /** Per-query page cursors; empty on a finished cache. */
+    val progress: List<TmdbQueryCursor> = emptyList()
 ) {
     companion object {
         /** Bumped when Hulu / Disney+ / Paramount+ queries were added so old caches refetch. */
