@@ -155,7 +155,7 @@ fun main() {
                         bannerShowing = seriesNextHost.isBannerShowing(),
                         splitActive = StreamPlayer.isSplitActive(),
                         playing = StreamPlayer.isPlaying(),
-                        stopPlaybackOnEsc = AppPaths.isMac
+                        stopPlaybackOnEsc = AppPaths.isMac || AppPaths.isLinux
                     )) {
                         WindowFullscreen.EscAction.DISMISS_BANNER -> { seriesNextHost.dismiss("esc"); true }
                         WindowFullscreen.EscAction.STOP_SPLIT -> {

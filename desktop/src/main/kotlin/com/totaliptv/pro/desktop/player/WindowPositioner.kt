@@ -93,6 +93,10 @@ object WindowPositioner {
             restoreMacAppAfterPlayback()
             return
         }
+        if (AppPaths.isLinux) {
+            restoreLinuxAppAfterPlayback()
+            return
+        }
         if (!AppPaths.isWindows) return
         if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return
         val ticket = restoreTicket.incrementAndGet()
@@ -222,6 +226,77 @@ object WindowPositioner {
             refreshComposeSurface(window, nudge = needsBoundsRepair(window.bounds.width, window.bounds.height))
             com.totaliptv.pro.desktop.WindowFullscreen.log(
                 "mac restore after playback bounds=${window.bounds} visible=${window.isVisible}"
+            )
+        }
+        if (SwingUtilities.isEventDispatchThread()) work.run() else SwingUtilities.invokeLater(work)
+    }
+
+    /**
+     * After VLC exits on Linux (Esc, q, close, or natural end), raise this
+     * app back to the front on the title page. AWT un-iconify / toFront plus
+     * an X11 `_NET_ACTIVE_WINDOW` activate so GNOME does not leave the window
+     * behind or minimized. No 1px nudge unless bounds are broken.
+     */
+    internal fun restoreLinuxAppAfterPlayback() {
+        if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return
+        val ticket = restoreTicket.incrementAndGet()
+        Thread({
+            if (ticket != restoreTicket.get()) return@Thread
+            LinuxX11WindowPlacer.activateCurrentApp()
+        }, "linux-activate-app").apply { isDaemon = true; start() }
+        fun schedule(delayMs: Int, activateAgain: Boolean) {
+            val run = Runnable {
+                if (ticket != restoreTicket.get()) return@Runnable
+                if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return@Runnable
+                if (activateAgain) {
+                    Thread({
+                        if (ticket != restoreTicket.get()) return@Thread
+                        LinuxX11WindowPlacer.activateCurrentApp()
+                    }, "linux-activate-app").apply { isDaemon = true; start() }
+                }
+                raiseLinuxAppWindow()
+            }
+            if (delayMs <= 0) {
+                if (SwingUtilities.isEventDispatchThread()) run.run() else SwingUtilities.invokeLater(run)
+            } else {
+                SwingUtilities.invokeLater {
+                    javax.swing.Timer(delayMs) { ev ->
+                        (ev.source as javax.swing.Timer).stop()
+                        run.run()
+                    }.apply { isRepeats = false; start() }
+                }
+            }
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            schedule(0, activateAgain = false)
+        } else {
+            SwingUtilities.invokeLater { schedule(0, activateAgain = false) }
+        }
+        schedule(80, activateAgain = true)
+        schedule(250, activateAgain = true)
+        schedule(700, activateAgain = true)
+    }
+
+    internal fun raiseLinuxAppWindow() {
+        val window = appWindow ?: return
+        val work = Runnable {
+            if (!window.isVisible) window.isVisible = true
+            if (window is java.awt.Frame && isIconifiedState(window.extendedState)) {
+                window.extendedState = withoutIconified(window.extendedState)
+            }
+            val compose = window as? androidx.compose.ui.awt.ComposeWindow
+            if (compose != null && compose.isMinimized) {
+                compose.isMinimized = false
+            }
+            val before = window.bounds
+            if (needsBoundsRepair(before.width, before.height)) {
+                repairWindowBounds(window, compose)
+            }
+            window.toFront()
+            runCatching { window.requestFocus() }
+            refreshComposeSurface(window, nudge = needsBoundsRepair(window.bounds.width, window.bounds.height))
+            com.totaliptv.pro.desktop.WindowFullscreen.log(
+                "linux restore after playback bounds=${window.bounds} visible=${window.isVisible}"
             )
         }
         if (SwingUtilities.isEventDispatchThread()) work.run() else SwingUtilities.invokeLater(work)

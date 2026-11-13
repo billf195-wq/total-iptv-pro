@@ -725,10 +725,25 @@ class StreamPlayerTest {
         val windows = StreamPlayer.vlcCommand("""C:\Program Files\VideoLAN\VLC\vlc.exe""", listOf("http://example.test/a.mp4"), windows = true, macos = false)
         assertFalse("--no-macosx-nativefullscreenmode" in linux)
         assertFalse("--no-macosx-nativefullscreenmode" in windows)
-        assertFalse("--key-quit=Esc" in linux)
         assertFalse("--key-quit=Esc" in windows)
+        assertFalse("--global-key-quit=Esc" in windows)
+        assertFalse("--key-leave-fullscreen=Unset" in windows)
+        assertTrue("--key-quit=Esc" in linux)
+        assertTrue("--global-key-quit=Esc" in linux)
+        assertTrue("--key-leave-fullscreen=Unset" in linux)
         assertTrue("--no-one-instance" in linux)
         assertTrue("--no-one-instance" in windows)
+    }
+
+    @Test
+    fun linuxVlcStopKeysDoNotIncludeMacOnlyFlags() {
+        val linux = StreamPlayer.vlcCommand("/usr/bin/vlc", listOf("http://example.test/a.mp4"), windows = false, macos = false, fullscreen = true)
+        assertTrue("--fullscreen" in linux)
+        assertTrue("--key-quit=Esc" in linux)
+        assertTrue("--global-key-quit=Esc" in linux)
+        assertTrue("--key-leave-fullscreen=Unset" in linux)
+        assertFalse("--no-macosx-nativefullscreenmode" in linux)
+        assertFalse("--rc-quiet" in linux)
     }
 
     @Test

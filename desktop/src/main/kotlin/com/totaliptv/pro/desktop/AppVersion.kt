@@ -61,8 +61,13 @@ package com.totaliptv.pro.desktop
  *         so it does not create its own Space. Esc quits VLC (it no longer
  *         only leaves fullscreen), and a floating Stop button is shown while
  *         a title plays.
+ * 1.2.34: Linux desktop — same 1.2.31/1.2.33 features (service groups, Top
+ *         rated, cache/resume, last place). After VLC exits, the app is
+ *         raised back to the front on the title page. Esc stops VLC (it does
+ *         not only leave fullscreen). Config stays under XDG (~/.config or
+ *         $XDG_CONFIG_HOME).
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 45
-    const val VERSION_NAME: String = "1.2.33"
+    const val VERSION_CODE: Int = 46
+    const val VERSION_NAME: String = "1.2.34"
 }

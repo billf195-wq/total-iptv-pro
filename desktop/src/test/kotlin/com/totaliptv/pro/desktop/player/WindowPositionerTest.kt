@@ -441,4 +441,18 @@ class WindowPositionerTest {
         assertTrue("requestFocus()" in src.substringAfter("internal fun raiseMacAppWindow()"))
         assertTrue("refreshComposeSurface" in src.substringAfter("internal fun raiseMacAppWindow()"))
     }
+
+    @Test
+    fun restoreAfterPlaybackHasALinuxActivatePath() {
+        val src = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/WindowPositioner.kt").readText()
+        val restore = src.substringAfter("fun restoreAppWindowAfterPlayback()")
+        assertTrue("AppPaths.isLinux" in restore)
+        assertTrue("restoreLinuxAppAfterPlayback()" in restore)
+        assertTrue("raiseLinuxAppWindow()" in src)
+        assertTrue("LinuxX11WindowPlacer.activateCurrentApp()" in src)
+        val raise = src.substringAfter("internal fun raiseLinuxAppWindow()")
+        assertTrue("window.toFront()" in raise)
+        assertTrue("requestFocus()" in raise)
+        assertTrue("refreshComposeSurface" in raise)
+    }
 }

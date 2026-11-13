@@ -18,7 +18,7 @@ object WindowFullscreen {
      * What Esc does in the app window. Order matches 1.2.27 so nothing changes
      * during playback: the Next banner and Game Day split keep their old jobs,
      * and while a video plays Esc does NOT drop the app out of full screen.
- * On macOS, [stopPlaybackOnEsc] makes Esc stop the player instead of only
+ * On macOS and Linux, [stopPlaybackOnEsc] makes Esc stop the player instead of only
  * leaving VLC fullscreen (which looked like the picture shrinking).
      */
     fun escAction(

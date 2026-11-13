@@ -111,9 +111,19 @@ object StreamPlayer {
     /**
      * Esc in Mac VLC would otherwise only leave fullscreen (the picture
      * "shrinks"). Unset that binding and make Esc quit so Stop is reliable.
-     * Verified present on official VLC.app; not passed on Windows/Linux.
+     * Verified present on official VLC.app; not passed on Windows.
      */
     internal val VLC_MAC_STOP_KEYS: List<String> = listOf(
+        "--key-leave-fullscreen=Unset",
+        "--key-quit=Esc",
+        "--global-key-quit=Esc"
+    )
+
+    /**
+     * Same Esc-to-quit bindings on Linux VLC 3.0 (Qt). Verified accepted by
+     * Ubuntu VLC 3.0.23; `--no-macosx-nativefullscreenmode` is not passed.
+     */
+    internal val VLC_LINUX_STOP_KEYS: List<String> = listOf(
         "--key-leave-fullscreen=Unset",
         "--key-quit=Esc",
         "--global-key-quit=Esc"
@@ -811,6 +821,9 @@ object StreamPlayer {
         }
         if (macos) {
             args += VLC_MAC_STOP_KEYS
+        }
+        if (!windows && !macos) {
+            args += VLC_LINUX_STOP_KEYS
         }
         args += "--no-repeat"
         args += "--no-loop"

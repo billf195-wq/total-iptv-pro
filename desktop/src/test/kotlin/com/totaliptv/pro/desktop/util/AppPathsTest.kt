@@ -30,4 +30,18 @@ class AppPathsTest {
         val dir = configDirFor(false, false, "/home/bill", null)
         assertEquals("/home/bill/.config/total-iptv-pro", dir.toString())
     }
+
+    @Test
+    fun linuxHonorsXdgConfigHome() {
+        val dir = configDirFor(
+            isWindows = false,
+            isMac = false,
+            home = "/home/bill",
+            appData = null,
+            xdgConfigHome = "/custom/config"
+        )
+        assertEquals("/custom/config/total-iptv-pro", dir.toString())
+        val fallback = configDirFor(false, false, "/home/bill", null, xdgConfigHome = "  ")
+        assertEquals("/home/bill/.config/total-iptv-pro", fallback.toString())
+    }
 }

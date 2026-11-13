@@ -147,6 +147,42 @@ object LinuxX11WindowPlacer {
     }
 
     /**
+     * Raise this process's main window after VLC exits so the title page is
+     * in front again (GNOME may otherwise leave it behind or minimized).
+     */
+    fun activateCurrentApp(): Boolean = activatePid(ProcessHandle.current().pid())
+
+    fun activatePid(pid: Long): Boolean {
+        if (pid <= 0L) return false
+        val x11 = x11OrNull() ?: return false
+        val dpy = x11.XOpenDisplay(null) ?: return false
+        ensureErrorHandler(x11)
+        try {
+            val root = x11.XDefaultRootWindow(dpy).toLong()
+            if (root == 0L) return false
+            val windows = topLevelWindows(x11, dpy, root)
+            val mine = windows.filter { pidSource(x11, dpy, it, pid) != "none" }
+            if (mine.isEmpty()) return false
+            val candidates = wmManagedWindows(mine, netClientList(x11, dpy, root)).ifEmpty { mine }
+            val window = candidates.maxByOrNull { geometry(x11, dpy, it)?.let { size -> size.first.toLong() * size.second } ?: 0L }
+                ?: return false
+            removeNetWmState(x11, dpy, root, window, "_NET_WM_STATE_HIDDEN", null)
+            x11.XMapWindow(dpy, NativeLong(window))
+            x11.XRaiseWindow(dpy, NativeLong(window))
+            sendNetActiveWindow(x11, dpy, root, window)
+            x11.XFlush(dpy)
+            x11.XSync(dpy, 0)
+            PlaybackDebugLog.note("linux-activate: pid=$pid window=0x${window.toString(16)}")
+            return true
+        } catch (t: Throwable) {
+            PlaybackDebugLog.note("linux-activate: failed ${t.message}")
+            return false
+        } finally {
+            runCatching { x11.XCloseDisplay(dpy) }
+        }
+    }
+
+    /**
      * Fullscreen a single-play VLC window on [monitor]. The window is moved onto
      * that monitor's work area first; GNOME will not move a window that is
      * already fullscreen on another output. `_NET_WM_STATE_FULLSCREEN` is set
@@ -881,6 +917,21 @@ object LinuxX11WindowPlacer {
         changeNetWmState(x11, dpy, root, window, NET_WM_STATE_ADD, name, null)
     }
 
+    private fun sendNetActiveWindow(x11: X11Lib, dpy: Pointer, root: Long, window: Long) {
+        val active = intern(x11, dpy, "_NET_ACTIVE_WINDOW") ?: return
+        val event = Memory(XEVENT_BYTES.toLong())
+        event.clear()
+        event.setInt(0, CLIENT_MESSAGE)
+        event.setPointer(24, dpy)
+        event.setLong(32, window)
+        event.setLong(40, active)
+        event.setInt(48, FORMAT_32)
+        event.setLong(56, NET_WM_STATE_SOURCE_APP)
+        event.setLong(64, 0L)
+        event.setLong(72, 0L)
+        x11.XSendEvent(dpy, NativeLong(root), 0, NativeLong(SUBSTRUCTURE_MASKS), event)
+    }
+
     private fun changeNetWmState(
         x11: X11Lib,
         dpy: Pointer,
@@ -1231,6 +1282,7 @@ internal interface X11Lib : Library {
     ): NativeLong
 
     fun XMapWindow(display: Pointer, window: NativeLong): Int
+    fun XRaiseWindow(display: Pointer, window: NativeLong): Int
     fun XDestroyWindow(display: Pointer, window: NativeLong): Int
     fun XChangeWindowAttributes(
         display: Pointer,
