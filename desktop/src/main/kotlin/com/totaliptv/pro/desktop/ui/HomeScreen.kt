@@ -249,6 +249,7 @@ fun HomeScreen(
     onOpenSeries: (MediaItem) -> Unit,
     onResumeEntry: (ResumeStore.ResumeEntry, MediaItem?) -> Unit,
     posterColumns: Int = 11,
+    scrollStates: BrowseScrollStates? = null,
     modifier: Modifier = Modifier
 ) {
     val columns = posterColumns.let { if (it in setOf(5, 6, 8, 11)) it else 11 }
@@ -262,7 +263,32 @@ fun HomeScreen(
     // Bumped once per visit, after the visible batch settles or the 10s cap.
     // Later rating batches update badges only; they do not reshuffle this row.
     var sortGeneration by remember { mutableIntStateOf(0) }
-    val homeListState = rememberLazyListState()
+    val fallbackHomeListState = rememberLazyListState()
+    val homeListState = scrollStates?.list(BrowseScrollStates.HOME) ?: fallbackHomeListState
+    fun persistHomeScroll(holder: BrowseScrollStates) {
+        val vert = holder.snapshot(BrowseScrollStates.HOME)
+        val rows = holder.snapshotsPrefixed("home").map { e ->
+            com.totaliptv.pro.desktop.data.RowScroll(e.key, e.value.index, e.value.offset)
+        }
+        com.totaliptv.pro.desktop.data.LastPlaceStore.shared.saveBrowse(
+            screen = com.totaliptv.pro.desktop.data.LastPlace.SCREEN_HOME,
+            firstVisibleIndex = vert.index,
+            firstVisibleOffset = vert.offset,
+            rowScroll = rows
+        )
+    }
+    androidx.compose.runtime.DisposableEffect(scrollStates) {
+        onDispose {
+            val holder = scrollStates ?: return@onDispose
+            persistHomeScroll(holder)
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(scrollStates) {
+        val holder = scrollStates ?: return@LaunchedEffect
+        androidx.compose.runtime.snapshotFlow {
+            holder.snapshot(BrowseScrollStates.HOME) to holder.snapshotsPrefixed("home")
+        }.collect { persistHomeScroll(holder) }
+    }
     val movieRow = remember(catalog, sortGeneration, ratingsOn, resumeEntries, continueShown) {
         val cache = TmdbRatingStore.snapshot()
         runCatching {
@@ -336,7 +362,7 @@ fun HomeScreen(
             if (continuePairs.isEmpty()) {
                 EmptyHint("Play a movie or series episode — it will show up here.")
             } else {
-                HomePosterRow(columns = columns) { cardWidth ->
+                HomePosterRow(columns = columns, listState = scrollStates?.list(BrowseScrollStates.HOME_CONTINUE)) { cardWidth ->
                     items(continuePairs, key = { it.first.key }) { (entry, media) ->
                         ContinueCard(
                             entry = entry,
@@ -354,8 +380,8 @@ fun HomeScreen(
             if (movieRow.items.isEmpty()) {
                 EmptyHint("No movies in catalog yet.")
             } else {
-                HomePosterRow(columns = columns) { cardWidth ->
-                    items(movieRow.items.take(columns), key = { it.id }) { item ->
+                HomePosterRow(columns = columns, listState = scrollStates?.list(BrowseScrollStates.HOME_MOVIES)) { cardWidth ->
+                    items(movieRow.items, key = { it.id }) { item ->
                         HomePosterCard(
                             title = item.name,
                             posterUrl = item.artworkUrl(),
@@ -377,8 +403,8 @@ fun HomeScreen(
             if (seriesRow.items.isEmpty()) {
                 EmptyHint("No series in catalog yet.")
             } else {
-                HomePosterRow(columns = columns) { cardWidth ->
-                    items(seriesRow.items.take(columns), key = { it.id }) { item ->
+                HomePosterRow(columns = columns, listState = scrollStates?.list(BrowseScrollStates.HOME_SERIES)) { cardWidth ->
+                    items(seriesRow.items, key = { it.id }) { item ->
                         HomePosterCard(
                             title = item.name,
                             posterUrl = item.artworkUrl(),
@@ -453,15 +479,18 @@ private fun ContinueCard(
 private fun HomePosterRow(
     columns: Int,
     spacing: androidx.compose.ui.unit.Dp = 12.dp,
+    listState: androidx.compose.foundation.lazy.LazyListState? = null,
     content: androidx.compose.foundation.lazy.LazyListScope.(cardWidth: androidx.compose.ui.unit.Dp) -> Unit
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val gapTotal = spacing * (columns - 1).coerceAtLeast(0)
         val cardWidth = ((maxWidth - gapTotal) / columns).coerceAtLeast(72.dp)
+        val fallbackRowState = androidx.compose.foundation.lazy.rememberLazyListState()
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
+            state = listState ?: fallbackRowState,
             horizontalArrangement = Arrangement.spacedBy(spacing),
-            userScrollEnabled = false
+            userScrollEnabled = true
         ) {
             content(cardWidth)
         }

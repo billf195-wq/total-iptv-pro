@@ -517,8 +517,12 @@ fun BrowseGridPane(
         delay(SearchTyping.DEBOUNCE_MS)
         query = search
     }
+    var lastGridKey by remember { mutableStateOf("$categoryId|$sort|$title") }
     LaunchedEffect(categoryId, sort, title) {
-        gridState.scrollToItem(0)
+        val key = "$categoryId|$sort|$title"
+        if (key == lastGridKey) return@LaunchedEffect
+        lastGridKey = key
+        if (!pendingFocusRestore) gridState.scrollToItem(0)
     }
 
     val desktopRepo = (LocalContext.current.applicationContext as? com.totaliptv.pro.TotalIptvProApp)?.repository

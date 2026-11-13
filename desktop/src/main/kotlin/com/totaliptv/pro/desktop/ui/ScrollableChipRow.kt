@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -70,9 +71,11 @@ fun ScrollableChipRow(
     selectedIndex: Int = -1,
     modifier: Modifier = Modifier,
     spacing: Dp = 8.dp,
+    listState: LazyListState? = null,
     content: LazyListScope.() -> Unit
 ) {
-    val state = rememberLazyListState()
+    val fallback = rememberLazyListState()
+    val state = listState ?: fallback
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val canBack by remember { derivedStateOf { state.canScrollBackward } }

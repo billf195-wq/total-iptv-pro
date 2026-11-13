@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -33,6 +35,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.util.SensitiveText
+import com.totaliptv.pro.data.local.LastPlace
+import com.totaliptv.pro.data.local.RowScroll
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
@@ -65,6 +69,37 @@ fun PhoneHomeScreen(
     var newlySeries by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var liveSample by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var detail by remember { mutableStateOf<MediaItem?>(null) }
+    val initialHome = remember { app.lastPlace.peek()?.takeIf { it.screen.equals(LastPlace.SCREEN_HOME, ignoreCase = true) } }
+    fun rowStart(key: String): RowScroll? = initialHome?.rowScroll?.firstOrNull { it.key == key }
+    val homeListState = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialHome?.firstVisibleIndex ?: 0,
+        initialFirstVisibleItemScrollOffset = initialHome?.firstVisibleOffset ?: 0
+    )
+    val cwRowState = rememberLazyListState(rowStart("cw")?.index ?: 0, rowStart("cw")?.offset ?: 0)
+    val moviesRowState = rememberLazyListState(rowStart("movies")?.index ?: 0, rowStart("movies")?.offset ?: 0)
+    val seriesRowState = rememberLazyListState(rowStart("series")?.index ?: 0, rowStart("series")?.offset ?: 0)
+    val liveRowState = rememberLazyListState(rowStart("live")?.index ?: 0, rowStart("live")?.offset ?: 0)
+    LaunchedEffect(homeListState, cwRowState, moviesRowState, seriesRowState, liveRowState) {
+        snapshotFlow {
+            Triple(
+                homeListState.firstVisibleItemIndex to homeListState.firstVisibleItemScrollOffset,
+                listOf(
+                    RowScroll("cw", cwRowState.firstVisibleItemIndex, cwRowState.firstVisibleItemScrollOffset),
+                    RowScroll("movies", moviesRowState.firstVisibleItemIndex, moviesRowState.firstVisibleItemScrollOffset),
+                    RowScroll("series", seriesRowState.firstVisibleItemIndex, seriesRowState.firstVisibleItemScrollOffset),
+                    RowScroll("live", liveRowState.firstVisibleItemIndex, liveRowState.firstVisibleItemScrollOffset)
+                ),
+                0
+            )
+        }.collect { (vert, rows, _) ->
+            app.lastPlace.saveBrowse(
+                screen = LastPlace.SCREEN_HOME,
+                firstVisibleIndex = vert.first,
+                firstVisibleOffset = vert.second,
+                rowScroll = rows
+            )
+        }
+    }
 
     fun reloadContinue() {
         val store = app.watchProgress
@@ -127,7 +162,7 @@ fun PhoneHomeScreen(
                 }
             }
             else -> {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(modifier = Modifier.fillMaxSize(), state = homeListState) {
                     if (vodLoading) {
                         item {
                             Text(
@@ -146,6 +181,7 @@ fun PhoneHomeScreen(
                         item { PhoneSectionTitle("Continue watching") }
                         item {
                             LazyRow(
+                                state = cwRowState,
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
@@ -164,6 +200,7 @@ fun PhoneHomeScreen(
                         item { PhoneSectionTitle("Newly added movies") }
                         item {
                             LazyRow(
+                                state = moviesRowState,
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
@@ -182,6 +219,7 @@ fun PhoneHomeScreen(
                         item { PhoneSectionTitle("Newly added series") }
                         item {
                             LazyRow(
+                                state = seriesRowState,
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
@@ -200,6 +238,7 @@ fun PhoneHomeScreen(
                         item { PhoneSectionTitle("Live channels") }
                         item {
                             LazyRow(
+                                state = liveRowState,
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {

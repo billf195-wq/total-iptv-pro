@@ -571,16 +571,16 @@ fun DesktopAppRoot(
                         watchProgress = detailProgress,
                         onPlay = {
                             val playTarget = detail
-                            dismissDetail(restore = false)
+                            dismissDetail(restore = true)
                             onPlay(playTarget)
                         },
                         onPlayItem = { playTarget ->
-                            dismissDetail(restore = false)
+                            dismissDetail(restore = true)
                             onPlay(playTarget)
                         },
                         onResume = {
                             val playTarget = detailProgress?.toMediaItem() ?: detail
-                            dismissDetail(restore = false)
+                            dismissDetail(restore = true)
                             onPlay(playTarget)
                         },
                         onPlayFromStart = {
@@ -590,7 +590,7 @@ fun DesktopAppRoot(
                                 detailProgress?.catalogId?.let { store?.clear(it) }
                             }
                             val playTarget = detail
-                            dismissDetail(restore = false)
+                            dismissDetail(restore = true)
                             onPlayFromStart(playTarget)
                         },
                         onToggleFavorite = { toggleFavoriteToast(detail) },

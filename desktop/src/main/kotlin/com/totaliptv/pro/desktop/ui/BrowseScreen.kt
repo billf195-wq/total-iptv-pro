@@ -164,6 +164,23 @@ fun BrowseScreen(
     onCancelSchedule: (ScheduledRecording) -> Unit = {}
 ) {
     val restoredPlace = remember { LastPlaceStore.shared.load() }
+    val scrollStates = remember {
+        val initial = mutableMapOf<String, ScrollSpot>()
+        restoredPlace?.let { place ->
+            val sort = BrowseSort.fromPrefs(prefs.browseSort).prefsValue
+            val key = when (place.screen) {
+                LastPlace.SCREEN_HOME -> BrowseScrollStates.HOME
+                LastPlace.SCREEN_LIVE -> BrowseScrollStates.live(place.categoryId)
+                LastPlace.SCREEN_MOVIES -> BrowseScrollStates.movies(place.categoryId, sort)
+                LastPlace.SCREEN_SERIES -> BrowseScrollStates.series(place.categoryId, sort)
+                LastPlace.SCREEN_FAVORITES -> BrowseScrollStates.FAVORITES
+                else -> null
+            }
+            if (key != null) initial[key] = ScrollSpot(place.firstVisibleIndex, place.firstVisibleOffset)
+            place.rowScroll.forEach { initial[it.key] = ScrollSpot(it.index, it.offset) }
+        }
+        BrowseScrollStates(initial)
+    }
     var nav by remember { mutableStateOf(MainNav.fromLastPlace(restoredPlace?.screen)) }
     var selectedCategoryId by remember { mutableStateOf(restoredPlace?.categoryId) }
     var query by remember { mutableStateOf("") }
@@ -444,6 +461,7 @@ fun BrowseScreen(
                         onOpenSeries = onOpenSeries,
                         onResumeEntry = onResumeEntry,
                         posterColumns = prefs.posterColumns.let { if (it in setOf(5, 6, 8, 11)) it else 11 },
+                        scrollStates = scrollStates,
                         modifier = Modifier.weight(1f).fillMaxHeight()
                     )
                 }
@@ -501,6 +519,7 @@ fun BrowseScreen(
                         onOpenSeries = onOpenSeries,
                         onPlayLive = onPlay,
                         onToggleFavorite = onToggleFavorite,
+                        scrollStates = scrollStates,
                         modifier = Modifier.weight(1f).fillMaxHeight()
                     )
                 }
@@ -509,6 +528,7 @@ fun BrowseScreen(
                     BrowseContentPane(
                         kind = kind,
                         catalog = catalog,
+                        scrollStates = scrollStates,
                         posterColumns = prefs.posterColumns.let { if (it in setOf(5, 6, 8, 11)) it else 6 },
                         browseSort = BrowseSort.fromPrefs(prefs.browseSort),
                         onBrowseSortChange = { sort ->
@@ -570,6 +590,7 @@ private fun TopBanner(banner: ImageBitmap?) {
 private fun BrowseContentPane(
     kind: ContentKind,
     catalog: Catalog,
+    scrollStates: BrowseScrollStates,
     posterColumns: Int,
     browseSort: BrowseSort,
     onBrowseSortChange: (BrowseSort) -> Unit,
@@ -710,8 +731,64 @@ private fun BrowseContentPane(
             Spacer(Modifier.height(12.dp))
         }
 
+        val kindKey = when (kind) {
+            ContentKind.LIVE -> "LIVE"
+            ContentKind.VOD -> "VOD"
+            ContentKind.SERIES -> "SERIES"
+        }
+        val listKey = when (kind) {
+            ContentKind.LIVE -> BrowseScrollStates.live(selectedCategoryId)
+            ContentKind.VOD -> BrowseScrollStates.movies(selectedCategoryId, browseSort.prefsValue)
+            ContentKind.SERIES -> BrowseScrollStates.series(selectedCategoryId, browseSort.prefsValue)
+        }
+        androidx.compose.runtime.DisposableEffect(listKey) {
+            onDispose {
+                val spot = scrollStates.snapshot(listKey)
+                val rows = scrollStates.snapshotsPrefixed(BrowseScrollStates.chips(kindKey)).map { e ->
+                    com.totaliptv.pro.desktop.data.RowScroll(e.key, e.value.index, e.value.offset)
+                }
+                LastPlaceStore.shared.saveBrowse(
+                    screen = when (kind) {
+                        ContentKind.LIVE -> LastPlace.SCREEN_LIVE
+                        ContentKind.VOD -> LastPlace.SCREEN_MOVIES
+                        ContentKind.SERIES -> LastPlace.SCREEN_SERIES
+                    },
+                    categoryId = selectedCategoryId,
+                    firstVisibleIndex = spot.index,
+                    firstVisibleOffset = spot.offset,
+                    rowScroll = rows
+                )
+            }
+        }
+        androidx.compose.runtime.LaunchedEffect(listKey) {
+            androidx.compose.runtime.snapshotFlow {
+                val s = scrollStates.snapshot(listKey)
+                Triple(s.index, s.offset, scrollStates.snapshotsPrefixed(BrowseScrollStates.chips(kindKey)))
+            }.collect { triple ->
+                val index = triple.first
+                val scrollOffset = triple.second
+                val rowMap = triple.third
+                LastPlaceStore.shared.saveBrowse(
+                    screen = when (kind) {
+                        ContentKind.LIVE -> LastPlace.SCREEN_LIVE
+                        ContentKind.VOD -> LastPlace.SCREEN_MOVIES
+                        ContentKind.SERIES -> LastPlace.SCREEN_SERIES
+                    },
+                    categoryId = selectedCategoryId,
+                    firstVisibleIndex = index,
+                    firstVisibleOffset = scrollOffset,
+                    rowScroll = rowMap.map { e ->
+                        com.totaliptv.pro.desktop.data.RowScroll(e.key, e.value.index, e.value.offset)
+                    }
+                )
+            }
+        }
+
         if (categories.isNotEmpty()) {
-            ScrollableChipRow(selectedIndex = categories.indexOfFirst { it.id == selectedCategoryId }.let { if (selectedCategoryId == null) 0 else if (it < 0) -1 else it + 1 }) {
+            ScrollableChipRow(
+                selectedIndex = categories.indexOfFirst { it.id == selectedCategoryId }.let { if (selectedCategoryId == null) 0 else if (it < 0) -1 else it + 1 },
+                listState = scrollStates.list(BrowseScrollStates.chips(kindKey))
+            ) {
                 item {
                     FilterChip(
                         selected = selectedCategoryId == null,
@@ -735,7 +812,10 @@ private fun BrowseContentPane(
         }
 
         if (kind == ContentKind.LIVE) {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyColumn(
+                state = scrollStates.list(listKey),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 items(filtered, key = { it.id }) { item ->
                     MediaRow(
                         item = item,
@@ -751,6 +831,7 @@ private fun BrowseContentPane(
             // Column count from Settings (5 / 6 / 11) — posters size to the cell automatically.
             LazyVerticalGrid(
                 columns = GridCells.Fixed(posterColumns.coerceIn(5, 11)),
+                state = scrollStates.grid(listKey),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
@@ -785,6 +866,7 @@ private fun FavoritesPane(
     onOpenSeries: (MediaItem) -> Unit,
     onPlayLive: (MediaItem) -> Unit,
     onToggleFavorite: (MediaItem) -> Unit,
+    scrollStates: BrowseScrollStates,
     modifier: Modifier = Modifier
 ) {
     val resolved = remember(favoriteEntries, catalog, query) {
@@ -860,6 +942,7 @@ private fun FavoritesPane(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(140.dp),
+                state = scrollStates.grid(BrowseScrollStates.FAVORITES),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()

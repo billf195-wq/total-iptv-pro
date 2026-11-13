@@ -13,11 +13,20 @@ import java.util.concurrent.TimeUnit
  * playlist credentials).
  */
 @Serializable
+data class RowScroll(
+    val key: String,
+    val index: Int = 0,
+    val offset: Int = 0
+)
+
+@Serializable
 data class LastPlace(
     /** home, live, movies, series, settings, guide, search, recordings */
     val screen: String = "home",
     val categoryId: String? = null,
     val firstVisibleIndex: Int = 0,
+    val firstVisibleOffset: Int = 0,
+    val rowScroll: List<RowScroll> = emptyList(),
     val focusedItemId: String? = null,
     val playing: Boolean = false,
     val playItemId: String? = null,
@@ -78,15 +87,20 @@ class LastPlaceStore(private val file: File) {
     fun saveBrowse(
         screen: String,
         categoryId: String? = null,
-        firstVisibleIndex: Int = 0,
-        focusedItemId: String? = null
+        firstVisibleIndex: Int? = null,
+        focusedItemId: String? = null,
+        firstVisibleOffset: Int? = null,
+        rowScroll: List<RowScroll>? = null,
+        setFocusedItemId: Boolean = focusedItemId != null
     ) {
         update { cur ->
             cur.copy(
                 screen = screen,
                 categoryId = categoryId,
-                firstVisibleIndex = firstVisibleIndex.coerceAtLeast(0),
-                focusedItemId = focusedItemId,
+                firstVisibleIndex = firstVisibleIndex?.coerceAtLeast(0) ?: cur.firstVisibleIndex,
+                firstVisibleOffset = firstVisibleOffset?.coerceAtLeast(0) ?: cur.firstVisibleOffset,
+                rowScroll = rowScroll ?: cur.rowScroll,
+                focusedItemId = if (setFocusedItemId) focusedItemId else cur.focusedItemId,
                 savedAtMs = System.currentTimeMillis()
             )
         }

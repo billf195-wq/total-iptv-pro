@@ -91,18 +91,22 @@ fun PhoneBrowseScreen(
     var sort by remember { mutableStateOf(CatalogSort.RECENTLY_ADDED) }
     var items by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var detail by remember { mutableStateOf<MediaItem?>(null) }
-    val gridState = rememberLazyGridState()
-    val listState = rememberLazyListState()
+    val restorePlace = initialPlace?.takeIf { it.screen == sectionScreen }
+    val restoreIndex = restorePlace?.firstVisibleIndex ?: 0
+    val restoreOffset = restorePlace?.firstVisibleOffset ?: 0
+    val gridState = rememberLazyGridState(
+        initialFirstVisibleItemIndex = restoreIndex,
+        initialFirstVisibleItemScrollOffset = restoreOffset
+    )
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = restoreIndex,
+        initialFirstVisibleItemScrollOffset = restoreOffset
+    )
     var lastListKey by remember { mutableStateOf("") }
     var pendingScrollTop by remember { mutableStateOf(false) }
     var pendingRestoreScroll by remember {
-        mutableStateOf(
-            initialPlace != null &&
-                initialPlace.screen == sectionScreen &&
-                initialPlace.firstVisibleIndex > 0
-        )
+        mutableStateOf(restorePlace != null && (restoreIndex > 0 || restoreOffset > 0))
     }
-    val restoreIndex = initialPlace?.takeIf { it.screen == sectionScreen }?.firstVisibleIndex ?: 0
     val dvrSnap by remember(context) {
         (context.applicationContext as TotalIptvProApp).dvr.snapshot
     }.collectAsState()
@@ -149,7 +153,7 @@ fun PhoneBrowseScreen(
         val key = "${section.name}|$selectedCat|${sort.name}"
         if (key != lastListKey) {
             lastListKey = key
-            pendingScrollTop = true
+            if (!pendingRestoreScroll) pendingScrollTop = true
         }
     }
     // Scroll after the new list is composed; scrolling earlier lets the grid keep the old
@@ -157,9 +161,10 @@ fun PhoneBrowseScreen(
     LaunchedEffect(items, pendingScrollTop, pendingRestoreScroll) {
         if (pendingRestoreScroll) {
             val idx = restoreIndex
-            if (idx > 0 && items.isNotEmpty()) {
-                runCatching { gridState.scrollToItem(idx.coerceAtMost(items.lastIndex)) }
-                runCatching { listState.scrollToItem(idx.coerceAtMost(items.lastIndex)) }
+            if ((idx > 0 || restoreOffset > 0) && items.isNotEmpty()) {
+                val safe = idx.coerceAtMost(items.lastIndex).coerceAtLeast(0)
+                runCatching { gridState.scrollToItem(safe, restoreOffset) }
+                runCatching { listState.scrollToItem(safe, restoreOffset) }
             }
             pendingRestoreScroll = false
             pendingScrollTop = false
@@ -170,13 +175,29 @@ fun PhoneBrowseScreen(
         runCatching { listState.scrollToItem(0) }
         pendingScrollTop = false
     }
-    LaunchedEffect(sectionScreen, selectedCat, gridState) {
+    LaunchedEffect(sectionScreen, selectedCat, listState) {
         val screen = sectionScreen ?: return@LaunchedEffect
-        snapshotFlow { gridState.firstVisibleItemIndex }.collect { idx ->
+        snapshotFlow {
+            Triple(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, selectedCat)
+        }.collect { (idx, off, cat) ->
             lastPlace.saveBrowse(
                 screen = screen,
-                categoryId = selectedCat,
-                firstVisibleIndex = idx
+                categoryId = cat,
+                firstVisibleIndex = idx,
+                firstVisibleOffset = off
+            )
+        }
+    }
+    LaunchedEffect(sectionScreen, selectedCat, gridState) {
+        val screen = sectionScreen ?: return@LaunchedEffect
+        snapshotFlow {
+            Triple(gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset, selectedCat)
+        }.collect { (idx, off, cat) ->
+            lastPlace.saveBrowse(
+                screen = screen,
+                categoryId = cat,
+                firstVisibleIndex = idx,
+                firstVisibleOffset = off
             )
         }
     }

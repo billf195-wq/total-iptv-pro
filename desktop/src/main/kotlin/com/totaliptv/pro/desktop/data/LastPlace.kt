@@ -13,10 +13,21 @@ import java.util.concurrent.TimeUnit
  * the user was. Never stores a stream URL (those can contain credentials).
  */
 @Serializable
+data class RowScroll(
+    val key: String,
+    val index: Int = 0,
+    val offset: Int = 0
+)
+
+@Serializable
 data class LastPlace(
     /** home, live, movies, series, settings, guide, favorites, recordings */
     val screen: String = SCREEN_HOME,
     val categoryId: String? = null,
+    val firstVisibleIndex: Int = 0,
+    val firstVisibleOffset: Int = 0,
+    val rowScroll: List<RowScroll> = emptyList(),
+    val focusedItemId: String? = null,
     val savedAtMs: Long = 0L
 ) {
     companion object {
@@ -62,11 +73,23 @@ class LastPlaceStore(private val file: File) {
         writer.execute { write(next) }
     }
 
-    fun saveBrowse(screen: String, categoryId: String? = null) {
+    fun saveBrowse(
+        screen: String,
+        categoryId: String? = null,
+        firstVisibleIndex: Int? = null,
+        firstVisibleOffset: Int? = null,
+        rowScroll: List<RowScroll>? = null,
+        focusedItemId: String? = null,
+        setFocusedItemId: Boolean = false
+    ) {
         update { cur ->
             cur.copy(
                 screen = screen,
                 categoryId = categoryId,
+                firstVisibleIndex = firstVisibleIndex?.coerceAtLeast(0) ?: cur.firstVisibleIndex,
+                firstVisibleOffset = firstVisibleOffset?.coerceAtLeast(0) ?: cur.firstVisibleOffset,
+                rowScroll = rowScroll ?: cur.rowScroll,
+                focusedItemId = if (setFocusedItemId) focusedItemId else cur.focusedItemId,
                 savedAtMs = System.currentTimeMillis()
             )
         }

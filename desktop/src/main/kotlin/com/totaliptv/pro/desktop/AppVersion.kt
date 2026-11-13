@@ -66,8 +66,11 @@ package com.totaliptv.pro.desktop
  *         raised back to the front on the title page. Esc stops VLC (it does
  *         not only leave fullscreen). Config stays under XDG (~/.config or
  *         $XDG_CONFIG_HOME).
+ * 1.2.35: Remember vertical list/grid scroll, each row's horizontal position,
+ *         and restore them when leaving a title with Back or after playback
+ *         stops, instead of jumping to the top.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 46
-    const val VERSION_NAME: String = "1.2.34"
+    const val VERSION_CODE: Int = 47
+    const val VERSION_NAME: String = "1.2.35"
 }
