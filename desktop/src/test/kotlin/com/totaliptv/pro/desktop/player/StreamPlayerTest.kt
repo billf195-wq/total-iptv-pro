@@ -673,4 +673,36 @@ class StreamPlayerTest {
         assertTrue(mpvLiveLin.contains("--keep-open=yes"))
         assertTrue(mpvVodLin.contains("--keep-open=no"))
     }
+
+
+    @Test
+    fun macVlcLooksInApplicationsAndSkipsX11Placer() {
+        val home = "/Users/bill"
+        val found = StreamPlayer.macVlcCandidates(home).map { it.path }
+        assertEquals("/Applications/VLC.app/Contents/MacOS/VLC", found[0])
+        assertEquals("/Users/bill/Applications/VLC.app/Contents/MacOS/VLC", found[1])
+        assertFalse(
+            StreamPlayer.useX11MonitorFullscreen(
+                windows = false,
+                fullscreen = true,
+                displayAvailable = true,
+                macos = true
+            )
+        )
+        val cmd = StreamPlayer.vlcCommand(
+            "/Users/bill/Applications/VLC.app/Contents/MacOS/VLC",
+            listOf("http://example.test/movie.mp4"),
+            windows = false,
+            macos = true,
+            fullscreen = true
+        )
+        assertEquals("/Users/bill/Applications/VLC.app/Contents/MacOS/VLC", cmd.first())
+        assertTrue("--fullscreen" in cmd)
+        assertTrue("--qt-minimal-view" in cmd)
+        assertTrue("--no-video-deco" in cmd)
+        assertFalse(cmd.any { it.startsWith("--qt-fullscreen-screennumber=") })
+        assertTrue("--play-and-exit" in cmd)
+        assertFalse("--rc-quiet" in cmd)
+        assertFalse("--ignore-config" in cmd)
+    }
 }

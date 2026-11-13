@@ -94,6 +94,14 @@ object StreamPlayer {
         "--qt-minimal-view"
     )
 
+    /** macOS VLC.app fullscreen: hide title and controller, no X11 or Win32 placement. */
+    internal val VLC_MAC_TRUE_FULLSCREEN: List<String> = listOf(
+        "--no-video-title-show",
+        "--no-qt-fs-controller",
+        "--no-video-deco",
+        "--qt-minimal-view"
+    )
+
     /** VLC RC: force fullscreen. `fullscreen` alone toggles; `on` stays on. */
     internal const val LINUX_VLC_FULLSCREEN_RC = "fullscreen on"
 
@@ -185,7 +193,8 @@ object StreamPlayer {
         val x11Fullscreen = useX11MonitorFullscreen(
             AppPaths.isWindows,
             fullscreen,
-            !System.getenv("DISPLAY").isNullOrBlank()
+            !System.getenv("DISPLAY").isNullOrBlank(),
+            macos = AppPaths.isMac
         )
         val win32Fullscreen = useWin32MonitorFullscreen(AppPaths.isWindows, fullscreen)
         val fullscreenScreen = if (fullscreen) {
@@ -202,10 +211,13 @@ object StreamPlayer {
             fullscreenScreen
         )
             ?: error(
-                if (AppPaths.isWindows) {
-                    "No media player found. Install VLC (recommended), or add mpv/ffplay to PATH."
-                } else {
-                    "No media player found. Install vlc, mpv, or ffmpeg (ffplay)."
+                when {
+                    AppPaths.isWindows ->
+                        "No media player found. Install VLC (recommended), or add mpv/ffplay to PATH."
+                    AppPaths.isMac ->
+                        "No media player found. Install VLC from videolan.org into Applications, or add mpv/ffplay."
+                    else ->
+                        "No media player found. Install vlc, mpv, or ffmpeg (ffplay)."
                 }
             )
         lastLaunchWasPlaylist = resolved.playlist
@@ -597,8 +609,9 @@ object StreamPlayer {
     internal fun useX11MonitorFullscreen(
         windows: Boolean,
         fullscreen: Boolean,
-        displayAvailable: Boolean
-    ): Boolean = !windows && fullscreen && displayAvailable
+        displayAvailable: Boolean,
+        macos: Boolean = false
+    ): Boolean = !windows && !macos && fullscreen && displayAvailable
 
     /**
      * Always false. Snapping a normal VLC window onto the monitor leaves the
@@ -672,7 +685,8 @@ object StreamPlayer {
         live: Boolean = false,
         startPositionSeconds: Long? = null,
         fullscreen: Boolean = true,
-        fullscreenScreen: Int = -1
+        fullscreenScreen: Int = -1,
+        macos: Boolean = AppPaths.isMac
     ): List<String> {
         val args = mutableListOf(binary)
         if (windows) {
@@ -680,14 +694,21 @@ object StreamPlayer {
         }
         if (fullscreen) {
             args += "--fullscreen"
-            if (windows) {
-                args += VLC_WINDOWS_TRUE_FULLSCREEN
-                qtFullscreenScreenArg(fullscreenScreen)?.let { args += it }
-            } else {
-                // Stripped again by the X11 placer. The screen number stays so
-                // the later RC `fullscreen on` does not follow a saved screen.
-                args += VLC_LINUX_TRUE_FULLSCREEN
-                qtFullscreenScreenArg(fullscreenScreen)?.let { args += it }
+            when {
+                windows -> {
+                    args += VLC_WINDOWS_TRUE_FULLSCREEN
+                    qtFullscreenScreenArg(fullscreenScreen)?.let { args += it }
+                }
+                macos -> {
+                    // macOS VLC.app: hide title/controller; no X11 placer.
+                    args += VLC_MAC_TRUE_FULLSCREEN
+                }
+                else -> {
+                    // Stripped again by the X11 placer. The screen number stays so
+                    // the later RC `fullscreen on` does not follow a saved screen.
+                    args += VLC_LINUX_TRUE_FULLSCREEN
+                    qtFullscreenScreenArg(fullscreenScreen)?.let { args += it }
+                }
             }
         }
         args += VLC_QT_QUIET
@@ -908,8 +929,18 @@ object StreamPlayer {
         runCatching { Thread.sleep(WINDOWS_KILL_SETTLE_MS.toLong()) }
     }
 
+    /** Standard VLC.app locations on macOS (system and per-user Applications). */
+    internal fun macVlcCandidates(home: String = System.getProperty("user.home").orEmpty()): List<File> =
+        listOf(
+            File("/Applications/VLC.app/Contents/MacOS/VLC"),
+            File(home, "Applications/VLC.app/Contents/MacOS/VLC")
+        )
+
     private fun resolveVlcBinary(): String? {
         resolveOnPath("vlc")?.let { return it }
+        if (AppPaths.isMac) {
+            return macVlcCandidates().firstOrNull { it.isFile && it.canExecute() }?.absolutePath
+        }
         if (!AppPaths.isWindows) {
             if (File("/usr/bin/vlc").canExecute()) return "/usr/bin/vlc"
             return null

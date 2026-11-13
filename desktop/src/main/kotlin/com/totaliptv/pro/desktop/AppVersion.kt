@@ -49,7 +49,9 @@ package com.totaliptv.pro.desktop
  *         to the title page in the full-size app window and no longer minimizes it.
  * 1.2.31: After Stop, un-minimize only when the window is actually iconic, repair
  *         collapsed bounds, and force a Compose redraw so the title page is not a
- *         blank white surface.
+ *         blank white surface. Also a macOS Apple Silicon test build with the same
+ *         features; VLC.app is a separate install, and data lives in
+ *         ~/Library/Application Support/total-iptv-pro.
  */
 object AppVersion {
     const val VERSION_CODE: Int = 43

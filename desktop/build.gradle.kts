@@ -1,4 +1,5 @@
 import java.io.File
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
     kotlin("jvm") version "2.1.10"
@@ -42,15 +43,21 @@ compose.desktop {
             isEnabled.set(false)
         }
         nativeDistributions {
+            // Compose rejects formats that this OS cannot produce (e.g. AppImage on macOS).
+            val osName = System.getProperty("os.name").orEmpty().lowercase()
             targetFormats(
-                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb,
-                org.jetbrains.compose.desktop.application.dsl.TargetFormat.AppImage,
-                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Exe,
-                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi
+                *when {
+                    osName.contains("mac") || osName.contains("darwin") ->
+                        arrayOf(TargetFormat.Dmg)
+                    osName.contains("win") ->
+                        arrayOf(TargetFormat.Exe, TargetFormat.Msi)
+                    else ->
+                        arrayOf(TargetFormat.Deb, TargetFormat.AppImage)
+                }
             )
             packageName = "TotalIptvPro"
             packageVersion = "1.2.31"
-            description = "Total IPTV Pro — desktop IPTV player (Linux & Windows)"
+            description = "Total IPTV Pro — desktop IPTV player (Linux, Windows & macOS)"
             linux {
                 packageName = "total-iptv-pro"
                 iconFile.set(project.file("src/main/resources/icon.png"))
@@ -59,6 +66,16 @@ compose.desktop {
                 iconFile.set(project.file("src/main/resources/icon.ico"))
                 menuGroup = "Total IPTV Pro"
                 upgradeUuid = "a7c3e91f-4b2d-4e8a-9f1c-6d5e8b0a2c4d"
+            }
+            macOS {
+                iconFile.set(project.file("src/main/resources/icon.icns"))
+                bundleID = "com.totaliptv.pro.desktop"
+                dockName = "Total IPTV Pro"
+                // Unsigned test build: no Apple Developer account yet. Ad-hoc
+                // codesign is applied after packaging.
+                signing {
+                    sign.set(false)
+                }
             }
         }
     }

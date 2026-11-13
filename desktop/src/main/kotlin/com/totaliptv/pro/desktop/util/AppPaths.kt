@@ -6,6 +6,7 @@ import java.nio.file.Path
  * Shared OS-aware paths so prefs / favorites / resume / updates all agree.
  * Linux: ~/.config/total-iptv-pro
  * Windows: %APPDATA%\total-iptv-pro (user.home\AppData\Roaming\total-iptv-pro)
+ * macOS: ~/Library/Application Support/total-iptv-pro
  */
 object AppPaths {
     private val osName: String = System.getProperty("os.name").orEmpty().lowercase()
@@ -15,15 +16,28 @@ object AppPaths {
     val isMac: Boolean = osName.contains("mac") || osName.contains("darwin")
 
     /** Config dir for prefs.json, favorites.json, resume.json */
-    val configDir: Path = when {
-        isWindows -> {
-            val appData = System.getenv("APPDATA")
-                ?.takeIf { it.isNotBlank() }
-                ?: Path.of(System.getProperty("user.home"), "AppData", "Roaming").toString()
-            Path.of(appData, "total-iptv-pro")
-        }
-        else -> Path.of(System.getProperty("user.home"), ".config", "total-iptv-pro")
-    }
+    val configDir: Path = configDirFor(
+        isWindows = isWindows,
+        isMac = isMac,
+        home = System.getProperty("user.home").orEmpty(),
+        appData = System.getenv("APPDATA")
+    )
 
     fun prefsHintPath(): String = configDir.resolve("prefs.json").toString()
+}
+
+/** Pure so unit tests can cover Windows, macOS, and Linux without changing the host OS. */
+internal fun configDirFor(
+    isWindows: Boolean,
+    isMac: Boolean,
+    home: String,
+    appData: String?
+): Path = when {
+    isWindows -> {
+        val base = appData?.takeIf { it.isNotBlank() }
+            ?: Path.of(home, "AppData", "Roaming").toString()
+        Path.of(base, "total-iptv-pro")
+    }
+    isMac -> Path.of(home, "Library", "Application Support", "total-iptv-pro")
+    else -> Path.of(home, ".config", "total-iptv-pro")
 }
