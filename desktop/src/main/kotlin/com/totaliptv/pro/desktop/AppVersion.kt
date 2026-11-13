@@ -52,8 +52,11 @@ package com.totaliptv.pro.desktop
  *         blank white surface. Also a macOS Apple Silicon test build with the same
  *         features; VLC.app is a separate install, and data lives in
  *         ~/Library/Application Support/total-iptv-pro.
+ * 1.2.32: macOS playback — official VLC.app has no Qt module, so Qt and other
+ *         Windows/Linux-only flags (unknown options) made VLC exit 1 before
+ *         the stream started. Mac launches use only flags that VLC.app accepts.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 43
-    const val VERSION_NAME: String = "1.2.31"
+    const val VERSION_CODE: Int = 44
+    const val VERSION_NAME: String = "1.2.32"
 }

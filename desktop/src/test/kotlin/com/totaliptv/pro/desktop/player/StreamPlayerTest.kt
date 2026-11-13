@@ -698,11 +698,30 @@ class StreamPlayerTest {
         )
         assertEquals("/Users/bill/Applications/VLC.app/Contents/MacOS/VLC", cmd.first())
         assertTrue("--fullscreen" in cmd)
-        assertTrue("--qt-minimal-view" in cmd)
+        assertTrue("--no-video-title-show" in cmd)
         assertTrue("--no-video-deco" in cmd)
-        assertFalse(cmd.any { it.startsWith("--qt-fullscreen-screennumber=") })
         assertTrue("--play-and-exit" in cmd)
+        assertTrue("--ignore-config" in cmd)
+        assertTrue("--extraintf=rc" in cmd)
+        assertFalse("--qt-minimal-view" in cmd)
+        assertFalse("--no-qt-fs-controller" in cmd)
+        assertFalse("--no-qt-privacy-ask" in cmd)
+        assertFalse("--qt-continue=0" in cmd)
+        assertFalse(cmd.any { it.startsWith("--qt-") || it.startsWith("--no-qt-") })
+        assertFalse("--no-one-instance" in cmd)
+        assertFalse("--no-playlist-enqueue" in cmd)
         assertFalse("--rc-quiet" in cmd)
-        assertFalse("--ignore-config" in cmd)
+        assertFalse(cmd.any { it.startsWith("--qt-fullscreen-screennumber=") })
+        assertEquals("http://example.test/movie.mp4", cmd.last())
+    }
+
+    @Test
+    fun redactPlayerStderrStripsStreamUrls() {
+        val raw = "vlc: unknown option `--qt-minimal-view'\nopening http://user:secret@example.test:80/movie/920203.mkv\n"
+        val out = StreamPlayer.redactPlayerStderr(raw)
+        assertTrue("unknown option" in out)
+        assertFalse("secret" in out)
+        assertFalse("user:secret" in out)
+        assertTrue("example.test:80/.../920203.mkv" in out)
     }
 }

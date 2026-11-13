@@ -94,12 +94,14 @@ object StreamPlayer {
         "--qt-minimal-view"
     )
 
-    /** macOS VLC.app fullscreen: hide title and controller, no X11 or Win32 placement. */
+    /**
+     * macOS VLC.app fullscreen. Official VLC.app ships the Cocoa interface, not
+     * Qt, so `--no-qt-fs-controller` / `--qt-minimal-view` are unknown options
+     * and VLC exits 1 immediately (1.2.32).
+     */
     internal val VLC_MAC_TRUE_FULLSCREEN: List<String> = listOf(
         "--no-video-title-show",
-        "--no-qt-fs-controller",
-        "--no-video-deco",
-        "--qt-minimal-view"
+        "--no-video-deco"
     )
 
     /** VLC RC: force fullscreen. `fullscreen` alone toggles; `on` stays on. */
@@ -227,10 +229,15 @@ object StreamPlayer {
             killWindowsPlayerTree(resolved.command.first())
         }
         markLaunch()
-        val proc = ProcessBuilder(launchCommand)
-            .redirectError(ProcessBuilder.Redirect.DISCARD)
+        val stderrFile = playerStderrFile()
+        val pb = ProcessBuilder(launchCommand)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-            .start()
+        if (stderrFile != null) {
+            pb.redirectError(stderrFile)
+        } else {
+            pb.redirectError(ProcessBuilder.Redirect.DISCARD)
+        }
+        val proc = pb.start()
         current = proc
         if (x11Fullscreen && scope != null && launchCommand.none { it == "--fullscreen" }) {
             val monitor = WindowPositioner.linuxPlaybackMonitor()
@@ -463,6 +470,12 @@ object StreamPlayer {
         return try {
             val code = proc.waitFor()
             markExit(code)
+            // User Stop force-kills the player (e.g. 137); only keep stderr for unexpected exits.
+            if (code != 0 && !stoppedByUser) {
+                logPlayerStderr(code)
+            } else {
+                clearPlayerStderr()
+            }
             val natural = !stoppedByUser
             if (current === proc) current = null
             syncPlaybackGate()
@@ -496,6 +509,42 @@ object StreamPlayer {
     internal fun markExit(exitCode: Int, nowMs: Long = System.currentTimeMillis()) {
         lastExitCode = exitCode
         lastPlaybackDurationMs = (nowMs - lastLaunchAtMs).coerceAtLeast(0L)
+    }
+
+    private fun playerStderrFile(): File? = runCatching {
+        val dir = AppPaths.configDir.toFile()
+        dir.mkdirs()
+        dir.resolve("vlc-launch-stderr.log")
+    }.getOrNull()
+
+    /** Copy a short redacted VLC stderr snippet into playback-debug.log, then delete the temp file. */
+    private fun logPlayerStderr(exitCode: Int) {
+        val file = playerStderrFile() ?: return
+        runCatching {
+            if (!file.isFile) return
+            val raw = file.readText().take(2000)
+            val redacted = redactPlayerStderr(raw)
+            if (redacted.isNotBlank()) {
+                PlaybackDebugLog.note("player-stderr exitCode=$exitCode $redacted")
+            }
+        }
+        clearPlayerStderr()
+    }
+
+    private fun clearPlayerStderr() {
+        runCatching { playerStderrFile()?.delete() }
+    }
+
+    internal fun redactPlayerStderr(raw: String): String {
+        val noUrls = raw.replace(Regex("""(?:https?|rtsp|rtmp|mms)://\S+""")) { match ->
+            PlaybackDebugLog.redactStreamUrl(match.value)
+        }
+        return noUrls.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .take(8)
+            .joinToString(" | ")
+            .take(800)
     }
 
     fun availablePlayers(): List<String> {
@@ -677,6 +726,13 @@ object StreamPlayer {
      * console). Linux VLC 3.0 rejects the option and exits immediately, so it
      * is passed only when [windows] is true. `--extraintf=rc` and `--rc-host`
      * stay on both platforms so resume progress still works.
+     *
+     * Official VLC.app on macOS has no Qt plugin. Qt flags (`--qt-continue=0`,
+     * `--no-qt-privacy-ask`, `--qt-minimal-view`, `--no-qt-fs-controller`, …)
+     * and also `--no-one-instance` / `--no-playlist-enqueue` are unknown
+     * options and VLC exits 1 before playback (1.2.31). Those are omitted
+     * when [macos] is true. `--ignore-config` is accepted on Mac and keeps a
+     * user vlcrc from overriding the CLI.
      */
     internal fun vlcCommand(
         binary: String,
@@ -689,7 +745,7 @@ object StreamPlayer {
         macos: Boolean = AppPaths.isMac
     ): List<String> {
         val args = mutableListOf(binary)
-        if (windows) {
+        if (windows || macos) {
             args += "--ignore-config"
         }
         if (fullscreen) {
@@ -700,7 +756,7 @@ object StreamPlayer {
                     qtFullscreenScreenArg(fullscreenScreen)?.let { args += it }
                 }
                 macos -> {
-                    // macOS VLC.app: hide title/controller; no X11 placer.
+                    // macOS VLC.app: hide title/deco; no Qt flags, no X11 placer.
                     args += VLC_MAC_TRUE_FULLSCREEN
                 }
                 else -> {
@@ -711,7 +767,9 @@ object StreamPlayer {
                 }
             }
         }
-        args += VLC_QT_QUIET
+        if (!macos) {
+            args += VLC_QT_QUIET
+        }
         args += VLC_AUDIO_LANGUAGE
         if (!live) {
             args += "--play-and-exit"
@@ -724,8 +782,10 @@ object StreamPlayer {
             args += "--extraintf=rc"
             args += "--rc-host=127.0.0.1:$PROGRESS_RC_PORT"
         }
-        args += "--no-one-instance"
-        args += "--no-playlist-enqueue"
+        if (!macos) {
+            args += "--no-one-instance"
+            args += "--no-playlist-enqueue"
+        }
         args += "--no-repeat"
         args += "--no-loop"
         if (windows) {
