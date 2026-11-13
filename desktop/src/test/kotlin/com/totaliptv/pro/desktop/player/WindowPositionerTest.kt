@@ -382,4 +382,39 @@ class WindowPositionerTest {
             "right-click Stop goes through StreamPlayer.stop()"
         )
     }
+
+    @Test
+    fun restoreWhenAwtIconicEvenIfNativeIsNot() {
+        // The 1.2.30 BBB case: awtExt=1, IsIconic=false, bounds 160x28.
+        assertTrue(WindowPositioner.needsNativeRestore(iconicAwt = true, iconicNative = false))
+        assertTrue(WindowPositioner.needsNativeRestore(iconicAwt = false, iconicNative = true))
+        assertFalse(WindowPositioner.needsNativeRestore(iconicAwt = false, iconicNative = false))
+        assertTrue(WindowPositioner.needsBoundsRepair(160, 28))
+        assertTrue(WindowPositioner.needsBoundsRepair(800, 28))
+        assertFalse(WindowPositioner.needsBoundsRepair(3440, 1440))
+        assertFalse(WindowPositioner.needsBoundsRepair(1280, 800))
+        assertFalse(WindowPositioner.shouldPokeZOrder(didUniconify = false))
+        assertTrue(WindowPositioner.shouldPokeZOrder(didUniconify = true))
+        assertFalse(WindowPositioner.shouldRetryRestore(stillIconic = false, boundsNeedRepair = false))
+        assertTrue(WindowPositioner.shouldRetryRestore(stillIconic = true, boundsNeedRepair = false))
+        assertTrue(WindowPositioner.shouldRetryRestore(stillIconic = false, boundsNeedRepair = true))
+        assertTrue(WindowPositioner.shouldNudgeSurface(didUniconify = true, didRepairBounds = false))
+        assertTrue(WindowPositioner.shouldNudgeSurface(didUniconify = false, didRepairBounds = true))
+        assertFalse(WindowPositioner.shouldNudgeSurface(didUniconify = false, didRepairBounds = false))
+    }
+
+    @Test
+    fun restoreDoesNotPokeZOrderOrShowWindowWhenAlreadyVisible() {
+        val src = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/WindowPositioner.kt").readText()
+        assertTrue("needsNativeRestore" in src)
+        assertTrue("refreshComposeSurface" in src)
+        assertTrue("SW_RESTORE first" in src || "ShowWindow(hwnd, WinUser.SW_RESTORE)" in src)
+        val restoreFn = src.substringAfter("private fun restoreAppWindowNow").substringBefore("private fun repairWindowBounds")
+        assertTrue("shouldPokeZOrder(didUniconify)" in restoreFn)
+        assertTrue("refreshComposeSurface" in restoreFn)
+        // SetForegroundWindow was the 1.2.30 blank-Skia trigger; only un-iconify may toFront.
+        assertFalse("SetForegroundWindow" in restoreFn)
+        assertFalse("BringWindowToTop" in restoreFn)
+        assertTrue("isEventDispatchThread()" in src.substringAfter("fun restoreAppWindowAfterPlayback()"))
+    }
 }

@@ -47,8 +47,11 @@ package com.totaliptv.pro.desktop
  *         restarts; background work paused while playing; last screen and group restored.
  * 1.2.30: Stopping playback (including the Windows right-click Stop menu) returns
  *         to the title page in the full-size app window and no longer minimizes it.
+ * 1.2.31: After Stop, un-minimize only when the window is actually iconic, repair
+ *         collapsed bounds, and force a Compose redraw so the title page is not a
+ *         blank white surface.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 42
-    const val VERSION_NAME: String = "1.2.30"
+    const val VERSION_CODE: Int = 43
+    const val VERSION_NAME: String = "1.2.31"
 }

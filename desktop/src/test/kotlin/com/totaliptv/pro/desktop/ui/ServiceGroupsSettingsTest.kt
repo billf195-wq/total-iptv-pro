@@ -35,8 +35,8 @@ class ServiceGroupsSettingsTest {
     }
 
     @Test
-    fun versionIs130() {
-        assertEquals("1.2.30", AppVersion.VERSION_NAME)
-        assertEquals(42, AppVersion.VERSION_CODE)
+    fun versionIs131() {
+        assertEquals("1.2.31", AppVersion.VERSION_NAME)
+        assertEquals(43, AppVersion.VERSION_CODE)
     }
 }
