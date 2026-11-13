@@ -1019,19 +1019,21 @@ class CatalogRepository(
                         _serviceLookupStatus.value = "Looking up streaming services… $done/$total"
                     },
                     onBatch = { snapshot ->
-                        if (!com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) return@onBatch
-                        val ts = System.currentTimeMillis()
-                        if (lastBumpMs == 0L || ts - lastBumpMs >= 5_000L) {
-                            lastBumpMs = ts
-                            applyServiceIndex(snapshot)
+                        if (com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) {
+                            val ts = System.currentTimeMillis()
+                            if (lastBumpMs == 0L || ts - lastBumpMs >= 5_000L) {
+                                lastBumpMs = ts
+                                applyServiceIndex(snapshot)
+                            }
                         }
                     },
                     onPersist = { entries, progress, complete ->
-                        if (!com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) return@onPersist
-                        val ts = System.currentTimeMillis()
-                        if (complete || lastPersistMs == 0L || ts - lastPersistMs >= 8_000L) {
-                            lastPersistMs = ts
-                            persistServiceCache(file, fp, entries, progress, complete, startedAt)
+                        if (com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) {
+                            val ts = System.currentTimeMillis()
+                            if (complete || lastPersistMs == 0L || ts - lastPersistMs >= 8_000L) {
+                                lastPersistMs = ts
+                                persistServiceCache(file, fp, entries, progress, complete, startedAt)
+                            }
                         }
                     },
                     isActive = { lookupJob?.isActive != false },
