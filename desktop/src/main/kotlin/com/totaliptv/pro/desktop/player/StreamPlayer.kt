@@ -380,6 +380,7 @@ object StreamPlayer {
         session.rightProcess?.destroyForcibly()
         splitSession = null
         syncPlaybackGate()
+        WindowPositioner.restoreAppWindowAfterPlayback()
     }
 
     /**
@@ -417,6 +418,7 @@ object StreamPlayer {
             killWindowsPlayerTree(currentBinaryHint())
         }
         syncPlaybackGate()
+        WindowPositioner.restoreAppWindowAfterPlayback()
     }
 
     private fun stopProcessOnly() {
@@ -452,6 +454,7 @@ object StreamPlayer {
             val natural = !stoppedByUser
             if (current === proc) current = null
             syncPlaybackGate()
+            WindowPositioner.restoreAppWindowAfterPlayback()
             natural
         } catch (_: InterruptedException) {
             syncPlaybackGate()

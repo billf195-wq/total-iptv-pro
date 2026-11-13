@@ -95,4 +95,16 @@ class WindowsPlaybackMenuTest {
         val split = player.substringAfter("internal fun splitSideCommand")
         assertFalse(split.substringBefore("internal fun linuxSplitSideCommand").contains("WindowsPlaybackMenu"))
     }
+
+    @Test
+    fun menuAnchorDoesNotStealFocus() {
+        assertFalse(WindowsPlaybackMenu.menuAnchorShouldBeFocusable())
+        val src = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/WindowsPlaybackMenu.kt").readText()
+        assertTrue("focusableWindowState = menuAnchorShouldBeFocusable()" in src)
+        assertTrue("WindowPositioner.attachedAppWindow()" in src)
+        assertFalse(
+            "focusableWindowState = true" in src,
+            "a focusable ownerless JWindow lets Windows minimize the app on Stop"
+        )
+    }
 }

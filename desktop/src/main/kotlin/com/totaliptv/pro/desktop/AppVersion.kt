@@ -45,8 +45,10 @@ package com.totaliptv.pro.desktop
  *         HBO / Max, Apple TV+, Hulu, Disney+, Paramount+, then provider groups;
  *         trademark line in Settings / About; TMDB results cached and resumed across
  *         restarts; background work paused while playing; last screen and group restored.
+ * 1.2.30: Stopping playback (including the Windows right-click Stop menu) returns
+ *         to the title page in the full-size app window and no longer minimizes it.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 41
-    const val VERSION_NAME: String = "1.2.29"
+    const val VERSION_CODE: Int = 42
+    const val VERSION_NAME: String = "1.2.30"
 }

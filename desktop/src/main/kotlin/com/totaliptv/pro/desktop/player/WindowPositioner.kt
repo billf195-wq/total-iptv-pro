@@ -34,9 +34,96 @@ object WindowPositioner {
 
     private val placedSplitPids = ConcurrentHashMap.newKeySet<Long>()
 
+    private val restoreTicket = java.util.concurrent.atomic.AtomicInteger(0)
+
     /** The Compose frame, so playback can follow the monitor it is on. */
     fun attachAppWindow(window: Window?) {
         appWindow = window
+    }
+
+    /** Owner for the Windows right-click menu so focus can return to the app. */
+    fun attachedAppWindow(): Window? = appWindow
+
+    /** True when AWT [java.awt.Frame.extendedState] includes ICONIFIED. */
+    internal fun isIconifiedState(extendedState: Int): Boolean =
+        extendedState and java.awt.Frame.ICONIFIED != 0
+
+    /** Clears ICONIFIED and leaves Maximized / normal bits unchanged. */
+    internal fun withoutIconified(extendedState: Int): Int =
+        extendedState and java.awt.Frame.ICONIFIED.inv()
+
+    /** Only SW_RESTORE an already-iconic window, so fullscreen / maximized is kept. */
+    internal fun shouldRestoreNativeWindow(isIconic: Boolean): Boolean = isIconic
+
+    /**
+     * After VLC (or another fullscreen player) exits, Windows often iconifies
+     * the window that was underneath — especially when the app itself is
+     * fullscreen and a focusable right-click menu just closed. Bring the app
+     * back without changing Fullscreen / Maximized / Floating placement.
+     */
+    fun restoreAppWindowAfterPlayback() {
+        if (!AppPaths.isWindows) return
+        if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return
+        val ticket = restoreTicket.incrementAndGet()
+        // Windows may iconify a moment after the player process is gone, so retry.
+        for (delayMs in listOf(0, 80, 250, 600)) {
+            val run = Runnable {
+                if (ticket != restoreTicket.get()) return@Runnable
+                if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return@Runnable
+                restoreAppWindowNow(passDelayMs = delayMs)
+            }
+            if (delayMs == 0) {
+                if (SwingUtilities.isEventDispatchThread()) run.run() else SwingUtilities.invokeLater(run)
+            } else {
+                SwingUtilities.invokeLater {
+                    javax.swing.Timer(delayMs) { ev ->
+                        (ev.source as javax.swing.Timer).stop()
+                        run.run()
+                    }.apply { isRepeats = false; start() }
+                }
+            }
+        }
+    }
+
+    private fun restoreAppWindowNow(passDelayMs: Int) {
+        val window = appWindow ?: return
+        val frame = window as? java.awt.Frame
+        val before = frame?.extendedState ?: -1
+        val iconicAwt = frame != null && isIconifiedState(frame.extendedState)
+        if (frame != null && isIconifiedState(frame.extendedState)) {
+            frame.extendedState = withoutIconified(frame.extendedState)
+        }
+        if (!window.isVisible) window.isVisible = true
+        val hwnd = hwndOf(window)
+        val iconicNative = hwnd != null && try {
+            iconicApi?.IsIconic(hwnd) == true
+        } catch (_: Throwable) {
+            false
+        }
+        if (shouldRestoreNativeWindow(iconicNative) && hwnd != null) {
+            runCatching { User32.INSTANCE.ShowWindow(hwnd, WinUser.SW_RESTORE) }
+        }
+        window.toFront()
+        if (hwnd != null) {
+            runCatching { User32.INSTANCE.SetForegroundWindow(hwnd) }
+            runCatching { User32.INSTANCE.BringWindowToTop(hwnd) }
+        }
+        if (passDelayMs == 0 || iconicAwt || iconicNative) {
+            com.totaliptv.pro.desktop.WindowFullscreen.log(
+                "restore after playback delay=${passDelayMs}ms awtExt=$before now=${frame?.extendedState} iconicAwt=$iconicAwt iconicNative=$iconicNative bounds=${window.bounds}"
+            )
+        }
+    }
+
+    private fun hwndOf(window: Window): WinDef.HWND? = try {
+        if (!window.isDisplayable) {
+            null
+        } else {
+            val ptr = Native.getComponentPointer(window)
+            if (ptr == null || Pointer.nativeValue(ptr) == 0L) null else WinDef.HWND(ptr)
+        }
+    } catch (_: Throwable) {
+        null
     }
 
     /**
@@ -813,6 +900,18 @@ object WindowPositioner {
     private interface DpiUser32 : StdCallLibrary {
         fun SetThreadDpiAwarenessContext(context: Pointer): Pointer?
         fun GetDpiForWindow(hwnd: WinDef.HWND): Int
+    }
+
+    private interface IconicApi : StdCallLibrary {
+        fun IsIconic(hwnd: WinDef.HWND): Boolean
+    }
+
+    private val iconicApi: IconicApi? by lazy {
+        if (!AppPaths.isWindows) {
+            null
+        } else {
+            runCatching { Native.load("user32", IconicApi::class.java) }.getOrNull()
+        }
     }
 
     private interface DwmApiLib : StdCallLibrary {

@@ -86,6 +86,13 @@ object WindowsPlaybackMenu {
     /** Open the menu on button-up so down+up does not open it twice. */
     internal fun shouldOpenMenu(message: Int): Boolean = message == WM_RBUTTONUP
 
+    /**
+     * The 1x1 owner window must not take focus. A focusable ownerless JWindow
+     * becomes the foreground window; disposing it when Stop kills fullscreen
+     * VLC lets Windows iconify the app.
+     */
+    internal fun menuAnchorShouldBeFocusable(): Boolean = false
+
     @Volatile
     private var hasNextEpisode: () -> Boolean = { false }
 
@@ -299,9 +306,10 @@ object WindowsPlaybackMenu {
             }
             menu.add(item)
         }
-        val owner = JWindow()
+        val parent = WindowPositioner.attachedAppWindow()
+        val owner = if (parent != null) JWindow(parent) else JWindow()
         owner.isAlwaysOnTop = true
-        owner.focusableWindowState = true
+        owner.focusableWindowState = menuAnchorShouldBeFocusable()
         owner.background = Color(0, 0, 0, 0)
         owner.setSize(1, 1)
         owner.setLocation(x, y)

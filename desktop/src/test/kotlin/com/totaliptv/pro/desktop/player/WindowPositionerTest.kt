@@ -353,4 +353,33 @@ class WindowPositionerTest {
         assertEquals(180, placed.height, placed.detail)
         assertFalse(placed.detail.isBlank())
     }
+
+    @Test
+    fun iconifiedStateIsClearedWithoutDroppingMaximized() {
+        val iconified = java.awt.Frame.ICONIFIED
+        val maximized = java.awt.Frame.MAXIMIZED_BOTH
+        assertFalse(WindowPositioner.isIconifiedState(0))
+        assertFalse(WindowPositioner.isIconifiedState(maximized))
+        assertTrue(WindowPositioner.isIconifiedState(iconified))
+        assertTrue(WindowPositioner.isIconifiedState(iconified or maximized))
+        assertEquals(0, WindowPositioner.withoutIconified(iconified))
+        assertEquals(maximized, WindowPositioner.withoutIconified(iconified or maximized))
+        assertEquals(maximized, WindowPositioner.withoutIconified(maximized))
+        assertFalse(WindowPositioner.shouldRestoreNativeWindow(isIconic = false))
+        assertTrue(WindowPositioner.shouldRestoreNativeWindow(isIconic = true))
+    }
+
+    @Test
+    fun stopPlaybackRestoresTheAppWindow() {
+        val stop = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/StreamPlayer.kt").readText()
+        assertTrue(
+            "WindowPositioner.restoreAppWindowAfterPlayback()" in stop,
+            "stopping or exiting the player must un-minimize the app window"
+        )
+        val stopFn = stop.substringAfter("fun stop()").substringBefore("private fun stopProcessOnly()")
+        assertTrue(
+            "restoreAppWindowAfterPlayback()" in stopFn,
+            "right-click Stop goes through StreamPlayer.stop()"
+        )
+    }
 }
