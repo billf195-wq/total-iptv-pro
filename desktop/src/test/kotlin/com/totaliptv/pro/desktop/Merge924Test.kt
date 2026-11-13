@@ -26,7 +26,8 @@ class Merge924Test {
             "/usr/bin/vlc",
             listOf("http://example.test/ep1.mp4"),
             windows = false,
-            startPositionSeconds = 90
+            startPositionSeconds = 90,
+            macos = false
         )
         assertTrue(one.contains("--start-time=90"))
         assertEquals("http://example.test/ep1.mp4", one.last())
@@ -35,7 +36,8 @@ class Merge924Test {
             "/usr/bin/vlc",
             listOf("http://example.test/ep1.mp4", "http://example.test/ep2.mp4"),
             windows = false,
-            startPositionSeconds = 90
+            startPositionSeconds = 90,
+            macos = false
         )
         assertFalse(two.any { it.startsWith("--start-time") })
         assertEquals("http://example.test/ep1.mp4", two.last())
