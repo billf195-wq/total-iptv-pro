@@ -83,6 +83,11 @@ class WindowsPlaybackMenuTest {
     fun appRootBindsTheMenuAndSinglePlayDoesNotSnapWindows() {
         val root = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/ui/AppRoot.kt").readText()
         assertTrue(root.contains("WindowsPlaybackMenu.bind"))
+        assertTrue(root.contains("onRightClick"))
+        assertTrue(root.contains("revealOnRightClick"))
+        val menuSrc = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/WindowsPlaybackMenu.kt").readText()
+        assertTrue(menuSrc.contains("onRightClick"))
+        assertTrue(menuSrc.contains("runCatching { onRightClick() }") || menuSrc.contains("onRightClick()"))
         assertTrue(root.contains("skipToNextEpisode()"))
         val player = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/StreamPlayer.kt").readText()
         assertTrue(player.contains("WindowsPlaybackMenu.arm"))

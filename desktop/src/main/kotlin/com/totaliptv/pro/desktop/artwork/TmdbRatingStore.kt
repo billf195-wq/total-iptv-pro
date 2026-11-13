@@ -1,5 +1,7 @@
 package com.totaliptv.pro.desktop.artwork
 
+import com.totaliptv.pro.desktop.data.PlaybackGate
+
 import com.totaliptv.pro.desktop.data.ContentKind
 import com.totaliptv.pro.desktop.data.MediaItem
 import com.totaliptv.pro.desktop.util.AppPaths
@@ -233,9 +235,22 @@ object TmdbRatingStore {
         if (queue.isEmpty()) emptyList() else List(minOf(maxInFlight.coerceAtLeast(1), queue.size)) { queue.removeFirst() }
     }
 
+    private fun waitIfPlaying() {
+        while (!PlaybackGate.refreshAllowed()) {
+            try {
+                Thread.sleep(250)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return
+            }
+        }
+    }
+
     private fun drain() {
         val apiKey = ArtworkSettings.tmdbApiKey
         while (true) {
+            waitIfPlaying()
+            if (!PlaybackGate.refreshAllowed()) return
             val batch = takeBatch()
             if (batch.isEmpty()) return
             val started = System.nanoTime()
@@ -263,6 +278,8 @@ object TmdbRatingStore {
     private fun drainConcurrent() {
         val apiKey = ArtworkSettings.tmdbApiKey
         while (true) {
+            waitIfPlaying()
+            if (!PlaybackGate.refreshAllowed()) return
             val batch = takeBatch()
             if (batch.isEmpty()) return
             val started = System.nanoTime()

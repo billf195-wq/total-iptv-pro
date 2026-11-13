@@ -1,6 +1,7 @@
 package com.totaliptv.pro.desktop.player
 
 import com.totaliptv.pro.desktop.data.MediaItem
+import com.totaliptv.pro.desktop.data.PlaybackGate
 import com.totaliptv.pro.desktop.util.AppPaths
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -238,6 +239,7 @@ object StreamPlayer {
             WindowPositioner.fullscreenOnAppMonitorAsync(scope, proc, proc.pid())
         }
         armWindowsPlaybackMenu(launchCommand, proc, fullscreen)
+        syncPlaybackGate()
         if (onProgress != null && scope != null && !treatLive && resolved.command.first().contains("vlc", ignoreCase = true)) {
             progressJob = scope.launch(Dispatchers.IO) {
                 delay(2000)
@@ -350,6 +352,7 @@ object StreamPlayer {
                 applySplitVolumes(session)
             }
         }
+        syncPlaybackGate()
         return session
     }
 
@@ -376,6 +379,7 @@ object StreamPlayer {
         session.leftProcess?.destroyForcibly()
         session.rightProcess?.destroyForcibly()
         splitSession = null
+        syncPlaybackGate()
     }
 
     /**
@@ -391,6 +395,7 @@ object StreamPlayer {
                     session.leftProcess?.destroyForcibly()
                     session.rightProcess?.destroyForcibly()
                     if (splitSession === session) splitSession = null
+                    syncPlaybackGate()
                 }
                 return
             }
@@ -411,6 +416,7 @@ object StreamPlayer {
         if (AppPaths.isWindows) {
             killWindowsPlayerTree(currentBinaryHint())
         }
+        syncPlaybackGate()
     }
 
     private fun stopProcessOnly() {
@@ -445,10 +451,16 @@ object StreamPlayer {
             markExit(code)
             val natural = !stoppedByUser
             if (current === proc) current = null
+            syncPlaybackGate()
             natural
         } catch (_: InterruptedException) {
+            syncPlaybackGate()
             false
         }
+    }
+
+    internal fun syncPlaybackGate() {
+        PlaybackGate.setPlaying(isPlaying())
     }
 
     internal fun markLaunch(nowMs: Long = System.currentTimeMillis()) {

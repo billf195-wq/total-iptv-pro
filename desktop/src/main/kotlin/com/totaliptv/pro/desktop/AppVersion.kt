@@ -31,8 +31,22 @@ package com.totaliptv.pro.desktop
  *         including GNOME text scaling and HiDPI.
  * 1.2.25: TV guide fills the measured width (12–24h). Linux playback enters
  *         VLC fullscreen on the app's monitor so the Qt chrome stays hidden.
+ * 1.2.26 (personal): Store-edition improvements without Store restrictions —
+ *         TV-picture splash with spinning loader after sign-in, series
+ *         Stop/Hide/Next + audio menu only on right-click (not mouse move),
+ *         no-sound / volume-mixer notes in the README, Classic TV Guide default.
+ * 1.2.27: Category/season chip rows scroll with wheel, Shift+wheel and Left/Right
+ *         keys, with end arrows; Settings gets a wide visible scroll bar.
+ * 1.2.28: "Start in full screen" (on by default) — the app window opens borderless full
+ *         screen with no title bar or taskbar; F11 toggles and is remembered; Esc leaves
+ *         full screen except while a video plays.
+ * 1.2.29: Android 1.4.100 features on desktop — Movies/Series groups in order
+ *         Newly added (default), Top rated (TMDB only, 50+ votes), Netflix, Prime Video,
+ *         HBO / Max, Apple TV+, Hulu, Disney+, Paramount+, then provider groups;
+ *         trademark line in Settings / About; TMDB results cached and resumed across
+ *         restarts; background work paused while playing; last screen and group restored.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 37
-    const val VERSION_NAME: String = "1.2.25"
+    const val VERSION_CODE: Int = 41
+    const val VERSION_NAME: String = "1.2.29"
 }

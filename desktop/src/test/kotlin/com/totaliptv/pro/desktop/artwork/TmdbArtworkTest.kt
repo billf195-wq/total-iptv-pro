@@ -78,7 +78,7 @@ class TmdbArtworkTest {
         )
         assertNull(result)
         assertEquals(0, calls)
-        assertEquals("", TmdbArtwork.resolveApiKey(pref = "", env = "", fileText = null))
+        assertEquals("", TmdbArtwork.resolveApiKey(pref = "", env = "", fileText = null, builtIn = ""))
     }
 
     @Test

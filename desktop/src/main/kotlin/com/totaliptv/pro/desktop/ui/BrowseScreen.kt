@@ -47,10 +47,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.totaliptv.pro.desktop.artwork.ArtworkRole
 import com.totaliptv.pro.desktop.artwork.RatingOrder
+import com.totaliptv.pro.desktop.data.BrowseCatalog
 import com.totaliptv.pro.desktop.data.Catalog
+import com.totaliptv.pro.desktop.data.CatalogCategories
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.ContentKind
+import com.totaliptv.pro.desktop.data.LastPlace
+import com.totaliptv.pro.desktop.data.LastPlaceStore
+import com.totaliptv.pro.desktop.data.tmdb.ServiceIndex
+import com.totaliptv.pro.desktop.data.tmdb.ServiceLookup
 import com.totaliptv.pro.desktop.data.LiveChannelMapping
 import com.totaliptv.pro.desktop.data.LastEpisodeBanner
 import com.totaliptv.pro.desktop.data.SeriesPlayback
@@ -67,7 +73,31 @@ import com.totaliptv.pro.desktop.dvr.RecordingEntry
 import com.totaliptv.pro.desktop.dvr.ScheduledRecording
 
 enum class MainNav {
-    HOME, LIVE, MOVIES, SERIES, GUIDE, FAVORITES, RECORDINGS, SETTINGS
+    HOME, LIVE, MOVIES, SERIES, GUIDE, FAVORITES, RECORDINGS, SETTINGS;
+
+    fun toLastPlaceScreen(): String = when (this) {
+        HOME -> LastPlace.SCREEN_HOME
+        LIVE -> LastPlace.SCREEN_LIVE
+        MOVIES -> LastPlace.SCREEN_MOVIES
+        SERIES -> LastPlace.SCREEN_SERIES
+        GUIDE -> LastPlace.SCREEN_GUIDE
+        FAVORITES -> LastPlace.SCREEN_FAVORITES
+        RECORDINGS -> LastPlace.SCREEN_RECORDINGS
+        SETTINGS -> LastPlace.SCREEN_SETTINGS
+    }
+
+    companion object {
+        fun fromLastPlace(screen: String?): MainNav = when (screen) {
+            LastPlace.SCREEN_LIVE -> LIVE
+            LastPlace.SCREEN_MOVIES -> MOVIES
+            LastPlace.SCREEN_SERIES -> SERIES
+            LastPlace.SCREEN_GUIDE -> GUIDE
+            LastPlace.SCREEN_FAVORITES -> FAVORITES
+            LastPlace.SCREEN_RECORDINGS -> RECORDINGS
+            LastPlace.SCREEN_SETTINGS -> SETTINGS
+            else -> HOME
+        }
+    }
 }
 
 /** Movies / Series browse sort (persisted as prefs.browseSort). */
@@ -133,11 +163,24 @@ fun BrowseScreen(
     onDeleteRecording: (RecordingEntry) -> Unit = {},
     onCancelSchedule: (ScheduledRecording) -> Unit = {}
 ) {
-    var nav by remember { mutableStateOf(MainNav.HOME) }
-    var selectedCategoryId by remember { mutableStateOf<String?>(null) }
+    val restoredPlace = remember { LastPlaceStore.shared.load() }
+    var nav by remember { mutableStateOf(MainNav.fromLastPlace(restoredPlace?.screen)) }
+    var selectedCategoryId by remember { mutableStateOf(restoredPlace?.categoryId) }
     var query by remember { mutableStateOf("") }
     val banner = rememberBannerBitmap()
     val favoriteKeys = remember(favoriteEntries) { favoriteEntries.map { it.key }.toSet() }
+    val serviceIndex by ServiceLookup.index.collectAsState()
+    val serviceStatus by ServiceLookup.status.collectAsState()
+
+    fun openMoviesOrSeries(target: MainNav) {
+        val kind = if (target == MainNav.SERIES) ContentKind.SERIES else ContentKind.VOD
+        val cats = BrowseCatalog.categories(kind, catalog, serviceIndex)
+        nav = target
+        query = ""
+        if (!BrowseCatalog.belongsTo(kind, selectedCategoryId, cats)) {
+            selectedCategoryId = BrowseCatalog.defaultCategoryId(kind, cats)
+        }
+    }
 
     if (seriesDetail != null || seriesLoading) {
         val seriesMedia = remember(seriesDetail, catalog) {
@@ -232,6 +275,21 @@ fun BrowseScreen(
         else -> null
     }
 
+    LaunchedEffect(nav, selectedCategoryId) {
+        LastPlaceStore.shared.saveBrowse(nav.toLastPlaceScreen(), selectedCategoryId)
+    }
+    LaunchedEffect(nav, catalog, serviceIndex) {
+        val kind = section ?: return@LaunchedEffect
+        if (kind == ContentKind.LIVE) return@LaunchedEffect
+        val cats = BrowseCatalog.categories(kind, catalog, serviceIndex)
+        if (!BrowseCatalog.belongsTo(kind, selectedCategoryId, cats)) {
+            selectedCategoryId = BrowseCatalog.defaultCategoryId(kind, cats)
+        } else if (selectedCategoryId == null && restoredPlace?.screen != nav.toLastPlaceScreen()) {
+            // First visit to Movies/Series this session: default to Newly added, not All.
+            selectedCategoryId = BrowseCatalog.defaultCategoryId(kind, cats)
+        }
+    }
+
     Column(Modifier.fillMaxSize().tvContentBackground()) {
         TopBanner(banner)
 
@@ -261,14 +319,10 @@ fun BrowseScreen(
                     }
                 }
                 NavBtn("Movies", Icons.Default.Movie, nav == MainNav.MOVIES) {
-                    nav = MainNav.MOVIES
-                    selectedCategoryId = null
-                    query = ""
+                    openMoviesOrSeries(MainNav.MOVIES)
                 }
                 NavBtn("Series", Icons.Default.Tv, nav == MainNav.SERIES) {
-                    nav = MainNav.SERIES
-                    selectedCategoryId = null
-                    query = ""
+                    openMoviesOrSeries(MainNav.SERIES)
                 }
                 NavBtn("TV Guide", Icons.Default.Schedule, nav == MainNav.GUIDE) {
                     val stayOnLiveFamily = nav == MainNav.LIVE || nav == MainNav.GUIDE
@@ -465,6 +519,8 @@ fun BrowseScreen(
                         query = query,
                         onQueryChange = { query = it },
                         statusMessage = statusMessage,
+                        serviceIndex = serviceIndex,
+                        serviceStatus = serviceStatus,
                         favoriteKeys = favoriteKeys,
                         onPlay = onPlay,
                         onOpenSeries = onOpenSeries,
@@ -522,6 +578,8 @@ private fun BrowseContentPane(
     query: String,
     onQueryChange: (String) -> Unit,
     statusMessage: String?,
+    serviceIndex: ServiceIndex? = null,
+    serviceStatus: String? = null,
     favoriteKeys: Set<String>,
     onPlay: (MediaItem) -> Unit,
     onOpenSeries: (MediaItem) -> Unit,
@@ -531,31 +589,27 @@ private fun BrowseContentPane(
     onRecordNow: ((MediaItem) -> Unit)? = null,
     activeRecording: RecordingEntry? = null
 ) {
-    val categories = when (kind) {
-        ContentKind.LIVE -> catalog.liveCategories
-        ContentKind.VOD -> catalog.vodCategories
-        ContentKind.SERIES -> catalog.seriesCategories
+    val categories = remember(kind, catalog, serviceIndex) {
+        BrowseCatalog.categories(kind, catalog, serviceIndex)
     }
-    val allItems = when (kind) {
-        ContentKind.LIVE -> catalog.liveItems
-        ContentKind.VOD -> catalog.vodItems
-        ContentKind.SERIES -> catalog.seriesItems
-    }
-    val filtered = remember(kind, selectedCategoryId, query, catalog, browseSort) {
+    val allItems = BrowseCatalog.itemsOf(kind, catalog)
+    val filtered = remember(kind, selectedCategoryId, query, catalog, browseSort, serviceIndex) {
         if (kind == ContentKind.LIVE) {
             LiveChannelMapping.filterLiveChannels(allItems, selectedCategoryId, query)
         } else {
-            val base = HomeDedupe.dropIdenticalIds(allItems).asSequence()
-                .filter { selectedCategoryId == null || it.categoryId == selectedCategoryId }
+            val base = BrowseCatalog.items(kind, catalog, selectedCategoryId, serviceIndex)
                 .filter {
                     query.isBlank() || it.name.contains(query, ignoreCase = true) ||
                         (it.groupTitle?.contains(query, ignoreCase = true) == true)
                 }
-                .toList()
-            when (browseSort) {
-                BrowseSort.AZ -> RatingOrder.sortByTitle(base, descending = false)
-                BrowseSort.ZA -> RatingOrder.sortByTitle(base, descending = true)
-                BrowseSort.RECENT -> RatingOrder.sortRecent(base)
+            if (CatalogCategories.isOrderedVirtual(selectedCategoryId)) {
+                base
+            } else {
+                when (browseSort) {
+                    BrowseSort.AZ -> RatingOrder.sortByTitle(base, descending = false)
+                    BrowseSort.ZA -> RatingOrder.sortByTitle(base, descending = true)
+                    BrowseSort.RECENT -> RatingOrder.sortRecent(base)
+                }
             }
         }
     }
@@ -594,9 +648,13 @@ private fun BrowseContentPane(
                 }
             }
         }
-        if (!statusMessage.isNullOrBlank()) {
+        val lookupLine = listOfNotNull(
+            statusMessage?.takeIf { it.isNotBlank() },
+            serviceStatus?.takeIf { it.isNotBlank() && kind != ContentKind.LIVE }
+        ).distinct().joinToString("  ·  ")
+        if (lookupLine.isNotBlank()) {
             Spacer(Modifier.height(4.dp))
-            Text(statusMessage, color = TipAccent, style = MaterialTheme.typography.bodyMedium)
+            Text(lookupLine, color = TipAccent, style = MaterialTheme.typography.bodyMedium)
         }
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
@@ -653,7 +711,7 @@ private fun BrowseContentPane(
         }
 
         if (categories.isNotEmpty()) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ScrollableChipRow(selectedIndex = categories.indexOfFirst { it.id == selectedCategoryId }.let { if (selectedCategoryId == null) 0 else if (it < 0) -1 else it + 1 }) {
                 item {
                     FilterChip(
                         selected = selectedCategoryId == null,
@@ -1318,8 +1376,8 @@ private fun SeriesDetailPane(
                 val seasons = SeriesPlayback.seasonNumbers(detail.episodes)
                 var selectedSeason by remember(detail.seriesId, resumeSeason) { mutableStateOf(resumeSeason) }
                 if (seasons.size > 1) {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ScrollableChipRow(
+                        selectedIndex = if (selectedSeason == null) 0 else seasons.indexOf(selectedSeason).let { if (it < 0) -1 else it + 1 },
                         modifier = Modifier.padding(bottom = 8.dp)
                     ) {
                         item {

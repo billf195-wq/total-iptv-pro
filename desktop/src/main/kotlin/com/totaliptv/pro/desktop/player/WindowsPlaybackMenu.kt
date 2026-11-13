@@ -29,8 +29,9 @@ import javax.swing.event.PopupMenuListener
  *
  * VLC's own right-click drops out of fullscreen or opens the full Qt window.
  * A low-level mouse hook swallows right-clicks that land on the VLC process
- * and this menu is shown instead. Linux never installs the hook. Game Day
- * does not arm it.
+ * and this menu is shown instead (audio / subtitles / pause / stop / next).
+ * Series playback also nudges the Stop/Hide/Next overlay on the same click.
+ * Linux never installs the hook. Game Day does not arm it.
  */
 object WindowsPlaybackMenu {
     internal const val WM_LBUTTONDOWN = 0x0201
@@ -94,10 +95,19 @@ object WindowsPlaybackMenu {
     @Volatile
     private var onNext: () -> Unit = {}
 
-    fun bind(hasNextEpisode: () -> Boolean, onStop: () -> Unit, onNext: () -> Unit) {
+    @Volatile
+    private var onRightClick: () -> Unit = {}
+
+    fun bind(
+        hasNextEpisode: () -> Boolean,
+        onStop: () -> Unit,
+        onNext: () -> Unit,
+        onRightClick: () -> Unit = {}
+    ) {
         this.hasNextEpisode = hasNextEpisode
         this.onStop = onStop
         this.onNext = onNext
+        this.onRightClick = onRightClick
     }
 
     private val lock = Any()
@@ -262,6 +272,8 @@ object WindowsPlaybackMenu {
         val paused = runCatching { VlcControl.queryPaused(StreamPlayer.PROGRESS_RC_PORT) }.getOrDefault(false)
         val next = runCatching { hasNextEpisode() }.getOrDefault(false)
         if (targetPid.get() == 0L) return
+        // Series next-episode banner (Stop/Hide/Next) + audio-track menu together.
+        runCatching { onRightClick() }
         SwingUtilities.invokeLater {
             if (targetPid.get() == 0L) return@invokeLater
             showMenu(x, y, paused, next)

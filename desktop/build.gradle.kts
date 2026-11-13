@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.totaliptv.pro"
-version = "1.2.25"
+version = "1.2.29"
 
 repositories {
     mavenCentral()
@@ -49,7 +49,7 @@ compose.desktop {
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi
             )
             packageName = "TotalIptvPro"
-            packageVersion = "1.2.25"
+            packageVersion = "1.2.29"
             description = "Total IPTV Pro — desktop IPTV player (Linux & Windows)"
             linux {
                 packageName = "total-iptv-pro"
@@ -98,3 +98,54 @@ fun ensureRuntimeJavaLaunchers(project: Project) {
             }
         }
 }
+
+
+// Bake an optional TMDB key for service groups in local/test builds.
+// Read from -PtipTmdbKeyFile / TIP_TMDB_KEY_FILE, or from TIP_TMDB_SHARED_KEY
+// written to a temp file that is deleted after the task. The key is never logged
+// or written into the source tree.
+val tmdbGenDir = layout.buildDirectory.dir("generated/tmdb")
+kotlin.sourceSets.getByName("main").kotlin.srcDir(tmdbGenDir)
+
+tasks.register("generateTmdbBuiltInKey") {
+    val outFile = tmdbGenDir.map { it.file("com/totaliptv/pro/desktop/artwork/TmdbBuiltInKey.kt") }
+    outputs.file(outFile)
+    outputs.upToDateWhen { false }
+    doLast {
+        val out = outFile.get().asFile
+        var tempFile: File? = null
+        try {
+            val named = (project.findProperty("tipTmdbKeyFile") as String?)
+                ?: System.getenv("TIP_TMDB_KEY_FILE")
+            var keyFile = named?.let { File(it) }?.takeIf { it.isFile }
+            if (keyFile == null) {
+                val shared = System.getenv("TIP_TMDB_SHARED_KEY")?.trim().orEmpty()
+                if (shared.isNotEmpty()) {
+                    tempFile = File.createTempFile("tip-tmdb-", ".key")
+                    tempFile.writeText(shared)
+                    keyFile = tempFile
+                }
+            }
+            val key = keyFile
+                ?.readLines()
+                ?.firstOrNull { it.isNotBlank() }
+                ?.trim()
+                ?.replace("\\", "\\\\")
+                ?.replace("\"", "\\\"")
+                .orEmpty()
+            out.parentFile.mkdirs()
+            out.writeText(
+                "package com.totaliptv.pro.desktop.artwork\n\n" +
+                    "/** Compile-time default TMDB key. Generated; never commit this file. */\n" +
+                    "internal object TmdbBuiltInKey {\n" +
+                    "    const val VALUE: String = \"$key\"\n" +
+                    "}\n"
+            )
+        } finally {
+            tempFile?.delete()
+        }
+    }
+}
+
+tasks.named("compileKotlin").configure { dependsOn("generateTmdbBuiltInKey") }
+tasks.matching { it.name == "compileTestKotlin" }.configureEach { dependsOn("generateTmdbBuiltInKey") }
