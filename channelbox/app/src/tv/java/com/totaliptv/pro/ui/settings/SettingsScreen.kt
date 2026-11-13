@@ -82,7 +82,7 @@ private class UrlFieldHolder(var text: String)
 /** Never show the key itself; only whether one is set. */
 private fun tmdbKeyLabel(saved: String): String = when {
     saved.isNotBlank() -> "Saved"
-    BuildConfig.TMDB_DEFAULT_KEY.isNotBlank() -> "Using the built-in test key"
+    BuildConfig.TMDB_DEFAULT_KEY.isNotBlank() -> "Using the built-in key"
     else -> "Not set"
 }
 

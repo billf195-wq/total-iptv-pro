@@ -345,7 +345,7 @@ fun PhoneSettingsScreen(
         Text(
             "TMDB API key (for service groups): " + when {
                 tmdbKey.isNotBlank() -> "Saved"
-                BuildConfig.TMDB_DEFAULT_KEY.isNotBlank() -> "Using the built-in test key"
+                BuildConfig.TMDB_DEFAULT_KEY.isNotBlank() -> "Using the built-in key"
                 else -> "Not set"
             },
             color = OnCinemaMuted,
