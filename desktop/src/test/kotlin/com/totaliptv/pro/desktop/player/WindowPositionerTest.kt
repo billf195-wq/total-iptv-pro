@@ -400,19 +400,12 @@ class WindowPositionerTest {
         assertFalse(WindowPositioner.needsBoundsRepair(1280, 800))
         assertFalse(WindowPositioner.shouldPokeZOrder(didUniconify = false))
         assertTrue(WindowPositioner.shouldPokeZOrder(didUniconify = true))
-        assertTrue(WindowPositioner.shouldPokeZOrder(didUniconify = false, lateRaise = true))
-        assertFalse(WindowPositioner.shouldPokeZOrder(didUniconify = false, lateRaise = false))
         assertFalse(WindowPositioner.shouldRetryRestore(stillIconic = false, boundsNeedRepair = false))
         assertTrue(WindowPositioner.shouldRetryRestore(stillIconic = true, boundsNeedRepair = false))
         assertTrue(WindowPositioner.shouldRetryRestore(stillIconic = false, boundsNeedRepair = true))
         assertTrue(WindowPositioner.shouldNudgeSurface(didUniconify = true, didRepairBounds = false))
         assertTrue(WindowPositioner.shouldNudgeSurface(didUniconify = false, didRepairBounds = true))
         assertFalse(WindowPositioner.shouldNudgeSurface(didUniconify = false, didRepairBounds = false))
-        assertTrue(WindowPositioner.shouldNudgeSurface(didUniconify = false, didRepairBounds = false, lateRaise = true))
-        assertEquals(listOf(0, 80, 250, 700, 1500), WindowPositioner.WINDOWS_RESTORE_DELAYS_MS)
-        assertFalse(WindowPositioner.isLateRestorePass(0))
-        assertTrue(WindowPositioner.isLateRestorePass(80))
-        assertTrue(WindowPositioner.isLateRestorePass(1500))
     }
 
     @Test
@@ -422,17 +415,12 @@ class WindowPositionerTest {
         assertTrue("refreshComposeSurface" in src)
         assertTrue("SW_RESTORE first" in src || "ShowWindow(hwnd, WinUser.SW_RESTORE)" in src)
         val restoreFn = src.substringAfter("private fun restoreAppWindowNow").substringBefore("private fun repairWindowBounds")
-        assertTrue("shouldPokeZOrder(didUniconify" in restoreFn)
-        assertTrue("lateRaise" in restoreFn)
+        assertTrue("shouldPokeZOrder(didUniconify)" in restoreFn)
         assertTrue("refreshComposeSurface" in restoreFn)
-        // SetForegroundWindow was the 1.2.30 blank-Skia trigger; late toFront must nudge.
+        // SetForegroundWindow was the 1.2.30 blank-Skia trigger; only un-iconify may toFront.
         assertFalse("SetForegroundWindow" in restoreFn)
         assertFalse("BringWindowToTop" in restoreFn)
-        val afterPlayback = src.substringAfter("fun restoreAppWindowAfterPlayback()")
-        assertTrue("isEventDispatchThread()" in afterPlayback)
-        assertTrue("WINDOWS_RESTORE_DELAYS_MS" in afterPlayback)
-        assertTrue("isLateRestorePass" in afterPlayback)
-        assertTrue("1500" in afterPlayback)
+        assertTrue("isEventDispatchThread()" in src.substringAfter("fun restoreAppWindowAfterPlayback()"))
     }
 
     @Test
