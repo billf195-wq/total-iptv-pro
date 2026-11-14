@@ -67,26 +67,40 @@ object WindowPositioner {
         width < minWidth || height < minHeight
 
     /**
-     * SetForegroundWindow / toFront / BringWindowToTop on a non-iconic
-     * fullscreen Compose window leaves a blank white Skia surface. Only poke
-     * z-order when we actually un-iconified.
+     * Immediate (0 ms) toFront on a non-iconic fullscreen Compose window can
+     * leave a blank white Skia surface (1.2.30). Poke z-order when we actually
+     * un-iconified, or on a late restore pass that also nudges the surface.
+     * Do not use SetForegroundWindow / BringWindowToTop.
      */
-    internal fun shouldPokeZOrder(didUniconify: Boolean): Boolean = didUniconify
+    internal fun shouldPokeZOrder(didUniconify: Boolean, lateRaise: Boolean = false): Boolean =
+        didUniconify || lateRaise
 
-    /** Later retries are only for a window that is still iconic or still tiny. */
+    /** Later retries are for a window that is still iconic or still tiny. */
     internal fun shouldRetryRestore(stillIconic: Boolean, boundsNeedRepair: Boolean): Boolean =
         stillIconic || boundsNeedRepair
 
     /** A 1px size nudge is the reliable way to recreate a blank Skia layer. */
-    internal fun shouldNudgeSurface(didUniconify: Boolean, didRepairBounds: Boolean): Boolean =
-        didUniconify || didRepairBounds
+    internal fun shouldNudgeSurface(
+        didUniconify: Boolean,
+        didRepairBounds: Boolean,
+        lateRaise: Boolean = false
+    ): Boolean = didUniconify || didRepairBounds || lateRaise
+
+    /** Windows restore schedule after every player exit. 0 ms stays conservative. */
+    internal val WINDOWS_RESTORE_DELAYS_MS: List<Int> = listOf(0, 80, 250, 700, 1500)
+
+    /** Non-zero delays raise and nudge even if the window was not iconic. */
+    internal fun isLateRestorePass(delayMs: Int): Boolean = delayMs > 0
 
     /**
      * After VLC (or another fullscreen player) exits, Windows often iconifies
      * the window that was underneath — especially when the app itself is
      * fullscreen and a right-click menu just closed. Un-minimize only when it
      * is actually iconic, put the fullscreen bounds back, and force a Compose
-     * redraw. All of this runs on the AWT EDT after the player has exited.
+     * redraw. Late passes (80/250/700/1500 ms) also toFront and nudge the
+     * Skia surface so a buried, non-iconic window comes back without the
+     * 1.2.30 white screen from SetForegroundWindow. All of this runs on the
+     * AWT EDT after the player has exited.
      */
     fun restoreAppWindowAfterPlayback() {
         if (AppPaths.isMac) {
@@ -100,22 +114,16 @@ object WindowPositioner {
         if (!AppPaths.isWindows) return
         if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return
         val ticket = restoreTicket.incrementAndGet()
-        fun schedule(delayMs: Int, forceRepaint: Boolean) {
+        fun schedule(delayMs: Int) {
+            val lateRaise = isLateRestorePass(delayMs)
             val run = Runnable {
                 if (ticket != restoreTicket.get()) return@Runnable
                 if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return@Runnable
-                val result = restoreAppWindowNow(passDelayMs = delayMs, forceRepaint = forceRepaint)
-                if (delayMs == 0 && (result.didUniconify || result.didRepairBounds)) {
-                    // One trailing redraw after VLC has finished tearing down.
-                    schedule(80, forceRepaint = true)
-                } else if (delayMs < 600 && shouldRetryRestore(result.stillIconic, result.boundsNeedRepair)) {
-                    val next = when (delayMs) {
-                        0 -> 80
-                        80 -> 250
-                        else -> 600
-                    }
-                    schedule(next, forceRepaint = false)
-                }
+                restoreAppWindowNow(
+                    passDelayMs = delayMs,
+                    forceRepaint = true,
+                    lateRaise = lateRaise
+                )
             }
             if (delayMs <= 0) {
                 if (SwingUtilities.isEventDispatchThread()) run.run() else SwingUtilities.invokeLater(run)
@@ -128,11 +136,12 @@ object WindowPositioner {
                 }
             }
         }
-        if (SwingUtilities.isEventDispatchThread()) {
-            schedule(0, forceRepaint = true)
-        } else {
-            SwingUtilities.invokeLater { schedule(0, forceRepaint = true) }
+        // Always run the full 0/80/250/700/1500 ms schedule after every exit,
+        // including when the first pass did not see an iconic window.
+        val start = Runnable {
+            for (delayMs in WINDOWS_RESTORE_DELAYS_MS) schedule(delayMs)
         }
+        if (SwingUtilities.isEventDispatchThread()) start.run() else SwingUtilities.invokeLater(start)
     }
 
     internal const val MAC_BUNDLE_ID: String = "com.totaliptv.pro.desktop"
@@ -309,7 +318,11 @@ object WindowPositioner {
         val boundsNeedRepair: Boolean
     )
 
-    private fun restoreAppWindowNow(passDelayMs: Int, forceRepaint: Boolean): RestoreResult {
+    private fun restoreAppWindowNow(
+        passDelayMs: Int,
+        forceRepaint: Boolean,
+        lateRaise: Boolean = false
+    ): RestoreResult {
         val window = appWindow
         if (window == null) {
             return RestoreResult(false, false, false, false)
@@ -355,14 +368,17 @@ object WindowPositioner {
             (compose?.isMinimized == true) ||
             (hwnd != null && try { iconicApi?.IsIconic(hwnd) == true } catch (_: Throwable) { false })
         val boundsNeedRepair = needsBoundsRepair(after.width, after.height)
-        if (shouldPokeZOrder(didUniconify)) {
+        if (shouldPokeZOrder(didUniconify, lateRaise)) {
             window.toFront()
             runCatching { window.requestFocus() }
         }
-        if (forceRepaint || didUniconify || didRepairBounds) {
-            refreshComposeSurface(window, nudge = shouldNudgeSurface(didUniconify, didRepairBounds))
+        if (forceRepaint || didUniconify || didRepairBounds || lateRaise) {
+            refreshComposeSurface(
+                window,
+                nudge = shouldNudgeSurface(didUniconify, didRepairBounds, lateRaise)
+            )
         }
-        if (passDelayMs == 0 || didUniconify || didRepairBounds || stillIconic) {
+        if (passDelayMs == 0 || didUniconify || didRepairBounds || stillIconic || lateRaise) {
             com.totaliptv.pro.desktop.WindowFullscreen.log(
                 "restore after playback delay=${passDelayMs}ms awtExt=$before now=${frame?.extendedState} " +
                     "iconicAwt=$iconicAwt iconicNative=$iconicNative uniconify=$didUniconify " +

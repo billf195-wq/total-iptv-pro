@@ -69,8 +69,14 @@ package com.totaliptv.pro.desktop
  * 1.2.35: Remember vertical list/grid scroll, each row's horizontal position,
  *         and restore them when leaving a title with Back or after playback
  *         stops, instead of jumping to the top.
+ * 1.2.36: Windows end-of-playback — if VLC reaches EOF or stalls near the
+ *         end, send RC quit (then force-kill after ~1.5s) so the app returns
+ *         instead of waiting forever. After every player exit, raise and
+ *         redraw the app on a late pass (~80/250/700/1500 ms) without the
+ *         1.2.30 white-screen SetForegroundWindow path. Esc quits Windows
+ *         VLC, the same as on Mac and Linux.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 47
-    const val VERSION_NAME: String = "1.2.35"
+    const val VERSION_CODE: Int = 48
+    const val VERSION_NAME: String = "1.2.36"
 }

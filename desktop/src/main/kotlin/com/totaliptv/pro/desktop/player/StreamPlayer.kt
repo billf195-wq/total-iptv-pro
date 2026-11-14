@@ -111,7 +111,7 @@ object StreamPlayer {
     /**
      * Esc in Mac VLC would otherwise only leave fullscreen (the picture
      * "shrinks"). Unset that binding and make Esc quit so Stop is reliable.
-     * Verified present on official VLC.app; not passed on Windows.
+     * Verified present on official VLC.app.
      */
     internal val VLC_MAC_STOP_KEYS: List<String> = listOf(
         "--key-leave-fullscreen=Unset",
@@ -128,6 +128,25 @@ object StreamPlayer {
         "--key-quit=Esc",
         "--global-key-quit=Esc"
     )
+
+    /**
+     * Same Esc-to-quit bindings on Windows VLC 3.0 (Qt). Without these, Esc
+     * only leaves fullscreen and the process can stay up after a title ends.
+     */
+    internal val VLC_WINDOWS_STOP_KEYS: List<String> = listOf(
+        "--key-leave-fullscreen=Unset",
+        "--key-quit=Esc",
+        "--global-key-quit=Esc"
+    )
+
+    /** RC command that asks VLC to leave after EOF is detected. */
+    internal const val EOF_QUIT_COMMAND: String = "quit"
+
+    /** Position must sit still this long, near the end, before we treat it as EOF. */
+    internal const val EOF_STALL_MS: Long = 10_000L
+
+    /** After RC quit, wait this long before destroyForcibly if VLC is still alive. */
+    internal const val EOF_FORCE_KILL_MS: Long = 1_500L
 
     /** VLC RC: force fullscreen. `fullscreen` alone toggles; `on` stays on. */
     internal const val LINUX_VLC_FULLSCREEN_RC = "fullscreen on"
@@ -288,26 +307,66 @@ object StreamPlayer {
             MacStopHotkey.arm()
         }
         syncPlaybackGate()
-        if (onProgress != null && scope != null && !treatLive && resolved.command.first().contains("vlc", ignoreCase = true)) {
-            progressJob = scope.launch(Dispatchers.IO) {
+        // VOD/series VLC: always arm the EOF watchdog, even when resume progress
+        // is not being recorded. Live omits this so a sliding window is not quit.
+        val isVlc = resolved.command.first().contains("vlc", ignoreCase = true)
+        if (!treatLive && isVlc) {
+            val loopScope = scope ?: kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
+            progressJob = loopScope.launch(Dispatchers.IO) {
                 delay(2000)
+                var lastAdvancedAtMs = System.currentTimeMillis()
+                var lastSeenPositionMs = -1L
                 while (proc.isAlive) {
                     val prog = VlcControl.queryProgress(PROGRESS_RC_PORT)
                     if (prog != null) {
-                        notePlaybackSample(
-                            positionMs = prog.currentTimeSeconds * 1000L,
-                            lengthMs = prog.totalLengthSeconds * 1000L
-                        )
-                        if (prog.totalLengthSeconds > 0) {
-                            onProgress(
-                                prog.currentTimeSeconds * 1000L,
-                                prog.totalLengthSeconds * 1000L,
-                                prog.percent
-                            )
+                        val pos = prog.currentTimeSeconds * 1000L
+                        val len = prog.totalLengthSeconds * 1000L
+                        notePlaybackSample(positionMs = pos, lengthMs = len)
+                        if (pos != lastSeenPositionMs && pos >= 0L) {
+                            lastAdvancedAtMs = System.currentTimeMillis()
+                            lastSeenPositionMs = pos
+                        }
+                        if (onProgress != null && prog.totalLengthSeconds > 0) {
+                            onProgress(pos, len, prog.percent)
                         }
                     }
-                    if (VlcControl.queryEnded(PROGRESS_RC_PORT)) {
+                    val ended = VlcControl.queryEnded(PROGRESS_RC_PORT)
+                    if (ended) {
                         notePlaybackSample(lastPositionMs, lastLengthMs, ended = true)
+                    }
+                    val nowMs = System.currentTimeMillis()
+                    val stalled = isStalledNearEnd(
+                        lastPositionMs,
+                        lastLengthMs,
+                        lastAdvancedAtMs,
+                        nowMs
+                    )
+                    if (shouldQuitAtEof(ended, lastPositionMs, lastLengthMs, stalled)) {
+                        notePlaybackSample(lastPositionMs, lastLengthMs, ended = true)
+                        PlaybackDebugLog.note(
+                            formatEofQuitNote(
+                                ended = ended,
+                                positionMs = lastPositionMs,
+                                lengthMs = lastLengthMs,
+                                stalled = stalled,
+                                forceKill = false
+                            )
+                        )
+                        VlcControl.sendCommand(PROGRESS_RC_PORT, EOF_QUIT_COMMAND)
+                        delay(EOF_FORCE_KILL_MS)
+                        if (proc.isAlive) {
+                            PlaybackDebugLog.note(
+                                formatEofQuitNote(
+                                    ended = ended,
+                                    positionMs = lastPositionMs,
+                                    lengthMs = lastLengthMs,
+                                    stalled = stalled,
+                                    forceKill = true
+                                )
+                            )
+                            proc.destroyForcibly()
+                        }
+                        break
                     }
                     delay(2000)
                 }
@@ -537,6 +596,49 @@ object StreamPlayer {
         if (positionMs >= 0L) lastPositionMs = positionMs
         if (lengthMs > 0L) lastLengthMs = lengthMs
         if (ended) lastReachedEof = true
+    }
+
+    /**
+     * True when VLC has ended the input, the clock is at or past duration, or
+     * playback has sat still near the end long enough to treat as a stuck EOF.
+     */
+    internal fun shouldQuitAtEof(
+        ended: Boolean,
+        positionMs: Long,
+        lengthMs: Long,
+        stalledNearEnd: Boolean
+    ): Boolean {
+        if (ended) return true
+        if (lengthMs > 0L && positionMs >= lengthMs) return true
+        return stalledNearEnd
+    }
+
+    internal fun isStalledNearEnd(
+        positionMs: Long,
+        lengthMs: Long,
+        lastAdvancedAtMs: Long,
+        nowMs: Long,
+        stallMs: Long = EOF_STALL_MS,
+        nearEndMs: Long = PlaybackAdvance.NEAR_END_MS
+    ): Boolean {
+        if (lengthMs <= 0L || positionMs < 0L) return false
+        if (nowMs - lastAdvancedAtMs < stallMs) return false
+        return PlaybackAdvance.nearEnd(positionMs, lengthMs, nearEndMs)
+    }
+
+    internal fun formatEofQuitNote(
+        ended: Boolean,
+        positionMs: Long,
+        lengthMs: Long,
+        stalled: Boolean,
+        forceKill: Boolean,
+        forceKillMs: Long = EOF_FORCE_KILL_MS
+    ): String {
+        return if (forceKill) {
+            "eof-quit force-kill after ${forceKillMs}ms ended=$ended posMs=$positionMs lenMs=$lengthMs stalled=$stalled"
+        } else {
+            "eof-quit ended=$ended posMs=$positionMs lenMs=$lengthMs stalled=$stalled"
+        }
     }
 
     internal fun markExit(exitCode: Int, nowMs: Long = System.currentTimeMillis()) {
@@ -824,6 +926,9 @@ object StreamPlayer {
         }
         if (!windows && !macos) {
             args += VLC_LINUX_STOP_KEYS
+        }
+        if (windows) {
+            args += VLC_WINDOWS_STOP_KEYS
         }
         args += "--no-repeat"
         args += "--no-loop"

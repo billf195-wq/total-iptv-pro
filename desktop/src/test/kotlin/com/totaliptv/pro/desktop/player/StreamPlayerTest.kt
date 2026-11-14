@@ -737,9 +737,14 @@ class StreamPlayerTest {
         val windows = StreamPlayer.vlcCommand("""C:\Program Files\VideoLAN\VLC\vlc.exe""", listOf("http://example.test/a.mp4"), windows = true, macos = false)
         assertFalse("--no-macosx-nativefullscreenmode" in linux)
         assertFalse("--no-macosx-nativefullscreenmode" in windows)
-        assertFalse("--key-quit=Esc" in windows)
-        assertFalse("--global-key-quit=Esc" in windows)
-        assertFalse("--key-leave-fullscreen=Unset" in windows)
+        assertTrue("--key-quit=Esc" in windows)
+        assertTrue("--global-key-quit=Esc" in windows)
+        assertTrue("--key-leave-fullscreen=Unset" in windows)
+        assertEquals(StreamPlayer.VLC_WINDOWS_STOP_KEYS, listOf(
+            "--key-leave-fullscreen=Unset",
+            "--key-quit=Esc",
+            "--global-key-quit=Esc"
+        ))
         assertTrue("--key-quit=Esc" in linux)
         assertTrue("--global-key-quit=Esc" in linux)
         assertTrue("--key-leave-fullscreen=Unset" in linux)
@@ -767,4 +772,52 @@ class StreamPlayerTest {
         assertFalse("user:secret" in out)
         assertTrue("example.test:80/.../920203.mkv" in out)
     }
+    @Test
+    fun shouldQuitAtEofOnEndedOrPastLengthOrStall() {
+        assertTrue(StreamPlayer.shouldQuitAtEof(ended = true, positionMs = 1_000L, lengthMs = 3_600_000L, stalledNearEnd = false))
+        assertTrue(StreamPlayer.shouldQuitAtEof(ended = false, positionMs = 3_600_000L, lengthMs = 3_600_000L, stalledNearEnd = false))
+        assertTrue(StreamPlayer.shouldQuitAtEof(ended = false, positionMs = 3_601_000L, lengthMs = 3_600_000L, stalledNearEnd = false))
+        assertTrue(StreamPlayer.shouldQuitAtEof(ended = false, positionMs = 3_550_000L, lengthMs = 3_600_000L, stalledNearEnd = true))
+        assertFalse(StreamPlayer.shouldQuitAtEof(ended = false, positionMs = 1_000L, lengthMs = 3_600_000L, stalledNearEnd = false))
+        assertFalse(StreamPlayer.shouldQuitAtEof(ended = false, positionMs = 0L, lengthMs = 0L, stalledNearEnd = false))
+    }
+
+    @Test
+    fun isStalledNearEndRequiresTenSecondsWithoutMovement() {
+        val length = 3_600_000L
+        val nearEnd = length - 30_000L
+        val mid = 1_000_000L
+        val t0 = 1_000_000L
+        assertEquals(10_000L, StreamPlayer.EOF_STALL_MS)
+        assertEquals(1_500L, StreamPlayer.EOF_FORCE_KILL_MS)
+        assertEquals("quit", StreamPlayer.EOF_QUIT_COMMAND)
+        assertFalse(StreamPlayer.isStalledNearEnd(nearEnd, length, t0, t0 + 9_999L))
+        assertTrue(StreamPlayer.isStalledNearEnd(nearEnd, length, t0, t0 + 10_000L))
+        assertFalse(StreamPlayer.isStalledNearEnd(mid, length, t0, t0 + 30_000L))
+        assertFalse(StreamPlayer.isStalledNearEnd(nearEnd, 0L, t0, t0 + 10_000L))
+        assertFalse(StreamPlayer.isStalledNearEnd(-1L, length, t0, t0 + 10_000L))
+    }
+
+    @Test
+    fun formatEofQuitNoteHasNoStreamUrl() {
+        val note = StreamPlayer.formatEofQuitNote(
+            ended = true,
+            positionMs = 3_590_000L,
+            lengthMs = 3_600_000L,
+            stalled = false,
+            forceKill = false
+        )
+        assertEquals("eof-quit ended=true posMs=3590000 lenMs=3600000 stalled=false", note)
+        val kill = StreamPlayer.formatEofQuitNote(
+            ended = true,
+            positionMs = 3_590_000L,
+            lengthMs = 3_600_000L,
+            stalled = true,
+            forceKill = true
+        )
+        assertEquals("eof-quit force-kill after 1500ms ended=true posMs=3590000 lenMs=3600000 stalled=true", kill)
+        assertFalse("http" in note)
+        assertFalse("url=" in note)
+    }
+
 }
