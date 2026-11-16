@@ -45,6 +45,7 @@ import com.totaliptv.pro.ui.onboarding.OnboardingScreen
 import com.totaliptv.pro.ui.player.PlayerActivity
 import com.totaliptv.pro.ui.search.SearchScreen
 import com.totaliptv.pro.ui.settings.SettingsScreen
+import com.totaliptv.pro.ui.billing.TvBuyScreen
 import com.totaliptv.pro.ui.dvr.RecordingsScreen
 import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.theme.AppearanceMode
@@ -103,6 +104,7 @@ class MainActivity : ComponentActivity() {
             var startupChecked by remember { mutableStateOf(StartupSplashGate.shownThisProcess) }
             val appearance by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
             val accent by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
+            val licenseStatus by app.license.status.collectAsState()
 
             LaunchedEffect(Unit) {
                 val initial = runCatching { app.preferences.getAppLayoutMode() }
@@ -215,6 +217,13 @@ class MainActivity : ComponentActivity() {
                 return@setContent
             }
 
+            if (!licenseStatus.allowsUse) {
+                TotalIptvProTheme(appearance = appearance, accent = accent) {
+                    TvBuyScreen(license = app.license)
+                }
+                return@setContent
+            }
+
             Box(modifier = Modifier.fillMaxSize()) {
             if (boundLayout == AppLayoutMode.DESKTOP) {
                 DesktopAppRoot(
@@ -239,11 +248,17 @@ class MainActivity : ComponentActivity() {
     }
 
 
+    override fun onResume() {
+        super.onResume()
+        (application as? TotalIptvProApp)?.license?.refreshInBackground()
+    }
+
     private fun playResolved(
         repository: CatalogRepository,
         item: MediaItem,
         startOver: Boolean = false
     ) {
+        if (!(application as TotalIptvProApp).license.status.value.allowsUse) return
         // Always re-bind to catalog by id so Live clicks cannot play a mismatched streamUrl
         // after category/sort list churn.
         val bound = repository.playableFrom(item)

@@ -51,8 +51,8 @@ android {
         applicationId = "com.totaliptv.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 114
-        versionName = "1.4.102"
+        versionCode = 115
+        versionName = "1.4.103"
         buildConfigField(
             "String",
             "DEFAULT_UPDATE_BASE_URL",
@@ -94,8 +94,8 @@ android {
         create("tv") {
             dimension = "device"
             // Keep Shield / Leanback applicationId unchanged.
-            versionCode = 114
-            versionName = "1.4.102"
+            versionCode = 115
+            versionName = "1.4.103"
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",
@@ -106,8 +106,8 @@ android {
             dimension = "device"
             applicationIdSuffix = ".phone"
             // Phone-only bump so Shield is not forced to update.
-            versionCode = 91
-            versionName = "1.4.79-phone"
+            versionCode = 92
+            versionName = "1.4.80-phone"
             resValue("string", "app_name", "Total IPTV Pro Phone")
             buildConfigField(
                 "String",
@@ -234,6 +234,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.coil.compose)
+    // Google Play Billing Library. Apache-2.0.
+    implementation(libs.billing)
 
     "tvImplementation"(libs.androidx.tv.foundation)
     "tvImplementation"(libs.androidx.tv.material)

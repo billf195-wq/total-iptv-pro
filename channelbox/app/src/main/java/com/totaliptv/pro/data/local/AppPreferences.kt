@@ -134,6 +134,10 @@ class AppPreferences(private val context: Context) {
         prefs[autoPipKey] ?: defaultAutoPip()
     }
 
+    /** True when this device already has catalog preferences from a prior session. */
+    suspend fun hasStoredUserData(): Boolean =
+        context.dataStore.data.first().asMap().isNotEmpty()
+
     suspend fun getSources(): List<PlaylistSource> = sources.first()
 
     suspend fun getFavorites(): List<FavoriteRef> = favorites.first()

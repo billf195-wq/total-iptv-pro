@@ -57,6 +57,7 @@ import androidx.media3.ui.PlayerView
 import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.ui.focus.FocusCrashGuard
 import com.totaliptv.pro.ui.focus.FocusTrace
+import com.totaliptv.pro.billing.finishIfLicenseBlocked
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.WatchProgress
@@ -166,6 +167,7 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (finishIfLicenseBlocked()) return
         // Phone builds omit manifest screenOrientation. Lock landscape only when the
         // platform will accept it, so Android 8.0 does not kill the process here.
         lockLandscapeIfSafe()

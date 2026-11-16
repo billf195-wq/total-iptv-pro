@@ -71,6 +71,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.billing.LicenseStrings
 import com.totaliptv.pro.diagnostics.CrashLog
 import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.LiveChannelMapping
@@ -839,6 +840,62 @@ fun DesktopSettingsPane(
             Text("Source: ${src.name} (${src.type})", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
         }
         Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
+
+        val licenseStatus by (app?.license?.status ?: kotlinx.coroutines.flow.flowOf(com.totaliptv.pro.billing.LicenseStatus.Checking))
+            .collectAsState(initial = com.totaliptv.pro.billing.LicenseStatus.Checking)
+        val licensePrice by (app?.license?.price ?: kotlinx.coroutines.flow.flowOf(com.totaliptv.pro.billing.LicensePolicy.DISPLAY_PRICE))
+            .collectAsState(initial = com.totaliptv.pro.billing.LicensePolicy.DISPLAY_PRICE)
+        val licenseMessage by (app?.license?.message ?: kotlinx.coroutines.flow.flowOf<String?>(null))
+            .collectAsState(initial = null)
+        SectionHeader(LicenseStrings.SECTION)
+        Text(
+            LicenseStrings.statusLine(licenseStatus, licensePrice),
+            color = TipGoldMuted,
+            fontSize = TipDimens.BodyMediumSp
+        )
+        if (licenseStatus.showBuyButton) {
+            Spacer(Modifier.height(TipDimens.dp(8)))
+            Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
+                TipFocusable(
+                    onClick = {
+                        val activity = context as? Activity
+                        if (activity != null) {
+                            scope.launch { app?.license?.buy(activity) }
+                        }
+                    }
+                ) { focused ->
+                    Text(
+                        LicenseStrings.buyLabel(licensePrice),
+                        color = if (focused) TipAccent else TipGoldText,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                            .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                    )
+                }
+                TipFocusable(
+                    onClick = { scope.launch { app?.license?.restore() } }
+                ) { focused ->
+                    Text(
+                        LicenseStrings.RESTORE,
+                        color = if (focused) TipAccent else TipGoldText,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                            .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                    )
+                }
+            }
+            if (!licenseMessage.isNullOrBlank()) {
+                Text(
+                    licenseMessage!!,
+                    color = TipGoldMuted,
+                    fontSize = TipDimens.BodyMediumSp,
+                    modifier = Modifier.padding(top = TipDimens.dp(6))
+                )
+            }
+        }
+        Spacer(Modifier.height(TipDimens.dp(20)))
 
         val appearance by (app?.preferences?.appearanceMode ?: kotlinx.coroutines.flow.flowOf(AppearanceMode.DARK))
             .collectAsState(initial = AppearanceMode.DARK)

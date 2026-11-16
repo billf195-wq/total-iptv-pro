@@ -57,6 +57,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.billing.LicenseStrings
 import com.totaliptv.pro.diagnostics.CrashLog
 import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.local.AppPreferences
@@ -117,6 +118,10 @@ fun SettingsScreen(
     val tmdbKey by app.preferences.tmdbApiKey.collectAsState(initial = "")
     val serviceStatus by repository.serviceLookupStatus.collectAsState()
     var editingTmdbKey by remember { mutableStateOf(false) }
+    val licenseStatus by app.license.status.collectAsState()
+    val licensePrice by app.license.price.collectAsState()
+    val licenseMessage by app.license.message.collectAsState()
+    val activity = context as? android.app.Activity
     val tmdbHolder = remember(tmdbKey) { UrlFieldHolder(tmdbKey) }
 
     BackHandler {
@@ -160,6 +165,35 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                     modifier = Modifier.padding(bottom = 6.dp)
                 )
+            }
+
+            item { SectionTitle(LicenseStrings.SECTION) }
+            item {
+                Text(
+                    text = LicenseStrings.statusLine(licenseStatus, licensePrice),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                )
+            }
+            if (licenseStatus.showBuyButton) {
+                item {
+                    FocusableCard(
+                        title = LicenseStrings.buyLabel(licensePrice),
+                        subtitle = "One-time unlock",
+                        onClick = {
+                            if (activity != null) {
+                                scope.launch { app.license.buy(activity) }
+                            }
+                        }
+                    )
+                }
+                item {
+                    FocusableCard(
+                        title = LicenseStrings.RESTORE,
+                        subtitle = licenseMessage ?: "Restores a purchase already made on this Google account",
+                        onClick = { scope.launch { app.license.restore() } }
+                    )
+                }
             }
             item {
                 FocusableCard(

@@ -7,6 +7,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.util.Log
+import com.totaliptv.pro.billing.finishIfLicenseBlocked
 import com.totaliptv.pro.util.SensitiveText
 import android.view.Gravity
 import android.view.KeyEvent
@@ -106,6 +107,7 @@ class SplitPlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (finishIfLicenseBlocked()) return
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // System bars are hidden after setContentView. On API 30 the insets controller
         // NPEs inside the framework when the DecorView does not exist yet.

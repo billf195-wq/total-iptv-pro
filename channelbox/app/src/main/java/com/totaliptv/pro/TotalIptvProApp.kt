@@ -7,6 +7,8 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.totaliptv.pro.diagnostics.CrashLog
 import com.totaliptv.pro.data.LogoUrls
+import com.totaliptv.pro.billing.ExistingAppData
+import com.totaliptv.pro.billing.LicenseController
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.local.LastPlaceStore
 import com.totaliptv.pro.data.local.SavedLoginStore
@@ -34,6 +36,8 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         private set
     lateinit var lastPlace: LastPlaceStore
         private set
+    lateinit var license: LicenseController
+        private set
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -41,6 +45,10 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         super.onCreate()
         CrashLog.install(this)
         preferences = AppPreferences(this)
+        license = LicenseController.create(this) {
+            preferences.hasStoredUserData() || ExistingAppData.presentOnDevice(this, emptySet())
+        }
+        license.start()
         repository = CatalogRepository(preferences)
         repository.attachVodCacheDir(filesDir)
         lastPlace = LastPlaceStore(File(filesDir, "last-place.json"))

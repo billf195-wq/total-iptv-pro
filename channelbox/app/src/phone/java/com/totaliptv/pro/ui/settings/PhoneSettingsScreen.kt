@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.R
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.billing.LicenseStrings
 import com.totaliptv.pro.diagnostics.CrashLog
 import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.local.AppPreferences
@@ -84,6 +85,10 @@ fun PhoneSettingsScreen(
     val serviceStatus by repository.serviceLookupStatus.collectAsState()
     var editingTmdbKey by remember { mutableStateOf(false) }
     var tmdbDraft by remember(tmdbKey) { mutableStateOf(tmdbKey) }
+    val licenseStatus by app.license.status.collectAsState()
+    val licensePrice by app.license.price.collectAsState()
+    val licenseMessage by app.license.message.collectAsState()
+    val activity = context as? android.app.Activity
 
     Column(
         modifier = Modifier
@@ -103,6 +108,32 @@ fun PhoneSettingsScreen(
             color = OnCinemaMuted,
             style = MaterialTheme.typography.bodySmall
         )
+        Spacer(Modifier.height(16.dp))
+        Text("Unlock", style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            LicenseStrings.statusLine(licenseStatus, licensePrice),
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        if (licenseStatus.showBuyButton) {
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    if (activity != null) scope.launch { app.license.buy(activity) }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(LicenseStrings.buyLabel(licensePrice)) }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { scope.launch { app.license.restore() } },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(LicenseStrings.RESTORE) }
+            if (!licenseMessage.isNullOrBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(licenseMessage!!, color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
         Spacer(Modifier.height(8.dp))
         Text(
             stringResource(R.string.trademark_disclaimer),
