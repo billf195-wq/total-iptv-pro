@@ -275,7 +275,8 @@ class StreamPlayerTest {
         )
         assertTrue(windows.contains("--fullscreen"))
         assertTrue(windows.contains("--no-video-title-show"))
-        assertTrue(windows.contains("--no-qt-fs-controller"))
+        assertTrue(windows.contains("--qt-fs-controller"))
+        assertFalse(windows.contains("--no-qt-fs-controller"))
         assertTrue(windows.contains("--no-video-deco"))
         assertTrue(windows.contains("--qt-minimal-view"))
         assertTrue(windows.contains("--no-qt-system-tray"))
@@ -567,7 +568,8 @@ class StreamPlayerTest {
         assertTrue(single.contains("--no-video-deco"))
         assertFalse(single.contains("--no-embedded-video"))
         assertTrue(single.contains("--qt-minimal-view"))
-        assertTrue(single.contains("--no-qt-fs-controller"))
+        assertTrue(single.contains("--qt-fs-controller"))
+        assertFalse(single.contains("--no-qt-fs-controller"))
         assertTrue(single.contains("--no-video-title-show"))
         assertTrue(single.contains("--no-qt-system-tray"))
     }
@@ -832,7 +834,8 @@ class StreamPlayerTest {
         assertTrue(StreamPlayer.linuxVlcEnvironment(isVlc = true, windows = false, macos = true, hasDisplay = true).isEmpty())
         assertTrue(StreamPlayer.linuxVlcEnvironment(isVlc = false, windows = false, macos = false, hasDisplay = true).isEmpty())
         assertTrue(StreamPlayer.linuxVlcEnvironment(isVlc = true, windows = false, macos = false, hasDisplay = false).isEmpty())
-        // Windows keeps its 1.2.37 flags (its own right-click menu); only Linux changed.
-        assertTrue(StreamPlayer.VLC_WINDOWS_TRUE_FULLSCREEN.contains("--no-qt-fs-controller"))
+        // 1.2.40: Windows shows the fullscreen seek bar too, but never gets the Linux xcb pin.
+        assertTrue(StreamPlayer.VLC_WINDOWS_TRUE_FULLSCREEN.contains("--qt-fs-controller"))
+        assertFalse(StreamPlayer.VLC_WINDOWS_TRUE_FULLSCREEN.contains("--no-qt-fs-controller"))
     }
 }

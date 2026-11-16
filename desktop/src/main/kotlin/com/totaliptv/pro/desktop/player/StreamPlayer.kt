@@ -68,13 +68,14 @@ object StreamPlayer {
     /**
      * Windows movie/series fullscreen. Qt stays the interface so
      * `--qt-fullscreen-screennumber` can follow the app's monitor, but the
-     * title, decorations, minimal-view chrome, and fullscreen controller stay
-     * off. No crop, aspect override, or `--no-embedded-video` (that opens a
+     * title, decorations, and minimal-view chrome stay off. The fullscreen
+     * controller (seek bar) is on since 1.2.40. No crop, aspect override, or `--no-embedded-video` (that opens a
      * second window). Default autoscale letterboxes in black.
      */
     internal val VLC_WINDOWS_TRUE_FULLSCREEN: List<String> = listOf(
         "--no-video-title-show",
-        "--no-qt-fs-controller",
+        // 1.2.40: show VLC's fullscreen seek / play bar on mouse move (was --no-qt-fs-controller).
+        "--qt-fs-controller",
         "--no-video-deco",
         "--qt-minimal-view",
         "--no-qt-system-tray",

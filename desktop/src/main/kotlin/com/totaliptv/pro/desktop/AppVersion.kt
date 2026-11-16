@@ -75,6 +75,9 @@ package com.totaliptv.pro.desktop
  *         redraw the app on a late pass (~80/250/700/1500 ms) without the
  *         1.2.30 white-screen SetForegroundWindow path. Esc quits Windows
  *         VLC, the same as on Mac and Linux.
+ * 1.2.40: Windows VLC fullscreen shows its bottom seek / play bar on mouse
+ *         move too (--qt-fs-controller instead of --no-qt-fs-controller).
+ *         QT_QPA_PLATFORM stays Linux-only. Everything else unchanged.
  * 1.2.39: Linux VLC fullscreen shows its bottom seek / play bar on mouse move
  *         (--qt-fs-controller instead of --no-qt-fs-controller) and VLC is
  *         pinned to XWayland (QT_QPA_PLATFORM=xcb). Windows and Mac unchanged.
@@ -88,6 +91,6 @@ package com.totaliptv.pro.desktop
  *         a white screen after Stop on the next-episode banner.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 51
-    const val VERSION_NAME: String = "1.2.39"
+    const val VERSION_CODE: Int = 52
+    const val VERSION_NAME: String = "1.2.40"
 }
