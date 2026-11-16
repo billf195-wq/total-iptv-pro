@@ -75,6 +75,9 @@ package com.totaliptv.pro.desktop
  *         redraw the app on a late pass (~80/250/700/1500 ms) without the
  *         1.2.30 white-screen SetForegroundWindow path. Esc quits Windows
  *         VLC, the same as on Mac and Linux.
+ * 1.2.39: Linux VLC fullscreen shows its bottom seek / play bar on mouse move
+ *         (--qt-fs-controller instead of --no-qt-fs-controller) and VLC is
+ *         pinned to XWayland (QT_QPA_PLATFORM=xcb). Windows and Mac unchanged.
  * 1.2.38: Movies / Series Sort row gets a "Top rated" button after Most recent.
  *         It ranks whichever group is picked (All, Newly added, Netflix, any
  *         service or provider group) with the Top rated group's rules. The
@@ -85,6 +88,6 @@ package com.totaliptv.pro.desktop
  *         a white screen after Stop on the next-episode banner.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 50
-    const val VERSION_NAME: String = "1.2.38"
+    const val VERSION_CODE: Int = 51
+    const val VERSION_NAME: String = "1.2.39"
 }

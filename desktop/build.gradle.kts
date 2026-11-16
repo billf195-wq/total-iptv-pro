@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.totaliptv.pro"
-version = "1.2.38"
+version = "1.2.39"
 
 repositories {
     mavenCentral()
@@ -56,7 +56,7 @@ compose.desktop {
                 }
             )
             packageName = "TotalIptvPro"
-            packageVersion = "1.2.38"
+            packageVersion = "1.2.39"
             description = "Total IPTV Pro — desktop IPTV player (Linux, Windows & macOS)"
             linux {
                 packageName = "total-iptv-pro"

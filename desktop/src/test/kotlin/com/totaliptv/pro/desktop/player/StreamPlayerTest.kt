@@ -207,7 +207,8 @@ class StreamPlayerTest {
         assertFalse(windows.contains("--no-embedded-video"))
         assertFalse(windows.any { it.startsWith("--crop") || it.startsWith("--aspect-ratio") || it == "--no-autoscale" })
         assertTrue(linux.contains("--no-video-title-show"), linux.toString())
-        assertTrue(linux.contains("--no-qt-fs-controller"), linux.toString())
+        assertTrue(linux.contains("--qt-fs-controller"), linux.toString())
+        assertFalse(linux.contains("--no-qt-fs-controller"), linux.toString())
         assertTrue(linux.contains("--qt-minimal-view"))
         assertFalse(linux.contains("--no-qt-system-tray"))
         assertFalse(linux.contains("--no-qt-video-autoresize"))
@@ -232,7 +233,8 @@ class StreamPlayerTest {
         assertFalse(placed.contains("--fullscreen"))
         assertTrue(placed.contains("--qt-fullscreen-screennumber=1"))
         assertTrue(placed.contains("--no-video-title-show"))
-        assertTrue(placed.contains("--no-qt-fs-controller"))
+        assertTrue(placed.contains("--qt-fs-controller"))
+        assertFalse(placed.contains("--no-qt-fs-controller"))
         assertTrue(placed.contains("--qt-minimal-view"))
         assertEquals(4214, StreamPlayer.linuxRcPort(placed))
         val windowed = StreamPlayer.vlcCommand(
@@ -305,7 +307,8 @@ class StreamPlayerTest {
         )
         assertTrue(linux.contains("--fullscreen"))
         assertTrue(linux.contains("--qt-fullscreen-screennumber=0"), linux.toString())
-        assertTrue(linux.contains("--no-qt-fs-controller"))
+        assertTrue(linux.contains("--qt-fs-controller"))
+        assertFalse(linux.contains("--no-qt-fs-controller"))
         assertFalse(linux.contains("--rc-quiet"))
         assertFalse(linux.contains("--ignore-config"))
         assertFalse(linux.contains("--no-video-deco"))
@@ -820,4 +823,16 @@ class StreamPlayerTest {
         assertFalse("url=" in note)
     }
 
+
+    @Test
+    fun linuxVlcPinsQtToXcbOnlyOnLinuxWithDisplay() {
+        assertEquals(mapOf("QT_QPA_PLATFORM" to "xcb"),
+            StreamPlayer.linuxVlcEnvironment(isVlc = true, windows = false, macos = false, hasDisplay = true))
+        assertTrue(StreamPlayer.linuxVlcEnvironment(isVlc = true, windows = true, macos = false, hasDisplay = true).isEmpty())
+        assertTrue(StreamPlayer.linuxVlcEnvironment(isVlc = true, windows = false, macos = true, hasDisplay = true).isEmpty())
+        assertTrue(StreamPlayer.linuxVlcEnvironment(isVlc = false, windows = false, macos = false, hasDisplay = true).isEmpty())
+        assertTrue(StreamPlayer.linuxVlcEnvironment(isVlc = true, windows = false, macos = false, hasDisplay = false).isEmpty())
+        // Windows keeps its 1.2.37 flags (its own right-click menu); only Linux changed.
+        assertTrue(StreamPlayer.VLC_WINDOWS_TRUE_FULLSCREEN.contains("--no-qt-fs-controller"))
+    }
 }

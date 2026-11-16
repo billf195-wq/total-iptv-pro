@@ -85,14 +85,27 @@ object StreamPlayer {
      * Linux movie, series, and live fullscreen. The X11 placer still moves the
      * window onto the app's monitor before VLC is fullscreen (GNOME will not
      * move a window that is already fullscreen on another output). These flags
-     * hide the title and the fullscreen controller once `fullscreen on` is sent
-     * over RC. Not used for Game Day: that path is `--intf=dummy` and has no Qt chrome.
+     * hide the title once `fullscreen on` is sent over RC. Not used for Game Day:
+     * that path is `--intf=dummy` and has no Qt chrome.
+     *
+     * 1.2.39: `--qt-fs-controller` (was `--no-qt-fs-controller`) so moving the
+     * mouse brings up VLC's bottom seek / play bar in fullscreen. Passed
+     * explicitly so a user vlcrc that turned it off cannot hide it again.
      */
     internal val VLC_LINUX_TRUE_FULLSCREEN: List<String> = listOf(
         "--no-video-title-show",
-        "--no-qt-fs-controller",
+        "--qt-fs-controller",
         "--qt-minimal-view"
     )
+
+    /**
+     * Linux single-play VLC runs on X11 (XWayland under GNOME Wayland): the X11
+     * placer finds and moves the VLC window by pid, and VLC 3's Qt fullscreen
+     * controller is an X11 popup. Pin Qt to xcb so a QT_QPA_PLATFORM=wayland
+     * session default cannot move VLC off XWayland and break either.
+     */
+    internal fun linuxVlcEnvironment(isVlc: Boolean, windows: Boolean, macos: Boolean, hasDisplay: Boolean): Map<String, String> =
+        if (isVlc && !windows && !macos && hasDisplay) mapOf("QT_QPA_PLATFORM" to "xcb") else emptyMap()
 
     /**
      * macOS VLC.app fullscreen. Official VLC.app ships the Cocoa interface, not
@@ -276,6 +289,14 @@ object StreamPlayer {
         val stderrFile = playerStderrFile()
         val pb = ProcessBuilder(launchCommand)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+        pb.environment().putAll(
+            linuxVlcEnvironment(
+                isVlc = resolved.command.first().contains("vlc", ignoreCase = true),
+                windows = AppPaths.isWindows,
+                macos = AppPaths.isMac,
+                hasDisplay = !System.getenv("DISPLAY").isNullOrBlank()
+            )
+        )
         if (stderrFile != null) {
             pb.redirectError(stderrFile)
         } else {
