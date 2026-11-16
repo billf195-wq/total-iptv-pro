@@ -65,6 +65,9 @@ object AppUpdateChecker {
      * Drive is unreachable. Manual downloads stay on the public releases page.
      */
     suspend fun check(baseUrl: String): UpdateCheckResult = withContext(Dispatchers.IO) {
+        if (!com.totaliptv.pro.BuildConfig.SELF_UPDATER_ENABLED) {
+            return@withContext UpdateCheckResult.UpToDate
+        }
         val drive = runCatching { checkDrive() }.getOrElse {
             UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
         }

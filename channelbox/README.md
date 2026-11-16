@@ -26,9 +26,14 @@ Lean source snapshot imported from Bill Foster’s Bigboybill PC (main + phone +
 
 ## Build
 
+Sideload (GitHub / Drive) builds keep the in-app updater. Google Play builds (`play` flavor) do not: they omit `REQUEST_INSTALL_PACKAGES` and hide the update check.
+
 ```bash
 cd channelbox
-./gradlew :app:assembleTvDebug :app:assemblePhoneDebug
+# Sideload (default distribution flavor)
+./gradlew :app:assembleTvSideloadDebug :app:assemblePhoneSideloadDebug
+# Play Store AABs
+./gradlew :app:bundleTvPlayRelease :app:bundlePhonePlayRelease
 ```
 
 APKs:

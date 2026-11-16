@@ -824,6 +824,7 @@ fun DesktopSettingsPane(
         runCatching { updateFocus.requestFocus() }
     }
     var pendingInstall by remember { mutableStateOf<UpdateCheckResult.Available?>(null) }
+    val shelfField = remember { mutableStateOf<android.widget.EditText?>(null) }
     val sources by repository.sources.collectAsState(initial = emptyList())
 
     val settingsFocus = remember { FocusRequester() }
@@ -1076,12 +1077,15 @@ fun DesktopSettingsPane(
         AmberButton("Change source", onClick = onChangeSource)
 
         Spacer(Modifier.height(TipDimens.dp(24)))
+        if (BuildConfig.SELF_UPDATER_ENABLED) {
         SectionHeader("App updates")
+        }
         Text(
             "Installed: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             color = TipGoldMuted,
             fontSize = TipDimens.BodyMediumSp
         )
+        if (BuildConfig.SELF_UPDATER_ENABLED) {
         Text(
             if (updateBaseUrl.isBlank()) "Checks Google Drive" else "Checks Google Drive, then your shelf",
             color = TipGoldMuted,
@@ -1093,7 +1097,6 @@ fun DesktopSettingsPane(
             fontSize = TipDimens.sp(12)
         )
         Spacer(Modifier.height(TipDimens.dp(8)))
-        val shelfField = remember { mutableStateOf<EditText?>(null) }
         AndroidView(
             factory = { ctx ->
                 EditText(ctx).apply {
@@ -1185,6 +1188,7 @@ fun DesktopSettingsPane(
         updateStatus?.let {
             Spacer(Modifier.height(TipDimens.dp(10)))
             Text(it, color = TipAccent, fontSize = TipDimens.BodyMediumSp)
+        }
         }
 
                 Spacer(Modifier.height(TipDimens.dp(24)))

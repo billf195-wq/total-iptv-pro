@@ -158,7 +158,9 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             item {
-                SectionTitle("App update")
+                if (BuildConfig.SELF_UPDATER_ENABLED) {
+                    SectionTitle("App update")
+                }
                 Text(
                     text = "Installed: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                     style = MaterialTheme.typography.bodySmall,
@@ -195,6 +197,7 @@ fun SettingsScreen(
                     )
                 }
             }
+            if (BuildConfig.SELF_UPDATER_ENABLED) {
             item {
                 FocusableCard(
                     title = if (editingUpdateUrl) "Update server (editing)" else "Update server",
@@ -331,6 +334,7 @@ fun SettingsScreen(
                         }
                     }
                 )
+            }
             }
 
             item { SectionTitle("Last crash") }

@@ -141,6 +141,7 @@ fun PhoneSettingsScreen(
             style = MaterialTheme.typography.bodySmall
         )
 
+        if (BuildConfig.SELF_UPDATER_ENABLED) {
         Spacer(Modifier.height(20.dp))
         Text(
             "App update",
@@ -278,6 +279,7 @@ fun PhoneSettingsScreen(
             TextButton(onClick = { pendingInstall = null; updateStatus = null }) {
                 Text("Dismiss update")
             }
+        }
         }
 
         Spacer(Modifier.height(24.dp))
