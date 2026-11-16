@@ -104,7 +104,9 @@ enum class MainNav {
 enum class BrowseSort(val prefsValue: String, val label: String) {
     AZ("AZ", "A–Z"),
     ZA("ZA", "Z–A"),
-    RECENT("RECENT", "Most recent");
+    RECENT("RECENT", "Most recent"),
+    /** Highest rating first inside the selected group (same rules as the Top rated group); unrated last. */
+    TOP("TOP", "Top rated");
 
     companion object {
         fun fromPrefs(value: String?): BrowseSort =
@@ -623,15 +625,7 @@ private fun BrowseContentPane(
                     query.isBlank() || it.name.contains(query, ignoreCase = true) ||
                         (it.groupTitle?.contains(query, ignoreCase = true) == true)
                 }
-            if (CatalogCategories.isOrderedVirtual(selectedCategoryId)) {
-                base
-            } else {
-                when (browseSort) {
-                    BrowseSort.AZ -> RatingOrder.sortByTitle(base, descending = false)
-                    BrowseSort.ZA -> RatingOrder.sortByTitle(base, descending = true)
-                    BrowseSort.RECENT -> RatingOrder.sortRecent(base)
-                }
-            }
+            BrowseCatalog.sortBrowse(base, selectedCategoryId, browseSort, serviceIndex)
         }
     }
 

@@ -75,12 +75,16 @@ package com.totaliptv.pro.desktop
  *         redraw the app on a late pass (~80/250/700/1500 ms) without the
  *         1.2.30 white-screen SetForegroundWindow path. Esc quits Windows
  *         VLC, the same as on Mac and Linux.
+ * 1.2.38: Movies / Series Sort row gets a "Top rated" button after Most recent.
+ *         It ranks whichever group is picked (All, Newly added, Netflix, any
+ *         service or provider group) with the Top rated group's rules. The
+ *         Top rated group stays in the category row.
  * 1.2.37: Keep the 1.2.36 EOF watchdog and Windows Esc-to-quit. Revert the
  *         late raise / repaint / Skia-nudge restore passes; Windows restore
  *         after playback is again the 1.2.35 behavior, which does not leave
  *         a white screen after Stop on the next-episode banner.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 49
-    const val VERSION_NAME: String = "1.2.37"
+    const val VERSION_CODE: Int = 50
+    const val VERSION_NAME: String = "1.2.38"
 }

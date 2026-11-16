@@ -69,6 +69,38 @@ object BrowseCatalog {
         }
     }
 
+    /**
+     * Movies / Series sort inside the selected group. "Newly added" and "Top rated" keep their
+     * own order for A–Z / Z–A / Most recent (unchanged). The Top rated sort ranks any group,
+     * including those two, with the Top rated group's rules: TMDB scores only (min votes)
+     * when TMDB lookups are on, otherwise provider ratings; unrated titles go last.
+     */
+    fun sortBrowse(
+        items: List<MediaItem>,
+        categoryId: String?,
+        sort: com.totaliptv.pro.desktop.ui.BrowseSort,
+        index: ServiceIndex?
+    ): List<MediaItem> {
+        if (sort == com.totaliptv.pro.desktop.ui.BrowseSort.TOP) {
+            return try {
+                Ratings.sortTopRated(items, index?.let { idx -> { item: MediaItem -> idx.ratingScore(item) } })
+            } catch (t: Exception) {
+                com.totaliptv.pro.desktop.artwork.RatingOrder.logFailure(t)
+                items
+            }
+        }
+        if (CatalogCategories.isOrderedVirtual(categoryId)) return items
+        return when (sort) {
+            com.totaliptv.pro.desktop.ui.BrowseSort.AZ ->
+                com.totaliptv.pro.desktop.artwork.RatingOrder.sortByTitle(items, descending = false)
+            com.totaliptv.pro.desktop.ui.BrowseSort.ZA ->
+                com.totaliptv.pro.desktop.artwork.RatingOrder.sortByTitle(items, descending = true)
+            com.totaliptv.pro.desktop.ui.BrowseSort.RECENT ->
+                com.totaliptv.pro.desktop.artwork.RatingOrder.sortRecent(items)
+            com.totaliptv.pro.desktop.ui.BrowseSort.TOP -> items
+        }
+    }
+
     fun newlyAdded(items: List<MediaItem>, limit: Int = NEWLY_ADDED_LIMIT): List<MediaItem> =
         sortByRecentlyAdded(items).take(limit)
 
