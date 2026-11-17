@@ -50,6 +50,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.data.local.WatchProgressStore
+import com.totaliptv.pro.data.local.WatchedStore
+import com.totaliptv.pro.ui.home.WatchedActions
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
@@ -108,6 +110,8 @@ fun MovieDetailSheet(
     var seriesLoading by remember(item.id) { mutableStateOf(item.kind == ContentKind.SERIES) }
     var selectedSeason by remember(item.id) { mutableIntStateOf(1) }
     var selectedEpisodeId by remember(item.id) { mutableIntStateOf(-1) }
+    /** Bumped when Mark watched / unwatched changes, so checkmarks redraw. */
+    var watchedVersion by remember(item.id) { mutableIntStateOf(0) }
 
     fun progressStore(): WatchProgressStore =
         (context.applicationContext as? TotalIptvProApp)?.watchProgress
@@ -158,6 +162,16 @@ fun MovieDetailSheet(
     val pct = progress?.let { (it.fraction() * 100).toInt().coerceIn(1, 99) }
     val seasonEpisodes = seriesInfo?.seasons?.firstOrNull { it.season == selectedSeason }?.episodes.orEmpty()
     val isSeriesPicker = enriched.kind == ContentKind.SERIES && !enriched.id.startsWith("series-ep-")
+    // Watched check: the movie itself, or the selected episode in the series picker.
+    val watchedTargetId = when {
+        isSeriesPicker && selectedEpisodeId > 0 -> WatchedStore.episodeId(selectedEpisodeId)
+        isSeriesPicker -> null
+        else -> enriched.id
+    }
+    val watchedIds = remember(item.id, watchedVersion) {
+        runCatching { (context.applicationContext as? TotalIptvProApp)?.watched?.ids() }.getOrNull().orEmpty()
+    }
+    val targetWatched = watchedTargetId != null && watchedTargetId in watchedIds
     val dvrSnap by remember(context) {
         (context.applicationContext as TotalIptvProApp).dvr.snapshot
     }.collectAsState()
@@ -280,7 +294,8 @@ fun MovieDetailSheet(
                 val meta = listOfNotNull(
                     enriched.groupTitle?.takeIf { it.isNotBlank() },
                     mergedDisplayRating(enriched)?.let { "★ $it" },
-                    if (canResume && pct != null) "Resume at $pct%" else null
+                    if (canResume && pct != null) "Resume at $pct%" else null,
+                    if (!isSeriesPicker && targetWatched) "✓ Watched" else null
                 ).joinToString("  ·  ")
                 if (meta.isNotBlank()) {
                     Text(
@@ -354,8 +369,9 @@ fun MovieDetailSheet(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             items(seasonEpisodes, key = { it.episodeId }) { ep ->
+                                val epWatched = WatchedStore.episodeId(ep.episodeId) in watchedIds
                                 TopBarChip(
-                                    label = "E${ep.episodeNum}  ${ep.title}",
+                                    label = (if (epWatched) "✓ " else "") + "E${ep.episodeNum}  ${ep.title}",
                                     onClick = { selectedEpisodeId = ep.episodeId },
                                     emphasized = selectedEpisodeId == ep.episodeId,
                                     modifier = Modifier.fillMaxWidth()
@@ -441,6 +457,24 @@ fun MovieDetailSheet(
                         onClick = onToggleFavorite,
                         emphasized = false
                     )
+                    if (watchedTargetId != null) {
+                        TopBarChip(
+                            label = if (targetWatched) "✓ Watched" else "Mark watched",
+                            onClick = {
+                                val next = !targetWatched
+                                WatchedActions.setWatched(context, watchedTargetId, next)
+                                watchedVersion += 1
+                                reloadProgress()
+                                if (next && progress?.id == watchedTargetId) progress = null
+                                android.widget.Toast.makeText(
+                                    context,
+                                    if (next) "Marked as watched" else "Marked as unwatched",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            emphasized = targetWatched
+                        )
+                    }
                     TopBarChip(
                         label = "Close",
                         onClick = onDismiss,

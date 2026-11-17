@@ -67,6 +67,8 @@ fun PhoneSettingsScreen(
     val sources by repository.sources.collectAsState(initial = emptyList())
     val preferredPlayer by app.preferences.preferredPlayer.collectAsState(initial = PreferredPlayer.BUILTIN)
     val autoPip by app.preferences.autoPip.collectAsState(initial = AppPreferences.defaultAutoPip())
+    val autoPlayNext by app.preferences.autoPlayNext.collectAsState(initial = true)
+    var showHowTo by remember { mutableStateOf(false) }
     val appearance by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
     val accent by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
     val updateBaseUrl by app.preferences.updateBaseUrl.collectAsState(
@@ -90,6 +92,11 @@ fun PhoneSettingsScreen(
     val licenseMessage by app.license.message.collectAsState()
     val activity = context as? android.app.Activity
 
+    if (showHowTo) {
+        PhoneHowToScreen(onBack = { showHowTo = false }, contentPadding = contentPadding)
+        return
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -108,6 +115,10 @@ fun PhoneSettingsScreen(
             color = OnCinemaMuted,
             style = MaterialTheme.typography.bodySmall
         )
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = { showHowTo = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("How to Use")
+        }
         Spacer(Modifier.height(16.dp))
         Text("Unlock", style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
@@ -478,6 +489,12 @@ fun PhoneSettingsScreen(
             selected = autoPip,
             onClick = { scope.launch { app.preferences.setAutoPip(!autoPip) } },
             label = { Text(if (autoPip) "Picture-in-Picture on Home: On" else "Picture-in-Picture on Home: Off") }
+        )
+        Spacer(Modifier.height(8.dp))
+        FilterChip(
+            selected = autoPlayNext,
+            onClick = { scope.launch { app.preferences.setAutoPlayNext(!autoPlayNext) } },
+            label = { Text(if (autoPlayNext) "Auto-play next episode: On" else "Auto-play next episode: Off") }
         )
 
         Spacer(Modifier.height(24.dp))

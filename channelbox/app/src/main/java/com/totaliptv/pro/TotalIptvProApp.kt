@@ -32,6 +32,8 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         private set
     lateinit var watchProgress: WatchProgressStore
         private set
+    lateinit var watched: com.totaliptv.pro.data.local.WatchedStore
+        private set
     lateinit var dvr: DvrRecorder
         private set
     lateinit var lastPlace: LastPlaceStore
@@ -57,6 +59,7 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         // Streaming service groups: cached TMDB lists, refreshed in background.
         repository.startServiceLookup()
         watchProgress = WatchProgressStore(this)
+        watched = com.totaliptv.pro.data.local.WatchedStore(this)
         dvr = DvrRecorder(this)
         appScope.launch {
             runCatching { dvr.reconcileInterrupted() }

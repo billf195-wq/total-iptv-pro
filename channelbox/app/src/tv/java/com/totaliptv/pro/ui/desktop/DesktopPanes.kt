@@ -121,7 +121,8 @@ fun HomePane(
     onRestoreConsumed: () -> Unit = {},
     onPlay: (MediaItem, index: Int) -> Unit,
     onOpenSeries: (MediaItem, index: Int) -> Unit,
-    onResume: (WatchProgress, index: Int) -> Unit
+    onResume: (WatchProgress, index: Int) -> Unit,
+    onResumeMenu: (WatchProgress, index: Int) -> Unit = { _, _ -> }
 ) {
     // Never rank the full catalog synchronously on the first Home frame (Movies→Home ANR).
     // Warm from process cache when revision unchanged; otherwise compute off main after yield.
@@ -257,6 +258,7 @@ fun HomePane(
                             entry.toMediaItem(),
                             onClick = { onResume(entry, index) },
                             focusRequester = posterFocus("desk-cw", entry.id),
+                            onLongClick = { onResumeMenu(entry, index) },
                             imageHeight = HomeShelfFit.desktopPosterImage,
                             titleSlotHeight = HomeShelfFit.desktopPosterTitle
                         )
@@ -828,8 +830,15 @@ fun DesktopSettingsPane(
     val sources by repository.sources.collectAsState(initial = emptyList())
 
     val settingsFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        runCatching { settingsFocus.requestFocus() }
+    var showHowTo by remember { mutableStateOf(false) }
+    val autoPlayNext by (app?.preferences?.autoPlayNext ?: kotlinx.coroutines.flow.flowOf(true))
+        .collectAsState(initial = true)
+    LaunchedEffect(showHowTo) {
+        if (!showHowTo) runCatching { settingsFocus.requestFocus() }
+    }
+    if (showHowTo) {
+        com.totaliptv.pro.ui.settings.HowToUseScreen(onBack = { showHowTo = false })
+        return
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text(
@@ -839,6 +848,42 @@ fun DesktopSettingsPane(
         )
         sources.firstOrNull()?.let { src ->
             Text("Source: ${src.name} (${src.type})", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
+        }
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
+        Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
+            TipFocusable(onClick = { showHowTo = true }, focusLabel = "settings:how-to") { focused ->
+                Text(
+                    "How to Use",
+                    color = if (focused) TipAccent else TipGoldText,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                        .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                )
+            }
+            TipFocusable(
+                onClick = {
+                    scope.launch {
+                        val next = !autoPlayNext
+                        app?.preferences?.setAutoPlayNext(next)
+                        Toast.makeText(
+                            context,
+                            if (next) "Auto-play next episode on" else "Auto-play next episode off",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                },
+                focusLabel = "settings:auto-play"
+            ) { focused ->
+                Text(
+                    if (autoPlayNext) "Auto-play next episode: On" else "Auto-play next episode: Off",
+                    color = if (focused) TipAccent else TipGoldText,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                        .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                )
+            }
         }
         Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
 

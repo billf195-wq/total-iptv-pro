@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,6 +71,9 @@ fun PhoneHomeScreen(
     var newlySeries by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var liveSample by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var detail by remember { mutableStateOf<MediaItem?>(null) }
+    var cwMenu by remember { mutableStateOf<Pair<WatchProgress, Int>?>(null) }
+    var favoriteIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val initialHome = remember { app.lastPlace.peek()?.takeIf { it.screen.equals(LastPlace.SCREEN_HOME, ignoreCase = true) } }
     fun rowStart(key: String): RowScroll? = initialHome?.rowScroll?.firstOrNull { it.key == key }
     val homeListState = rememberLazyListState(
@@ -185,11 +190,23 @@ fun PhoneHomeScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                items(continueWatching, key = { it.id }) { wp ->
+                                itemsIndexed(continueWatching, key = { _, it -> it.id }) { index, wp ->
                                     PhonePosterCard(
                                         item = wp.toMediaItem(),
                                         progress = wp,
-                                        onClick = { detail = wp.toMediaItem() }
+                                        onClick = { detail = wp.toMediaItem() },
+                                        onLongClick = {
+                                            scope.launch {
+                                                favoriteIds = runCatching {
+                                                    val out = mutableSetOf<String>()
+                                                    if (repository.isFavorite(wp.id)) out.add(wp.id)
+                                                    val cat = wp.catalogId
+                                                    if (cat != null && repository.isFavorite(cat)) out.add(cat)
+                                                    out.toSet()
+                                                }.getOrDefault(emptySet())
+                                                cwMenu = wp to index
+                                            }
+                                        }
                                     )
                                 }
                             }
@@ -257,11 +274,43 @@ fun PhoneHomeScreen(
             }
         }
 
+        cwMenu?.let { (entry, index) ->
+            PhoneContinueWatchingMenu(
+                entry = entry,
+                actions = ContinueWatchingAction.forPosition(index, continueWatching.size, includeFavorite = true),
+                isFavorite = favoriteIds.isNotEmpty(),
+                onAction = { action ->
+                    cwMenu = null
+                    if (action == ContinueWatchingAction.TOGGLE_FAVORITE) {
+                        val wasFav = favoriteIds.isNotEmpty()
+                        scope.launch {
+                            runCatching { repository.toggleFavorite(entry.toMediaItem()) }
+                            android.widget.Toast.makeText(
+                                context,
+                                if (wasFav) "Removed from favorites" else "Added to favorites",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    } else {
+                        ContinueWatchingActions.apply(context, entry, action)?.let {
+                            android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        reloadContinue()
+                    }
+                },
+                onDismiss = { cwMenu = null }
+            )
+        }
+
         detail?.let { item ->
             PhoneDetailSheet(
                 item = item,
                 repository = repository,
-                onDismiss = { detail = null },
+                onDismiss = {
+                    detail = null
+                    // Mark watched / unwatched in the sheet can change the row.
+                    reloadContinue()
+                },
                 onPlay = onPlay,
                 onPlayFromStart = onPlayFromStart,
                 watchProgress = progressById[item.id] ?: continueWatching.find { it.id == item.id }

@@ -98,11 +98,13 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var showPrivacy by remember { mutableStateOf(false) }
+    var showHowTo by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var refreshNote by remember { mutableStateOf<String?>(null) }
     val app = context.applicationContext as TotalIptvProApp
     val preferredPlayer by app.preferences.preferredPlayer.collectAsState(initial = PreferredPlayer.BUILTIN)
     val autoPip by app.preferences.autoPip.collectAsState(initial = AppPreferences.defaultAutoPip())
+    val autoPlayNext by app.preferences.autoPlayNext.collectAsState(initial = true)
     val appearanceMode by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
     val accentPreset by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
     val appLayoutMode by app.preferences.appLayoutMode.collectAsState(initial = AppLayoutMode.CLASSIC)
@@ -127,6 +129,7 @@ fun SettingsScreen(
     BackHandler {
         when {
             showPrivacy -> showPrivacy = false
+            showHowTo -> showHowTo = false
             editingTmdbKey -> editingTmdbKey = false
             editingUpdateUrl -> editingUpdateUrl = false
             else -> onBack()
@@ -135,6 +138,10 @@ fun SettingsScreen(
 
     if (showPrivacy) {
         PrivacyPolicyScreen(onBack = { showPrivacy = false })
+        return
+    }
+    if (showHowTo) {
+        HowToUseScreen(onBack = { showHowTo = false })
         return
     }
 
@@ -166,6 +173,13 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                     modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
+            item {
+                FocusableCard(
+                    title = "How to Use",
+                    subtitle = "A short guide to every screen and button",
+                    onClick = { showHowTo = true }
                 )
             }
 
@@ -538,6 +552,23 @@ fun SettingsScreen(
                             Toast.makeText(
                                 context,
                                 if (next) "Home button enters Picture-in-Picture" else "Home button leaves playback",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                )
+            }
+            item {
+                FocusableCard(
+                    title = if (autoPlayNext) "Auto-play next episode: On" else "Auto-play next episode: Off",
+                    subtitle = "On: the next episode starts after a 10-second countdown. Off: the app asks first.",
+                    onClick = {
+                        scope.launch {
+                            val next = !autoPlayNext
+                            app.preferences.setAutoPlayNext(next)
+                            Toast.makeText(
+                                context,
+                                if (next) "Auto-play next episode on" else "Auto-play next episode off",
                                 Toast.LENGTH_SHORT
                             ).show()
                         }

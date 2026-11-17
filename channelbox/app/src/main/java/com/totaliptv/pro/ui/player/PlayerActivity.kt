@@ -1,6 +1,7 @@
 package com.totaliptv.pro.ui.player
 
 import android.app.AlertDialog
+import android.os.SystemClock
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Intent
@@ -164,6 +165,19 @@ class PlayerActivity : ComponentActivity() {
     private var aspectRatioBtn: Button? = null
     private var currentResizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT
     private var autoPipEnabled: Boolean = AppPreferences.defaultAutoPip()
+    /** Settings → Auto-play next episode (default On). */
+    private var autoPlayNextEnabled: Boolean = true
+    /** Viewer cancelled auto-play for the episode now playing. */
+    private var autoPlayCancelled = false
+    private var autoPlayJob: Job? = null
+    private var nextEpisodeMessage: TextView? = null
+    // Sleep timer (player only; lasts while this player is open, including next episodes).
+    private var sleepButton: Button? = null
+    private var sleepJob: Job? = null
+    private var sleepEndAtMs: Long = 0L
+    private var sleepAtEnd = false
+    private var sleepWarnDialog: AlertDialog? = null
+    private var sleepWarnMessage: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -189,6 +203,12 @@ class PlayerActivity : ComponentActivity() {
                 (application as TotalIptvProApp).preferences.getAutoPip()
             }.getOrDefault(AppPreferences.defaultAutoPip())
             withContext(Dispatchers.Main) { autoPipEnabled = enabled }
+        }
+        scope.launch(Dispatchers.IO) {
+            val enabled = runCatching {
+                (application as TotalIptvProApp).preferences.getAutoPlayNext()
+            }.getOrDefault(true)
+            withContext(Dispatchers.Main) { autoPlayNextEnabled = enabled }
         }
         startOver = intent.getBooleanExtra(EXTRA_START_OVER, false)
         catalogId = intent.getStringExtra(EXTRA_CATALOG_ID)?.takeIf { it.isNotBlank() }
@@ -362,6 +382,8 @@ class PlayerActivity : ComponentActivity() {
             btn.isFocusableInTouchMode = true
         }
         controls.addView(playNextButton)
+        sleepButton = controlBtn(SleepTimer.buttonLabel(null, false)) { showSleepMenu() }
+            .also { controls.addView(it) }
         controls.addView(controlBtn("Back") { finish() })
         overlay!!.addView(titleView)
         overlay!!.addView(epgView)
@@ -600,8 +622,16 @@ class PlayerActivity : ComponentActivity() {
         banner.isVisible = show
         if (!show) return
         val label = next.name.substringAfter(" — ").ifBlank { next.name }
-        banner.text = "Up next: $label"
+        banner.text = UpNextTiming.bannerText(
+            label,
+            autoPlayWanted(),
+            UpNextTiming.autoPlaySecondsLeft(position, duration)
+        )
     }
+
+    /** Auto-play applies unless turned off in Settings, cancelled, or the sleep timer ends here. */
+    private fun autoPlayWanted(): Boolean =
+        autoPlayNextEnabled && !autoPlayCancelled && !sleepAtEnd
 
     private fun refreshPlayNextButton() {
         val btn = playNextButton ?: return
@@ -1012,8 +1042,13 @@ class PlayerActivity : ComponentActivity() {
                             statusView?.text = "Ended"
                             statusView?.isVisible = true
                             overlay?.isVisible = true
+                            markWatchedIfVod()
                             clearProgressIfVod()
-                            maybeOfferNextEpisode()
+                            if (sleepAtEnd) {
+                                sleepNow()
+                            } else {
+                                maybeOfferNextEpisode()
+                            }
                         }
                     }
                 }.onFailure { showPlaybackFailure(it) }
@@ -1612,6 +1647,10 @@ class PlayerActivity : ComponentActivity() {
         }
         progressSaveJob?.cancel()
         upNextJob?.cancel()
+        autoPlayJob?.cancel()
+        sleepJob?.cancel()
+        runCatching { sleepWarnDialog?.dismiss() }
+        runCatching { nextEpisodeDialog?.dismiss() }
         hideOverlayJob?.cancel()
         bufferWatchJob?.cancel()
         scope.coroutineContext[Job]?.cancel()
@@ -1803,6 +1842,7 @@ class PlayerActivity : ComponentActivity() {
             catalogId = resolvedCatalog
         )
         runCatching { watchProgressStore.save(progress) }
+        if (progress.isCompleted()) markWatchedIfVod()
         rememberLastPlace(pos.coerceAtLeast(0L))
     }
 
@@ -1840,7 +1880,8 @@ class PlayerActivity : ComponentActivity() {
             }
             val label = next.name.substringAfter(" — ").ifBlank { next.name }
             nextEpisodeDialog?.dismiss()
-            nextEpisodeDialog = buildNextEpisodeDialog(label, next)
+            val autoPlay = autoPlayWanted()
+            nextEpisodeDialog = buildNextEpisodeDialog(label, next, autoPlay)
             nextEpisodeDialog?.show()
             nextEpisodeDialog?.let { dialog ->
                 val dm = resources.displayMetrics
@@ -1850,6 +1891,7 @@ class PlayerActivity : ComponentActivity() {
                 applyContentSizedButton(dialog.getButton(AlertDialog.BUTTON_POSITIVE))
                 applyContentSizedButton(dialog.getButton(AlertDialog.BUTTON_NEGATIVE))
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.requestFocus()
+                if (autoPlay) startAutoPlayCountdown(dialog, label, next)
             }
         }
     }
@@ -1861,7 +1903,8 @@ class PlayerActivity : ComponentActivity() {
      */
     private fun buildNextEpisodeDialog(
         label: String,
-        next: com.totaliptv.pro.data.model.MediaItem
+        next: com.totaliptv.pro.data.model.MediaItem,
+        autoPlay: Boolean = false
     ): AlertDialog {
         val dm = resources.displayMetrics
         val scaled = dm.density * resources.configuration.fontScale.coerceAtLeast(0.5f)
@@ -1876,7 +1919,11 @@ class PlayerActivity : ComponentActivity() {
             setPadding(padH, padV, padH, padV / 2)
         }
         val message = TextView(this).apply {
-            text = "Play next?\n\n$label"
+            text = if (autoPlay) {
+                UpNextTiming.countdownMessage(label, UpNextTiming.AUTO_PLAY_SECONDS)
+            } else {
+                "Play next?\n\n$label"
+            }
             setTextSize(TypedValue.COMPLEX_UNIT_SP, NextEpisodeChrome.DIALOG_MESSAGE_SP)
             includeFontPadding = true
             setPadding(padH, padV, padH, padV)
@@ -1893,13 +1940,21 @@ class PlayerActivity : ComponentActivity() {
                 )
             )
         }
-        return AlertDialog.Builder(this)
+        nextEpisodeMessage = message
+        val builder = AlertDialog.Builder(this)
             .setCustomTitle(title)
             .setView(scroll)
             .setPositiveButton("Play next") { _, _ -> playSeriesEpisode(next) }
             .setNegativeButton("Home") { _, _ -> finish() }
-            .setOnCancelListener { /* stay on ended screen */ }
-            .create()
+            .setOnCancelListener {
+                // stay on ended screen
+                autoPlayJob?.cancel()
+            }
+        if (autoPlay) {
+            // Click handler is replaced after show() so Cancel keeps the dialog open.
+            builder.setNeutralButton("Cancel", null)
+        }
+        return builder.create()
     }
 
     /**
@@ -1937,6 +1992,8 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun playSeriesEpisode(item: com.totaliptv.pro.data.model.MediaItem) {
+        autoPlayJob?.cancel()
+        autoPlayCancelled = false
         nextEpisodeDialog?.dismiss()
         nextEpisodeDialog = null
         streamUrl = item.streamUrl
@@ -1964,6 +2021,149 @@ class PlayerActivity : ComponentActivity() {
         cachedNextEpisode = null
         refreshPlayNextButton()
         showOverlayTemporarily()
+    }
+
+    /** End-of-episode countdown; plays the next episode unless the viewer cancels. */
+    private fun startAutoPlayCountdown(
+        dialog: AlertDialog,
+        label: String,
+        next: com.totaliptv.pro.data.model.MediaItem
+    ) {
+        autoPlayJob?.cancel()
+        val cancelBtn = dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+        applyContentSizedButton(cancelBtn)
+        cancelBtn?.setOnClickListener {
+            autoPlayCancelled = true
+            autoPlayJob?.cancel()
+            nextEpisodeMessage?.text = "Play next?\n\n$label"
+            cancelBtn.isVisible = false
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.requestFocus()
+        }
+        autoPlayJob = scope.launch {
+            var left = UpNextTiming.AUTO_PLAY_SECONDS
+            while (left > 0) {
+                nextEpisodeMessage?.text = UpNextTiming.countdownMessage(label, left)
+                delay(1_000)
+                left -= 1
+            }
+            if (isFinishing || !dialog.isShowing || autoPlayCancelled || sleepAtEnd) return@launch
+            Log.i("TotalIPTV.Player", "auto-play next episode")
+            playSeriesEpisode(next)
+        }
+    }
+
+    private fun refreshSleepButton() {
+        val remaining = if (sleepEndAtMs > 0L) sleepEndAtMs - SystemClock.elapsedRealtime() else null
+        sleepButton?.text = SleepTimer.buttonLabel(remaining, sleepAtEnd)
+    }
+
+    private fun showSleepMenu() {
+        val choices = SleepTimer.choices(
+            onDemand = supportsResume(),
+            seriesEpisode = mediaKind == ContentKind.SERIES
+        )
+        AlertDialog.Builder(this)
+            .setTitle("Sleep timer")
+            .setItems(choices.map { it.label }.toTypedArray()) { _, which ->
+                setSleepTimer(choices[which])
+            }
+            .show()
+    }
+
+    private fun setSleepTimer(choice: SleepTimer.Choice) {
+        sleepJob?.cancel()
+        runCatching { sleepWarnDialog?.dismiss() }
+        sleepWarnDialog = null
+        sleepEndAtMs = 0L
+        sleepAtEnd = false
+        when (choice) {
+            is SleepTimer.Choice.Off -> {
+                Toast.makeText(this, "Sleep timer off", Toast.LENGTH_SHORT).show()
+            }
+            is SleepTimer.Choice.Minutes -> {
+                sleepEndAtMs = SystemClock.elapsedRealtime() + choice.minutes * 60_000L
+                Toast.makeText(this, "Sleep in ${choice.minutes} minutes", Toast.LENGTH_SHORT).show()
+            }
+            is SleepTimer.Choice.EndOfTitle -> {
+                sleepAtEnd = true
+                autoPlayJob?.cancel()
+                Toast.makeText(this, "Sleep: ${choice.label.lowercase()}", Toast.LENGTH_SHORT).show()
+            }
+        }
+        refreshSleepButton()
+        if (sleepEndAtMs > 0L || sleepAtEnd) {
+            sleepJob = scope.launch {
+                while (true) {
+                    val remaining = sleepRemainingMs()
+                    refreshSleepButton()
+                    if (remaining != null) {
+                        if (remaining <= 0L && !sleepAtEnd) {
+                            sleepNow()
+                            return@launch
+                        }
+                        if (SleepTimer.shouldWarn(remaining)) showSleepWarning(remaining)
+                    }
+                    delay(1_000)
+                }
+            }
+        }
+    }
+
+    /** Time until the sleep timer stops playback, or null when unknown / off. */
+    private fun sleepRemainingMs(): Long? {
+        if (sleepEndAtMs > 0L) return sleepEndAtMs - SystemClock.elapsedRealtime()
+        if (!sleepAtEnd) return null
+        val exo = player ?: return null
+        val dur = exo.duration.takeIf { it > 0L && it != C.TIME_UNSET } ?: return null
+        return (dur - exo.currentPosition).coerceAtLeast(0L)
+    }
+
+    private fun showSleepWarning(remainingMs: Long) {
+        val existing = sleepWarnDialog
+        if (existing != null && existing.isShowing) {
+            sleepWarnMessage?.text = SleepTimer.warningMessage(remainingMs)
+            return
+        }
+        if (isFinishing) return
+        val pad = NextEpisodeChrome.horizontalPaddingPx(resources.displayMetrics.density)
+        val msg = TextView(this).apply {
+            text = SleepTimer.warningMessage(remainingMs)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, NextEpisodeChrome.DIALOG_MESSAGE_SP)
+            setPadding(pad, pad, pad, pad)
+        }
+        sleepWarnMessage = msg
+        sleepWarnDialog = AlertDialog.Builder(this)
+            .setTitle("Still watching?")
+            .setView(msg)
+            .setPositiveButton("Keep watching") { _, _ ->
+                setSleepTimer(SleepTimer.Choice.Off)
+            }
+            .setNegativeButton("Stop now") { _, _ -> sleepNow() }
+            .setCancelable(false)
+            .create()
+        sleepWarnDialog?.show()
+        sleepWarnDialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.requestFocus()
+    }
+
+    /** Sleep timer finished: save the spot, stop playback and close the player. */
+    private fun sleepNow() {
+        Log.i("TotalIPTV.Player", "sleep timer stopped playback")
+        sleepJob?.cancel()
+        autoPlayJob?.cancel()
+        runCatching { sleepWarnDialog?.dismiss() }
+        runCatching { nextEpisodeDialog?.dismiss() }
+        runCatching { savePlaybackProgress() }
+        runCatching { player?.pause() }
+        Toast.makeText(this, "Sleep timer: playback stopped", Toast.LENGTH_LONG).show()
+        finish()
+    }
+
+    /** Finished (or nearly finished) movies and episodes get the watched check. */
+    private fun markWatchedIfVod() {
+        if (!supportsResume()) return
+        if (mediaId.isBlank() || RecordingFile.isLocalPath(streamUrl)) return
+        if (mediaKind == ContentKind.SERIES && !mediaId.startsWith("series-ep-")) return
+        runCatching { (application as TotalIptvProApp).watched.setWatched(mediaId, true) }
     }
 
     private fun clearProgressIfVod() {

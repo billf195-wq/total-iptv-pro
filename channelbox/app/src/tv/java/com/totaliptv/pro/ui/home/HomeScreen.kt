@@ -435,6 +435,8 @@ fun HomeScreen(
     var topPicks by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var continueWatching by remember { mutableStateOf<List<WatchProgress>>(emptyList()) }
     var progressById by remember { mutableStateOf<Map<String, WatchProgress>>(emptyMap()) }
+    /** Continue watching long-press menu target (entry + row index). */
+    var cwMenu by remember { mutableStateOf<Pair<WatchProgress, Int>?>(null) }
 
     fun openDetailFromPoster(
         item: MediaItem,
@@ -491,6 +493,10 @@ fun HomeScreen(
     // left the Continue watching row empty even when the store had entries).
     LaunchedEffect(Unit) {
         reloadContinueWatching()
+    }
+    // Mark watched / unwatched in the detail sheet changes the row; refresh when it closes.
+    LaunchedEffect(detailItem) {
+        if (detailItem == null) reloadContinueWatching()
     }
     LaunchedEffect(hubTab) {
         if (hubTab == HubTab.Home || hubTab == HubTab.Movies || hubTab == HubTab.Series) {
@@ -706,6 +712,7 @@ fun HomeScreen(
                             openDetailFromPoster(item, focusKey = item.id, index = index, scope = scope)
                         },
                         onToggleFavorite = { toggleFavoriteToast(it) },
+                        onContinueWatchingMenu = { prog, index -> cwMenu = prog to index },
                         onOpenFavorite = onOpenFavorite,
                         onOpenLive = { hubTab = HubTab.Live },
                         onOpenMovies = { hubTab = HubTab.Movies },
@@ -911,6 +918,44 @@ fun HomeScreen(
                 onDismiss = { dismissDetail(restore = true) }
             )
         }
+        cwMenu?.let { (entry, index) ->
+            val media = entry.toMediaItem()
+            val fav = entry.id in favoriteIds || (entry.catalogId != null && entry.catalogId in favoriteIds)
+            ContinueWatchingMenuDialog(
+                entry = entry,
+                actions = ContinueWatchingAction.forPosition(index, continueWatching.size, includeFavorite = true),
+                isFavorite = fav,
+                onAction = { action ->
+                    cwMenu = null
+                    if (action == ContinueWatchingAction.TOGGLE_FAVORITE) {
+                        toggleFavoriteToast(media)
+                    } else {
+                        ContinueWatchingActions.apply(context, entry, action)?.let {
+                            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    val before = continueWatching.map { it.id }
+                    reloadContinueWatching()
+                    val after = continueWatching.map { it.id }
+                    // Put focus back on the moved title, or on its neighbor after a remove.
+                    val focusId = if (entry.id in after) entry.id else
+                        after.getOrNull(index.coerceAtMost(after.size - 1)) ?: before.firstOrNull { it in after }
+                    if (focusId != null) {
+                        restoreFocusId = focusId
+                        restoreFocusIndex = after.indexOf(focusId)
+                        restoreFocusScope = "cw"
+                        pendingFocusRestore = true
+                    }
+                },
+                onDismiss = {
+                    cwMenu = null
+                    restoreFocusId = entry.id
+                    restoreFocusIndex = index
+                    restoreFocusScope = "cw"
+                    pendingFocusRestore = true
+                }
+            )
+        }
         if (showGameDay && hubTab == HubTab.Live) {
             GameDayPicker(
                 channels = repository.liveItems(),
@@ -944,6 +989,7 @@ private fun HomeTabContent(
     onPlay: (MediaItem) -> Unit,
     onOpenDetail: (MediaItem, index: Int, scope: String) -> Unit,
     onToggleFavorite: (MediaItem) -> Unit,
+    onContinueWatchingMenu: (WatchProgress, Int) -> Unit = { _, _ -> },
     onOpenFavorite: (FavoriteRef) -> Unit,
     onOpenLive: () -> Unit,
     onOpenMovies: () -> Unit,
@@ -1068,7 +1114,8 @@ private fun HomeTabContent(
                                 }
                             },
                             isFavorite = prog.id in favoriteIds || (prog.catalogId != null && prog.catalogId in favoriteIds),
-                            onLongClick = { onToggleFavorite(media) },
+                            // Hold OK: Remove / Move / Mark watched / Favorite menu (Favorite kept in the menu).
+                            onLongClick = { onContinueWatchingMenu(prog, index) },
                             progressPercent = pct,
                             focusRequester = posterFocus("cw", prog.id),
                             imageHeight = HomeShelfFit.classicPosterImage,
