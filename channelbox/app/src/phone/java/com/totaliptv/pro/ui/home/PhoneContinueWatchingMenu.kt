@@ -19,7 +19,10 @@ fun PhoneContinueWatchingMenu(
     onAction: (ContinueWatchingAction) -> Unit,
     onDismiss: () -> Unit
 ) {
+    // The long tap that opened this menu may still be held: only a new tap counts.
+    val gate = androidx.compose.runtime.remember(entry.id) { LongPressReleaseGate() }
     AlertDialog(
+        modifier = Modifier.longPressReleaseGate(gate),
         onDismissRequest = onDismiss,
         title = { Text(entry.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
@@ -31,13 +34,13 @@ fun PhoneContinueWatchingMenu(
                         action.label
                     }
                     TextButton(
-                        onClick = { onAction(action) },
+                        onClick = { if (gate.allowsClick()) onAction(action) },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text(label, modifier = Modifier.fillMaxWidth()) }
                 }
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = { if (gate.allowsClick()) onDismiss() }) { Text("Cancel") } }
     )
 }

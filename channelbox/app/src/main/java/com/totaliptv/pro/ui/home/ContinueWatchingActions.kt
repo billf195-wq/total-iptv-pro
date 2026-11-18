@@ -28,6 +28,13 @@ enum class ContinueWatchingAction(val label: String) {
             if (includeFavorite) out.add(TOGGLE_FAVORITE)
             return out
         }
+
+        /**
+         * Item that gets focus when the menu opens: never Remove.
+         * Move to front when offered, otherwise Mark as watched; null means focus Cancel.
+         */
+        fun initialFocus(actions: List<ContinueWatchingAction>): ContinueWatchingAction? =
+            listOf(MOVE_FRONT, MARK_WATCHED).firstOrNull { it in actions }
     }
 }
 

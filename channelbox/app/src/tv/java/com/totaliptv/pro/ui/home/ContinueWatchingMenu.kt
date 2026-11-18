@@ -40,9 +40,13 @@ fun ContinueWatchingMenuDialog(
     onDismiss: () -> Unit
 ) {
     val firstFocus = remember(entry.id) { FocusRequester() }
+    // The hold that opened this menu is still in progress: ignore its release.
+    val gate = remember(entry.id) { LongPressReleaseGate() }
+    val safeFocus = ContinueWatchingAction.initialFocus(actions)
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
+                .longPressReleaseGate(gate)
                 .width(420.dp)
                 .background(CinemaBg, RoundedCornerShape(14.dp))
                 .padding(20.dp),
@@ -57,18 +61,21 @@ fun ContinueWatchingMenuDialog(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.height(4.dp))
-            actions.forEachIndexed { index, action ->
+            actions.forEach { action ->
                 val label = if (action == ContinueWatchingAction.TOGGLE_FAVORITE) {
                     if (isFavorite) "Remove from favorites" else "Add to favorites"
                 } else {
                     action.label
                 }
                 Button(
-                    onClick = { onAction(action) },
-                    modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier
+                    onClick = { if (gate.allowsClick()) onAction(action) },
+                    modifier = if (action == safeFocus) Modifier.focusRequester(firstFocus) else Modifier
                 ) { Text(label) }
             }
-            Button(onClick = onDismiss) { Text("Cancel") }
+            Button(
+                onClick = { if (gate.allowsClick()) onDismiss() },
+                modifier = if (safeFocus == null) Modifier.focusRequester(firstFocus) else Modifier
+            ) { Text("Cancel") }
         }
         LaunchedEffect(entry.id) {
             kotlinx.coroutines.delay(60)
