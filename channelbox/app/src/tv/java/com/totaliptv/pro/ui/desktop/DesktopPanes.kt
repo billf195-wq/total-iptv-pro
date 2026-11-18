@@ -2,6 +2,12 @@
 
 package com.totaliptv.pro.ui.desktop
 
+import com.totaliptv.pro.data.lock.ParentalGate
+import com.totaliptv.pro.data.lock.PinFlow
+import com.totaliptv.pro.ui.settings.PinLockDialog
+import com.totaliptv.pro.ui.settings.PinLockDialogHost
+import com.totaliptv.pro.ui.settings.PinLockEntry
+import com.totaliptv.pro.ui.settings.pinLockEntryClicked
 import android.app.Activity
 import android.widget.EditText
 import android.widget.Toast
@@ -949,6 +955,55 @@ fun DesktopSettingsPane(
             .collectAsState(initial = AccentPreset.AMBER)
         val posterColumns by (app?.preferences?.posterColumns ?: kotlinx.coroutines.flow.flowOf(6))
             .collectAsState(initial = 6)
+
+        val lockRevision by ParentalGate.revision.collectAsState()
+        val pinEntries = remember(lockRevision) { PinLockEntry.visibleEntries() }
+        var pinDialog by remember { mutableStateOf<PinLockDialog?>(null) }
+        var pinReturnFocus by remember { mutableStateOf(false) }
+        val pinFocus = remember { FocusRequester() }
+        LaunchedEffect(pinDialog, pinEntries) {
+            if (pinDialog == null && pinReturnFocus) {
+                kotlinx.coroutines.delay(80)
+                runCatching { pinFocus.requestFocus() }
+                pinReturnFocus = false
+            }
+        }
+        PinLockDialogHost(dialog = pinDialog, repository = repository, onClose = { pinDialog = it })
+        SectionHeader(PinLockEntry.SECTION)
+        Text(
+            remember(lockRevision) { PinFlow.statusLine() },
+            color = TipGoldMuted,
+            fontSize = TipDimens.BodyMediumSp
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        pinEntries.chunked(3).forEachIndexed { rowIndex, rowEntries ->
+            if (rowIndex > 0) Spacer(Modifier.height(TipDimens.dp(8)))
+            Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
+                rowEntries.forEach { entry ->
+                    TipFocusable(
+                        modifier = if (entry == pinEntries.first()) Modifier.focusRequester(pinFocus) else Modifier,
+                        onClick = {
+                            pinLockEntryClicked(
+                                entry,
+                                open = { pinDialog = it; pinReturnFocus = true },
+                                toast = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                            )
+                        },
+                        focusLabel = "settings:pin-" + entry.name.lowercase()
+                    ) { focused ->
+                        Text(
+                            entry.label,
+                            color = if (focused) TipAccent else TipGoldText,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                                .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(TipDimens.dp(20)))
 
         SectionHeader("App layout")
         Text(

@@ -1,5 +1,7 @@
 package com.totaliptv.pro.ui.settings
 
+import com.totaliptv.pro.data.lock.ParentalGate
+import com.totaliptv.pro.data.lock.PinFlow
 import android.app.Activity
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -91,6 +93,10 @@ fun PhoneSettingsScreen(
     val licensePrice by app.license.price.collectAsState()
     val licenseMessage by app.license.message.collectAsState()
     val activity = context as? android.app.Activity
+    val lockRevision by ParentalGate.revision.collectAsState()
+    val pinEntries = remember(lockRevision) { PinLockEntry.visibleEntries() }
+    var pinDialog by remember { mutableStateOf<PinLockDialog?>(null) }
+    PhonePinLockDialogHost(dialog = pinDialog, repository = repository, onClose = { pinDialog = it })
 
     if (showHowTo) {
         PhoneHowToScreen(onBack = { showHowTo = false }, contentPadding = contentPadding)
@@ -496,6 +502,28 @@ fun PhoneSettingsScreen(
             onClick = { scope.launch { app.preferences.setAutoPlayNext(!autoPlayNext) } },
             label = { Text(if (autoPlayNext) "Auto-play next episode: On" else "Auto-play next episode: Off") }
         )
+
+        Spacer(Modifier.height(24.dp))
+        Text(PinLockEntry.SECTION, style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            remember(lockRevision) { PinFlow.statusLine() },
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        pinEntries.forEach { entry ->
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    pinLockEntryClicked(
+                        entry,
+                        open = { pinDialog = it },
+                        toast = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(entry.label) }
+        }
 
         Spacer(Modifier.height(24.dp))
         Text("Appearance", style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)

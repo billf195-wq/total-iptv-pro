@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 class HowToGuideTest {
     private val required = listOf(
         "Getting started", "Live TV", "Movies & Series", "Continue Watching", "Favorites",
-        "Search", "Recording (DVR)", "Sleep timer", "Auto-play next", "Tips & troubleshooting"
+        "Search", "Recording (DVR)", "Sleep timer", "Auto-play next", "PIN lock", "Tips & troubleshooting"
     )
 
     @Test
@@ -16,7 +16,7 @@ class HowToGuideTest {
         val titles = HowToGuide.sections(tv = true).map { it.title }
         required.forEach { r -> assertTrue(titles.any { it.startsWith(r) }, "missing $r") }
         assertTrue(titles.any { it.startsWith("Game Day") })
-        assertEquals(11, titles.size)
+        assertEquals(12, titles.size)
     }
 
     @Test
@@ -27,7 +27,7 @@ class HowToGuideTest {
         assertFalse(all.contains("remote", ignoreCase = true))
         assertFalse(all.contains("Guide"))
         assertTrue(all.contains("tap", ignoreCase = true))
-        assertEquals(10, sections.size)
+        assertEquals(11, sections.size)
     }
 
     @Test

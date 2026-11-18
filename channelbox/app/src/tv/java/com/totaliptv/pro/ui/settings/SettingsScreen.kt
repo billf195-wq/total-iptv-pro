@@ -1,5 +1,9 @@
 package com.totaliptv.pro.ui.settings
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.FocusRequester
+import com.totaliptv.pro.data.lock.ParentalGate
+import com.totaliptv.pro.data.lock.PinFlow
 import android.app.Activity
 import android.graphics.Color as AndroidColor
 import android.text.InputType
@@ -125,6 +129,21 @@ fun SettingsScreen(
     val licenseMessage by app.license.message.collectAsState()
     val activity = context as? android.app.Activity
     val tmdbHolder = remember(tmdbKey) { UrlFieldHolder(tmdbKey) }
+    val lockRevision by ParentalGate.revision.collectAsState()
+    val pinEntries = remember(lockRevision) { PinLockEntry.visibleEntries() }
+    var pinDialog by remember { mutableStateOf<PinLockDialog?>(null) }
+    var pinReturnFocus by remember { mutableStateOf(false) }
+    val pinFocus = remember { FocusRequester() }
+    LaunchedEffect(pinDialog, pinEntries) {
+        if (pinDialog == null && pinReturnFocus) {
+            for (attempt in 0 until 10) {
+                kotlinx.coroutines.delay(60)
+                if (runCatching { pinFocus.requestFocus() }.isSuccess) break
+            }
+            pinReturnFocus = false
+        }
+    }
+    PinLockDialogHost(dialog = pinDialog, repository = repository, onClose = { pinDialog = it })
 
     BackHandler {
         when {
@@ -574,6 +593,33 @@ fun SettingsScreen(
                         }
                     }
                 )
+            }
+
+            item { SectionTitle(PinLockEntry.SECTION) }
+            item {
+                Text(
+                    text = remember(lockRevision) { PinFlow.statusLine() },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                )
+            }
+            pinEntries.forEachIndexed { index, entry ->
+                // Keyed by slot, not entry: the card that had focus can disappear when the
+                // lock state changes, and a stable first slot keeps focus and scroll in place.
+                item(key = "pin-slot-$index") {
+                    FocusableCard(
+                        title = entry.label,
+                        subtitle = entry.subtitle,
+                        focusRequester = if (index == 0) pinFocus else null,
+                        onClick = {
+                            pinLockEntryClicked(
+                                entry,
+                                open = { pinDialog = it; pinReturnFocus = true },
+                                toast = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                            )
+                        }
+                    )
+                }
             }
 
             item { SectionTitle("Catalog") }

@@ -1,5 +1,6 @@
 package com.totaliptv.pro.data.local
 
+import com.totaliptv.pro.data.lock.ParentalGate
 import android.content.Context
 import android.util.Log
 import com.totaliptv.pro.data.model.ContentKind
@@ -53,7 +54,7 @@ class WatchProgressStore(context: Context) {
     fun continueWatching(limit: Int = Int.MAX_VALUE): List<WatchProgress> {
         val raw = all()
         val list = ContinueWatchingOrder.arrange(
-            raw.filter { it.kind != ContentKind.LIVE && it.shouldResume() },
+            raw.filter { it.kind != ContentKind.LIVE && it.shouldResume() && !ParentalGate.hides(it) },
             hiddenMarks(),
             orderMarks()
         ).take(limit)

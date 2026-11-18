@@ -98,6 +98,17 @@ object HowToGuide {
                 "the next episode."
         )
         out += Section(
+            "PIN lock",
+            "In Settings, PIN lock, choose Set PIN and enter a 4-digit PIN twice" +
+                (if (tv) " with the number pad (or the number keys on the remote). " else ". ") +
+                "Adult categories are then hidden everywhere: lists, Search, " +
+                (if (tv) "the TV Guide, " else "") +
+                "Favorites, Continue watching and Recordings. Choose locked categories to hide more " +
+                "Live, Movies or Series categories. Unlock with PIN shows everything until the app closes " +
+                "or sits in the background for 5 minutes; Lock now hides it again. Change PIN and Turn off " +
+                "PIN lock ask for the current PIN. Forgot PIN sets a new PIN and clears your chosen categories."
+        )
+        out += Section(
             "Tips & troubleshooting",
             buildString {
                 append("If a channel or movie will not play, choose Retry in the player. ")

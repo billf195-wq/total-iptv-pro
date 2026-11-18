@@ -491,7 +491,9 @@ fun HomeScreen(
     // Always refresh progress independently of poster network (root cause fix:
     // prior code called reloadContinueWatching AFTER resolvePoster; a hang/throw
     // left the Continue watching row empty even when the store had entries).
-    LaunchedEffect(Unit) {
+    // Also re-runs when the PIN lock locks / unlocks so locked titles leave or rejoin the row.
+    val lockRevision by com.totaliptv.pro.data.lock.ParentalGate.revision.collectAsState()
+    LaunchedEffect(lockRevision) {
         reloadContinueWatching()
     }
     // Mark watched / unwatched in the detail sheet changes the row; refresh when it closes.

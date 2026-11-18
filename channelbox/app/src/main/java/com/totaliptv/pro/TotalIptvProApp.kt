@@ -1,6 +1,10 @@
 package com.totaliptv.pro
 
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
+import com.totaliptv.pro.data.lock.ParentalGate
+import com.totaliptv.pro.data.lock.ParentalLockStore
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -47,6 +51,9 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         super.onCreate()
         CrashLog.install(this)
         preferences = AppPreferences(this)
+        // PIN lock: load the salted hash + choices before the catalog publishes its first lists.
+        ParentalGate.install(ParentalLockStore(this))
+        registerActivityLifecycleCallbacks(ParentalForegroundTracker())
         license = LicenseController.create(this) {
             preferences.hasStoredUserData() || ExistingAppData.presentOnDevice(this, emptySet())
         }
@@ -121,4 +128,24 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
             )
             .build()
     }
+}
+
+/** Counts started activities so the PIN lock knows when the whole app goes to / returns from the background. */
+private class ParentalForegroundTracker : Application.ActivityLifecycleCallbacks {
+    private var started = 0
+
+    override fun onActivityStarted(activity: Activity) {
+        if (started++ == 0) ParentalGate.onAppForeground()
+    }
+
+    override fun onActivityStopped(activity: Activity) {
+        started = (started - 1).coerceAtLeast(0)
+        if (started == 0 && !activity.isChangingConfigurations) ParentalGate.onAppBackground()
+    }
+
+    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+    override fun onActivityResumed(activity: Activity) = Unit
+    override fun onActivityPaused(activity: Activity) = Unit
+    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+    override fun onActivityDestroyed(activity: Activity) = Unit
 }
