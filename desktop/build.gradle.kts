@@ -1,4 +1,5 @@
 import java.io.File
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
     kotlin("jvm") version "2.1.10"
@@ -8,7 +9,7 @@ plugins {
 }
 
 group = "com.totaliptv.pro"
-version = "1.2.25"
+version = "1.2.40"
 
 repositories {
     mavenCentral()
@@ -42,15 +43,21 @@ compose.desktop {
             isEnabled.set(false)
         }
         nativeDistributions {
+            // Compose rejects formats that this OS cannot produce (e.g. AppImage on macOS).
+            val osName = System.getProperty("os.name").orEmpty().lowercase()
             targetFormats(
-                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb,
-                org.jetbrains.compose.desktop.application.dsl.TargetFormat.AppImage,
-                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Exe,
-                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi
+                *when {
+                    osName.contains("mac") || osName.contains("darwin") ->
+                        arrayOf(TargetFormat.Dmg)
+                    osName.contains("win") ->
+                        arrayOf(TargetFormat.Exe, TargetFormat.Msi)
+                    else ->
+                        arrayOf(TargetFormat.Deb, TargetFormat.AppImage)
+                }
             )
             packageName = "TotalIptvPro"
-            packageVersion = "1.2.25"
-            description = "Total IPTV Pro — desktop IPTV player (Linux & Windows)"
+            packageVersion = "1.2.40"
+            description = "Total IPTV Pro — desktop IPTV player (Linux, Windows & macOS)"
             linux {
                 packageName = "total-iptv-pro"
                 iconFile.set(project.file("src/main/resources/icon.png"))
@@ -59,6 +66,16 @@ compose.desktop {
                 iconFile.set(project.file("src/main/resources/icon.ico"))
                 menuGroup = "Total IPTV Pro"
                 upgradeUuid = "a7c3e91f-4b2d-4e8a-9f1c-6d5e8b0a2c4d"
+            }
+            macOS {
+                iconFile.set(project.file("src/main/resources/icon.icns"))
+                bundleID = "com.totaliptv.pro.desktop"
+                dockName = "Total IPTV Pro"
+                // Unsigned test build: no Apple Developer account yet. Ad-hoc
+                // codesign is applied after packaging.
+                signing {
+                    sign.set(false)
+                }
             }
         }
     }
@@ -98,3 +115,54 @@ fun ensureRuntimeJavaLaunchers(project: Project) {
             }
         }
 }
+
+
+// Bake an optional TMDB key for service groups in local/test builds.
+// Read from -PtipTmdbKeyFile / TIP_TMDB_KEY_FILE, or from TIP_TMDB_SHARED_KEY
+// written to a temp file that is deleted after the task. The key is never logged
+// or written into the source tree.
+val tmdbGenDir = layout.buildDirectory.dir("generated/tmdb")
+kotlin.sourceSets.getByName("main").kotlin.srcDir(tmdbGenDir)
+
+tasks.register("generateTmdbBuiltInKey") {
+    val outFile = tmdbGenDir.map { it.file("com/totaliptv/pro/desktop/artwork/TmdbBuiltInKey.kt") }
+    outputs.file(outFile)
+    outputs.upToDateWhen { false }
+    doLast {
+        val out = outFile.get().asFile
+        var tempFile: File? = null
+        try {
+            val named = (project.findProperty("tipTmdbKeyFile") as String?)
+                ?: System.getenv("TIP_TMDB_KEY_FILE")
+            var keyFile = named?.let { File(it) }?.takeIf { it.isFile }
+            if (keyFile == null) {
+                val shared = System.getenv("TIP_TMDB_SHARED_KEY")?.trim().orEmpty()
+                if (shared.isNotEmpty()) {
+                    tempFile = File.createTempFile("tip-tmdb-", ".key")
+                    tempFile.writeText(shared)
+                    keyFile = tempFile
+                }
+            }
+            val key = keyFile
+                ?.readLines()
+                ?.firstOrNull { it.isNotBlank() }
+                ?.trim()
+                ?.replace("\\", "\\\\")
+                ?.replace("\"", "\\\"")
+                .orEmpty()
+            out.parentFile.mkdirs()
+            out.writeText(
+                "package com.totaliptv.pro.desktop.artwork\n\n" +
+                    "/** Compile-time default TMDB key. Generated; never commit this file. */\n" +
+                    "internal object TmdbBuiltInKey {\n" +
+                    "    const val VALUE: String = \"$key\"\n" +
+                    "}\n"
+            )
+        } finally {
+            tempFile?.delete()
+        }
+    }
+}
+
+tasks.named("compileKotlin").configure { dependsOn("generateTmdbBuiltInKey") }
+tasks.matching { it.name == "compileTestKotlin" }.configureEach { dependsOn("generateTmdbBuiltInKey") }

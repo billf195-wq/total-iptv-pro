@@ -18,6 +18,8 @@ import com.totaliptv.pro.data.LiveEpgBinding
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.m3u.M3uParser
 import com.totaliptv.pro.data.m3u.XmltvParser
+import com.totaliptv.pro.data.lock.CatalogLockFilter
+import com.totaliptv.pro.data.lock.ParentalGate
 import com.totaliptv.pro.data.model.Category
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.EpgChannelRow
@@ -43,6 +45,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -63,11 +66,31 @@ class CatalogRepository(
         .retryOnConnectionFailure(true)
         .build()
 ) {
+    /** Lists the screens see: the full catalog, minus PIN-locked categories while the lock is active. */
     @Volatile
     private var cachedCategories: List<Category> = emptyList()
 
     @Volatile
     private var cachedItems: List<MediaItem> = emptyList()
+
+    /** Full catalog as loaded (never filtered). Loads and merges always read and write these. */
+    @Volatile
+    private var rawCategories: List<Category> = emptyList()
+
+    @Volatile
+    private var rawItems: List<MediaItem> = emptyList()
+
+    /** Movies / series merges finished for the current source (for the PIN lock's remembered ids). */
+    @Volatile
+    private var vodSettled = false
+
+    @Volatile
+    private var seriesSettled = false
+
+    @Volatile
+    private var catalogIsM3u = false
+
+    private val lockListener: () -> Unit = { repoScope.launch { loadMutex.withLock { publishVisible() } } }
 
     @Volatile
     private var loadedForSourceId: String? = null
@@ -111,6 +134,10 @@ class CatalogRepository(
     private val repoJob = SupervisorJob()
     private val repoScope = CoroutineScope(repoJob + Dispatchers.IO)
     private var vodJob: Job? = null
+
+    init {
+        ParentalGate.addListener(lockListener)
+    }
 
     /** Bumps whenever the in-memory catalog changes (live publish or VOD merge). */
     private val _catalogRevision = MutableStateFlow(0)
@@ -171,13 +198,16 @@ class CatalogRepository(
     private fun persistVodCache(sourceId: String) {
         val dir = vodCacheDir ?: return
         if (loadedForSourceId != sourceId) return
-        runCatching { VodDiskCache.write(dir, sourceId, cachedCategories, cachedItems) }
+        runCatching { VodDiskCache.write(dir, sourceId, rawCategories, rawItems) }
             .onSuccess { Log.i(VOD_TAG, "cache saved movies=${cachedItems.count { it.kind == ContentKind.VOD }} series=${cachedItems.count { it.kind == ContentKind.SERIES }}") }
             .onFailure { Log.w(VOD_TAG, "cache save failed: ${SensitiveText.safeLog(it)}") }
     }
 
     val sources: Flow<List<PlaylistSource>> = prefs.sources
-    val favorites: Flow<List<FavoriteRef>> = prefs.favorites
+    /** Saved favorites, minus PIN-locked titles while the lock is active. */
+    val favorites: Flow<List<FavoriteRef>> = combine(prefs.favorites, ParentalGate.revision) { list, _ ->
+        if (ParentalGate.isActive) list.filterNot { ParentalGate.isHiddenId(it.id) } else list
+    }
     val activeSourceId: Flow<String?> = prefs.activeSourceId
 
     suspend fun addM3uSource(name: String, url: String): PlaylistSource {
@@ -215,6 +245,8 @@ class CatalogRepository(
     suspend fun removeSource(id: String) {
         prefs.removeSource(id)
         if (loadedForSourceId == id) {
+            rawCategories = emptyList()
+            rawItems = emptyList()
             cachedCategories = emptyList()
             cachedItems = emptyList()
             refreshDerivedCatalog()
@@ -234,6 +266,8 @@ class CatalogRepository(
         vodJob = null
         _vodLoading.value = false
         prefs.clearAll()
+        rawCategories = emptyList()
+        rawItems = emptyList()
         cachedCategories = emptyList()
         cachedItems = emptyList()
         refreshDerivedCatalog()
@@ -273,11 +307,11 @@ class CatalogRepository(
                     ?: prefs.getSources().firstOrNull()
                     ?: return@withContext emptyList<Category>() to emptyList()
 
-                if (!force && loadedForSourceId == source.id && cachedItems.isNotEmpty()) {
+                if (!force && loadedForSourceId == source.id && rawItems.isNotEmpty()) {
                     return@withContext cachedCategories to cachedItems
                 }
 
-                val hadCache = loadedForSourceId == source.id && cachedItems.isNotEmpty()
+                val hadCache = loadedForSourceId == source.id && rawItems.isNotEmpty()
                 var lastError: Throwable? = null
                 val maxAttempts = 3
 
@@ -292,8 +326,10 @@ class CatalogRepository(
                                 val url = source.m3uUrl ?: error("Missing M3U URL")
                                 val parsed = downloadM3u(url)
                                 if (parsed.items.isEmpty()) error("Playlist contained no channels")
-                                cachedCategories = parsed.categories
-                                cachedItems = parsed.items
+                                rawCategories = parsed.categories
+                                rawItems = parsed.items
+                                catalogIsM3u = true
+                                publishVisible(refresh = false)
                                 refreshDerivedCatalog()
                                 clearXmltv()
                                 xmltvUrl = parsed.xmltvUrl
@@ -316,8 +352,8 @@ class CatalogRepository(
                                 // 1.4.91: keep the previous movie/series lists (memory, else disk
                                 // cache) until a fresh non-empty load replaces them.
                                 val sameSource = loadedForSourceId == source.id
-                                var keepCats = if (sameSource) cachedCategories.filter { it.kind != ContentKind.LIVE } else emptyList()
-                                var keepItems = if (sameSource) cachedItems.filter { it.kind != ContentKind.LIVE } else emptyList()
+                                var keepCats = if (sameSource) rawCategories.filter { it.kind != ContentKind.LIVE } else emptyList()
+                                var keepItems = if (sameSource) rawItems.filter { it.kind != ContentKind.LIVE } else emptyList()
                                 if (keepItems.none { it.kind == ContentKind.VOD }) {
                                     val snap = vodCacheDir?.let { dir -> runCatching { VodDiskCache.read(dir, source.id) }.getOrNull() }
                                     if (snap != null) {
@@ -328,8 +364,12 @@ class CatalogRepository(
                                         Log.i(VOD_TAG, "no movie cache yet")
                                     }
                                 }
-                                cachedCategories = live.categories + keepCats
-                                cachedItems = live.items + keepItems
+                                rawCategories = live.categories + keepCats
+                                rawItems = live.items + keepItems
+                                catalogIsM3u = false
+                                vodSettled = false
+                                seriesSettled = false
+                                publishVisible(refresh = false)
                                 refreshDerivedCatalog()
                                 lastWarning = null
                                 loadedForSourceId = source.id
@@ -410,15 +450,19 @@ class CatalogRepository(
         loadMutex.withLock {
             if (loadedForSourceId != sourceId) return@withLock
             if (vod != null && VodDiskCache.shouldReplace(vod.items)) {
-                val keepCats = cachedCategories.filter { it.kind != ContentKind.VOD }
-                val keepItems = cachedItems.filter { it.kind != ContentKind.VOD }
-                cachedCategories = keepCats + vod.categories
-                cachedItems = keepItems + vod.items
+                val keepCats = rawCategories.filter { it.kind != ContentKind.VOD }
+                val keepItems = rawItems.filter { it.kind != ContentKind.VOD }
+                rawCategories = keepCats + vod.categories
+                rawItems = keepItems + vod.items
+                vodSettled = true
+                publishVisible(refresh = false)
                 refreshDerivedCatalog()
                 lastWarning = null
                 _vodError.value = null
             } else {
-                val have = cachedItems.count { it.kind == ContentKind.VOD }
+                vodSettled = true
+                publishVisible(refresh = false)
+                val have = rawItems.count { it.kind == ContentKind.VOD }
                 Log.w(VOD_TAG, "movies refresh failed; keeping $have cached movies")
                 if (have == 0) {
                     _vodError.value = "Couldn't load movies (" + (problem ?: "unknown error") + ")."
@@ -448,20 +492,57 @@ class CatalogRepository(
         loadMutex.withLock {
             if (loadedForSourceId != sourceId) return@withLock
             if (series != null && series.items.isNotEmpty()) {
-                val keepCats = cachedCategories.filter { it.kind != ContentKind.SERIES }
-                val keepItems = cachedItems.filter { it.kind != ContentKind.SERIES }
-                cachedCategories = keepCats + series.categories
-                cachedItems = keepItems + series.items
+                val keepCats = rawCategories.filter { it.kind != ContentKind.SERIES }
+                val keepItems = rawItems.filter { it.kind != ContentKind.SERIES }
+                rawCategories = keepCats + series.categories
+                rawItems = keepItems + series.items
+                seriesSettled = true
+                publishVisible(refresh = false)
                 refreshDerivedCatalog()
             } else {
                 Log.w(VOD_TAG, "series refresh failed; keeping cached series problem=$problem")
-                if (cachedItems.none { it.kind == ContentKind.SERIES }) {
+                seriesSettled = true
+                publishVisible(refresh = false)
+                if (rawItems.none { it.kind == ContentKind.SERIES }) {
                     lastWarning = listOfNotNull(lastWarning, "Series list failed (" + (problem ?: "unknown error") + ").").joinToString(" ")
                 }
             }
             bumpRevision()
         }
     }
+    /**
+     * Rebuild the visible lists from the raw catalog with the PIN lock applied. With the lock off
+     * or unlocked the raw lists are published as-is (same instances), so nothing else changes.
+     */
+    private fun publishVisible(refresh: Boolean = true) {
+        val cats = rawCategories
+        val items = rawItems
+        val complete = catalogIsM3u || (vodSettled && seriesSettled)
+        if (ParentalGate.isActive) {
+            val r = CatalogLockFilter.apply(cats, items, ParentalGate.config)
+            cachedCategories = r.categories
+            cachedItems = r.items
+            ParentalGate.onCatalogFiltered(r.hiddenItemIds, complete && items.isNotEmpty())
+        } else {
+            cachedCategories = cats
+            cachedItems = items
+            if (ParentalGate.isEnabled) {
+                // Unlocked: keep the remembered ids current without hiding anything.
+                val r = CatalogLockFilter.apply(cats, items, ParentalGate.config)
+                ParentalGate.onCatalogFiltered(r.hiddenItemIds, complete && items.isNotEmpty())
+            } else {
+                ParentalGate.onCatalogFiltered(emptySet(), false)
+            }
+        }
+        if (refresh) {
+            refreshDerivedCatalog()
+            bumpRevision()
+        }
+    }
+
+    /** Every provider category (locked ones included) for the PIN lock picker. */
+    fun allCategoriesForLock(kind: ContentKind): List<Category> = rawCategories.filter { it.kind == kind }
+
     private fun bumpRevision() {
         _catalogRevision.value = _catalogRevision.value + 1
     }
@@ -1398,12 +1479,16 @@ class CatalogRepository(
     }
 
     private fun updateItemTrailer(id: String, trailer: String) {
-        val cur = cachedItems
+        cachedItems = withTrailer(cachedItems, id, trailer) ?: return
+        withTrailer(rawItems, id, trailer)?.let { rawItems = it }
+    }
+
+    private fun withTrailer(cur: List<MediaItem>, id: String, trailer: String): List<MediaItem>? {
         val i = cur.indexOfFirst { it.id == id }
-        if (i < 0) return
+        if (i < 0) return null
         val next = cur.toMutableList()
         next[i] = next[i].copy(youtubeTrailer = trailer)
-        cachedItems = next
+        return next
     }
 
     suspend fun epgForChannel(item: MediaItem): EpgNowNext = withContext(Dispatchers.IO) {

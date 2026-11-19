@@ -47,7 +47,6 @@ import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
 import javax.swing.SwingUtilities
 import javax.swing.WindowConstants
-import kotlin.math.abs
 
 /**
  * Shared with Main so Series Next can sit above fullscreen VLC.
@@ -136,13 +135,28 @@ class SeriesNextHost {
         conceal("player-exited")
     }
 
-    /** Hide the current banner without stopping playback. Pointer motion may show it again. */
+    /** Hide the current banner without stopping playback. Right-click may show it again. */
     fun dismiss(reason: String) {
         if (session == null && overlayWindow == null && !bannerShown) return
         userDismissed = true
         mouseMovedAtMs = null
         lastPointer = currentPointer()
         conceal(reason)
+    }
+
+    /**
+     * Windows right-click: show Stop/Hide/Next (and last-episode chrome) for
+     * [LastEpisodeBanner.MOUSE_HIDE_MS]. Pointer motion alone never calls this.
+     */
+    fun revealOnRightClick() {
+        if (holdHidden || AppShutdown.isExiting()) return
+        val play = session ?: return
+        val mode = overlayMode(play)
+        if (mode == LastEpisodeBanner.Mode.HIDDEN) return
+        userDismissed = false
+        mouseMovedAtMs = System.currentTimeMillis()
+        ensureClock()
+        refresh(System.currentTimeMillis())
     }
 
     fun dismissLastIfMatching(key: String) = dismissIfMatching(key, "timeout")
@@ -186,7 +200,7 @@ class SeriesNextHost {
 
     /**
      * Host-owned tick. Disposing the overlay window does not stop this timer,
-     * so the intro, the last minute, and pointer motion can still show or hide it.
+     * so the intro, the last minute, and a right-click nudge can still show or hide it.
      */
     private fun ensureClock() {
         if (clock != null) return
@@ -230,14 +244,11 @@ class SeriesNextHost {
         }
     }
 
+    /** Pointer motion must not pop the banner; right-click uses [revealOnRightClick]. */
     private fun sampleMouse(nowMs: Long) {
+        // Keep lastPointer for dismiss baseline only; never set mouseMovedAtMs here.
         val point = currentPointer() ?: return
-        val previous = lastPointer
         lastPointer = point
-        if (previous == null) return
-        if (abs(point.x - previous.x) < 6 && abs(point.y - previous.y) < 6) return
-        mouseMovedAtMs = nowMs
-        userDismissed = false
     }
 
     private fun currentPointer(): Point? {

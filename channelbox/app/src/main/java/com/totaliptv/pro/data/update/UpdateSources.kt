@@ -52,6 +52,32 @@ object UpdateSources {
         return null
     }
 
+    /**
+     * 1.4.107: checks a streamed download. Null when ok; otherwise a short reason.
+     * An APK is a zip file, so it starts with "PK"; a web page (sign-in, quota or
+     * "can't scan" page) does not.
+     */
+    fun verifyDownload(
+        size: Long,
+        head: ByteArray,
+        sha256Hex: String,
+        expectedSize: Long,
+        expectedSha256: String
+    ): String? {
+        if (size < MIN_APK_BYTES) return "APK too small ($size bytes)"
+        if (head.size < 2 || head[0] != 'P'.code.toByte() || head[1] != 'K'.code.toByte()) {
+            return "The download was not an app file"
+        }
+        if (expectedSize > 0 && size != expectedSize) {
+            return "Download size mismatch ($size vs $expectedSize)"
+        }
+        val want = expectedSha256.trim().lowercase()
+        if (want.isNotEmpty() && sha256Hex.trim().lowercase() != want) return "Download checksum mismatch"
+        return null
+    }
+
+    const val MIN_APK_BYTES = 100_000L
+
     data class Asset(val name: String, val url: String)
 
     data class ReleaseListing(

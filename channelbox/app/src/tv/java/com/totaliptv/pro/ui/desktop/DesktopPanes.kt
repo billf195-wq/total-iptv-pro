@@ -2,6 +2,13 @@
 
 package com.totaliptv.pro.ui.desktop
 
+import com.totaliptv.pro.data.lock.ParentalGate
+import com.totaliptv.pro.data.lock.PinFlow
+import com.totaliptv.pro.ui.settings.PinLockDialog
+import com.totaliptv.pro.ui.settings.PinLockDialogHost
+import com.totaliptv.pro.ui.settings.PinLockEntry
+import com.totaliptv.pro.ui.settings.PinFocusReturn
+import com.totaliptv.pro.ui.settings.pinLockEntryClicked
 import android.app.Activity
 import android.widget.EditText
 import android.widget.Toast
@@ -71,6 +78,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.billing.LicenseStrings
 import com.totaliptv.pro.diagnostics.CrashLog
 import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.LiveChannelMapping
@@ -120,7 +128,8 @@ fun HomePane(
     onRestoreConsumed: () -> Unit = {},
     onPlay: (MediaItem, index: Int) -> Unit,
     onOpenSeries: (MediaItem, index: Int) -> Unit,
-    onResume: (WatchProgress, index: Int) -> Unit
+    onResume: (WatchProgress, index: Int) -> Unit,
+    onResumeMenu: (WatchProgress, index: Int) -> Unit = { _, _ -> }
 ) {
     // Never rank the full catalog synchronously on the first Home frame (Movies→Home ANR).
     // Warm from process cache when revision unchanged; otherwise compute off main after yield.
@@ -256,6 +265,7 @@ fun HomePane(
                             entry.toMediaItem(),
                             onClick = { onResume(entry, index) },
                             focusRequester = posterFocus("desk-cw", entry.id),
+                            onLongClick = { onResumeMenu(entry, index) },
                             imageHeight = HomeShelfFit.desktopPosterImage,
                             titleSlotHeight = HomeShelfFit.desktopPosterTitle
                         )
@@ -517,8 +527,12 @@ fun BrowseGridPane(
         delay(SearchTyping.DEBOUNCE_MS)
         query = search
     }
+    var lastGridKey by remember { mutableStateOf("$categoryId|$sort|$title") }
     LaunchedEffect(categoryId, sort, title) {
-        gridState.scrollToItem(0)
+        val key = "$categoryId|$sort|$title"
+        if (key == lastGridKey) return@LaunchedEffect
+        lastGridKey = key
+        if (!pendingFocusRestore) gridState.scrollToItem(0)
     }
 
     val desktopRepo = (LocalContext.current.applicationContext as? com.totaliptv.pro.TotalIptvProApp)?.repository
@@ -819,11 +833,19 @@ fun DesktopSettingsPane(
         runCatching { updateFocus.requestFocus() }
     }
     var pendingInstall by remember { mutableStateOf<UpdateCheckResult.Available?>(null) }
+    val shelfField = remember { mutableStateOf<android.widget.EditText?>(null) }
     val sources by repository.sources.collectAsState(initial = emptyList())
 
     val settingsFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        runCatching { settingsFocus.requestFocus() }
+    var showHowTo by remember { mutableStateOf(false) }
+    val autoPlayNext by (app?.preferences?.autoPlayNext ?: kotlinx.coroutines.flow.flowOf(true))
+        .collectAsState(initial = true)
+    LaunchedEffect(showHowTo) {
+        if (!showHowTo) runCatching { settingsFocus.requestFocus() }
+    }
+    if (showHowTo) {
+        com.totaliptv.pro.ui.settings.HowToUseScreen(onBack = { showHowTo = false })
+        return
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text(
@@ -835,6 +857,98 @@ fun DesktopSettingsPane(
             Text("Source: ${src.name} (${src.type})", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
         }
         Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
+        Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
+            TipFocusable(onClick = { showHowTo = true }, focusLabel = "settings:how-to") { focused ->
+                Text(
+                    "How to Use",
+                    color = if (focused) TipAccent else TipGoldText,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                        .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                )
+            }
+            TipFocusable(
+                onClick = {
+                    scope.launch {
+                        val next = !autoPlayNext
+                        app?.preferences?.setAutoPlayNext(next)
+                        Toast.makeText(
+                            context,
+                            if (next) "Auto-play next episode on" else "Auto-play next episode off",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                },
+                focusLabel = "settings:auto-play"
+            ) { focused ->
+                Text(
+                    if (autoPlayNext) "Auto-play next episode: On" else "Auto-play next episode: Off",
+                    color = if (focused) TipAccent else TipGoldText,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                        .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                )
+            }
+        }
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
+
+        val licenseStatus by (app?.license?.status ?: kotlinx.coroutines.flow.flowOf(com.totaliptv.pro.billing.LicenseStatus.Checking))
+            .collectAsState(initial = com.totaliptv.pro.billing.LicenseStatus.Checking)
+        val licensePrice by (app?.license?.price ?: kotlinx.coroutines.flow.flowOf(com.totaliptv.pro.billing.LicensePolicy.DISPLAY_PRICE))
+            .collectAsState(initial = com.totaliptv.pro.billing.LicensePolicy.DISPLAY_PRICE)
+        val licenseMessage by (app?.license?.message ?: kotlinx.coroutines.flow.flowOf<String?>(null))
+            .collectAsState(initial = null)
+        SectionHeader(LicenseStrings.SECTION)
+        Text(
+            LicenseStrings.statusLine(licenseStatus, licensePrice),
+            color = TipGoldMuted,
+            fontSize = TipDimens.BodyMediumSp
+        )
+        if (licenseStatus.showBuyButton) {
+            Spacer(Modifier.height(TipDimens.dp(8)))
+            Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
+                TipFocusable(
+                    onClick = {
+                        val activity = context as? Activity
+                        if (activity != null) {
+                            scope.launch { app?.license?.buy(activity) }
+                        }
+                    }
+                ) { focused ->
+                    Text(
+                        LicenseStrings.buyLabel(licensePrice),
+                        color = if (focused) TipAccent else TipGoldText,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                            .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                    )
+                }
+                TipFocusable(
+                    onClick = { scope.launch { app?.license?.restore() } }
+                ) { focused ->
+                    Text(
+                        LicenseStrings.RESTORE,
+                        color = if (focused) TipAccent else TipGoldText,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                            .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                    )
+                }
+            }
+            if (!licenseMessage.isNullOrBlank()) {
+                Text(
+                    licenseMessage!!,
+                    color = TipGoldMuted,
+                    fontSize = TipDimens.BodyMediumSp,
+                    modifier = Modifier.padding(top = TipDimens.dp(6))
+                )
+            }
+        }
+        Spacer(Modifier.height(TipDimens.dp(20)))
 
         val appearance by (app?.preferences?.appearanceMode ?: kotlinx.coroutines.flow.flowOf(AppearanceMode.DARK))
             .collectAsState(initial = AppearanceMode.DARK)
@@ -842,6 +956,71 @@ fun DesktopSettingsPane(
             .collectAsState(initial = AccentPreset.AMBER)
         val posterColumns by (app?.preferences?.posterColumns ?: kotlinx.coroutines.flow.flowOf(6))
             .collectAsState(initial = 6)
+
+        val lockRevision by ParentalGate.revision.collectAsState()
+        val pinEntries = remember(lockRevision) { PinLockEntry.visibleEntries() }
+        var pinDialog by remember { mutableStateOf<PinLockDialog?>(null) }
+        var pinReturnFocus by remember { mutableStateOf(false) }
+        // 1.4.107: focus returns to the PIN button that was used (or the last one left)
+        // and is retried until it really lands; 1.4.106 tried once after 80 ms.
+        val pinFocus = remember { List(PinFocusReturn.MAX_SLOTS) { FocusRequester() } }
+        var pinReturnSlot by remember { mutableStateOf(-1) }
+        var pinFocusedSlot by remember { mutableStateOf(-1) }
+        LaunchedEffect(pinDialog, pinEntries) {
+            if (pinDialog == null && pinReturnFocus) {
+                val slot = PinFocusReturn.slotAfterClose(pinReturnSlot, pinEntries.size)
+                for (attempt in 0 until PinFocusReturn.ATTEMPTS) {
+                    kotlinx.coroutines.delay(PinFocusReturn.STEP_MS)
+                    if (pinFocusedSlot == slot) break
+                    runCatching { pinFocus[slot].requestFocus() }
+                }
+                pinReturnFocus = false
+                pinReturnSlot = -1
+            }
+        }
+        PinLockDialogHost(dialog = pinDialog, repository = repository, onClose = { pinDialog = it })
+        SectionHeader(PinLockEntry.SECTION)
+        Text(
+            remember(lockRevision) { PinFlow.statusLine() },
+            color = TipGoldMuted,
+            fontSize = TipDimens.BodyMediumSp
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        pinEntries.chunked(3).forEachIndexed { rowIndex, rowEntries ->
+            if (rowIndex > 0) Spacer(Modifier.height(TipDimens.dp(8)))
+            Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
+                rowEntries.forEachIndexed { col, entry ->
+                    val slot = rowIndex * 3 + col
+                    TipFocusable(
+                        modifier = Modifier
+                            .onFocusChanged {
+                                if (it.isFocused) pinFocusedSlot = slot
+                                else if (pinFocusedSlot == slot) pinFocusedSlot = -1
+                            }
+                            .focusRequester(pinFocus[slot]),
+                        onClick = {
+                            pinReturnSlot = slot
+                            pinLockEntryClicked(
+                                entry,
+                                open = { pinDialog = it; pinReturnFocus = true },
+                                toast = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                            )
+                        },
+                        focusLabel = "settings:pin-" + entry.name.lowercase()
+                    ) { focused ->
+                        Text(
+                            entry.label,
+                            color = if (focused) TipAccent else TipGoldText,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                                .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(TipDimens.dp(20)))
 
         SectionHeader("App layout")
         Text(
@@ -1015,12 +1194,15 @@ fun DesktopSettingsPane(
         AmberButton("Change source", onClick = onChangeSource)
 
         Spacer(Modifier.height(TipDimens.dp(24)))
+        if (BuildConfig.SELF_UPDATER_ENABLED) {
         SectionHeader("App updates")
+        }
         Text(
             "Installed: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             color = TipGoldMuted,
             fontSize = TipDimens.BodyMediumSp
         )
+        if (BuildConfig.SELF_UPDATER_ENABLED) {
         Text(
             if (updateBaseUrl.isBlank()) "Checks Google Drive" else "Checks Google Drive, then your shelf",
             color = TipGoldMuted,
@@ -1032,7 +1214,6 @@ fun DesktopSettingsPane(
             fontSize = TipDimens.sp(12)
         )
         Spacer(Modifier.height(TipDimens.dp(8)))
-        val shelfField = remember { mutableStateOf<EditText?>(null) }
         AndroidView(
             factory = { ctx ->
                 EditText(ctx).apply {
@@ -1078,15 +1259,19 @@ fun DesktopSettingsPane(
                         updateStatus = "Downloading ${ready.manifest.versionName}…"
                         try {
                             if (activity != null && !AppUpdateChecker.canInstallPackages(context)) {
-                                updateStatus = "Allow install unknown apps, then tap Install again"
+                                updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.UNKNOWN_APPS_HINT
                                 AppUpdateChecker.openUnknownSourcesSettings(activity)
                                 return@launch
                             }
-                            val file = AppUpdateChecker.downloadApk(context, ready.apkUrl, ready.manifest.size, ready.manifest.sha256)
+                            com.totaliptv.pro.data.update.UpdateInstaller.downloadAndInstall(context, ready) { pct ->
+                                updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.downloadingLabel(ready.manifest.versionName, pct)
+                            }
                             updateStatus = "Opening installer…"
-                            AppUpdateChecker.launchInstaller(context, file)
+                        } catch (c: kotlinx.coroutines.CancellationException) {
+                            // Settings was closed; the download keeps going and still opens the installer.
+                            throw c
                         } catch (t: Throwable) {
-                            updateStatus = "Download failed: ${SensitiveText.forUser(t)}"
+                            updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.friendlyError(t)
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         } finally {
                             updateBusy = false
@@ -1124,6 +1309,7 @@ fun DesktopSettingsPane(
         updateStatus?.let {
             Spacer(Modifier.height(TipDimens.dp(10)))
             Text(it, color = TipAccent, fontSize = TipDimens.BodyMediumSp)
+        }
         }
 
                 Spacer(Modifier.height(TipDimens.dp(24)))

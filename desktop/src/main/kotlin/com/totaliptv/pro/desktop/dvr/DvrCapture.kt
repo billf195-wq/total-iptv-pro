@@ -2,6 +2,7 @@ package com.totaliptv.pro.desktop.dvr
 
 import com.totaliptv.pro.desktop.player.FfmpegLocator
 import com.totaliptv.pro.desktop.util.AppPaths
+import com.totaliptv.pro.desktop.player.StreamPlayer
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -306,6 +307,9 @@ object DvrCapture {
     internal fun resolveVlcBinary(windows: Boolean = AppPaths.isWindows): String? {
         if (commandExists("vlc")) return "vlc"
         if (windows && commandExists("vlc.exe")) return "vlc.exe"
+        if (AppPaths.isMac) {
+            return StreamPlayer.macVlcCandidates().firstOrNull { it.isFile && it.canExecute() }?.absolutePath
+        }
         if (!windows) {
             if (File("/usr/bin/vlc").canExecute()) return "/usr/bin/vlc"
             if (File("/usr/bin/cvlc").canExecute()) return "/usr/bin/cvlc"

@@ -29,8 +29,9 @@ import javax.swing.event.PopupMenuListener
  *
  * VLC's own right-click drops out of fullscreen or opens the full Qt window.
  * A low-level mouse hook swallows right-clicks that land on the VLC process
- * and this menu is shown instead. Linux never installs the hook. Game Day
- * does not arm it.
+ * and this menu is shown instead (audio / subtitles / pause / stop / next).
+ * Series playback also nudges the Stop/Hide/Next overlay on the same click.
+ * Linux never installs the hook. Game Day does not arm it.
  */
 object WindowsPlaybackMenu {
     internal const val WM_LBUTTONDOWN = 0x0201
@@ -85,6 +86,13 @@ object WindowsPlaybackMenu {
     /** Open the menu on button-up so down+up does not open it twice. */
     internal fun shouldOpenMenu(message: Int): Boolean = message == WM_RBUTTONUP
 
+    /**
+     * The 1x1 owner window must not take focus. A focusable ownerless JWindow
+     * becomes the foreground window; disposing it when Stop kills fullscreen
+     * VLC lets Windows iconify the app.
+     */
+    internal fun menuAnchorShouldBeFocusable(): Boolean = false
+
     @Volatile
     private var hasNextEpisode: () -> Boolean = { false }
 
@@ -94,10 +102,19 @@ object WindowsPlaybackMenu {
     @Volatile
     private var onNext: () -> Unit = {}
 
-    fun bind(hasNextEpisode: () -> Boolean, onStop: () -> Unit, onNext: () -> Unit) {
+    @Volatile
+    private var onRightClick: () -> Unit = {}
+
+    fun bind(
+        hasNextEpisode: () -> Boolean,
+        onStop: () -> Unit,
+        onNext: () -> Unit,
+        onRightClick: () -> Unit = {}
+    ) {
         this.hasNextEpisode = hasNextEpisode
         this.onStop = onStop
         this.onNext = onNext
+        this.onRightClick = onRightClick
     }
 
     private val lock = Any()
@@ -262,6 +279,8 @@ object WindowsPlaybackMenu {
         val paused = runCatching { VlcControl.queryPaused(StreamPlayer.PROGRESS_RC_PORT) }.getOrDefault(false)
         val next = runCatching { hasNextEpisode() }.getOrDefault(false)
         if (targetPid.get() == 0L) return
+        // Series next-episode banner (Stop/Hide/Next) + audio-track menu together.
+        runCatching { onRightClick() }
         SwingUtilities.invokeLater {
             if (targetPid.get() == 0L) return@invokeLater
             showMenu(x, y, paused, next)
@@ -287,9 +306,10 @@ object WindowsPlaybackMenu {
             }
             menu.add(item)
         }
-        val owner = JWindow()
+        val parent = WindowPositioner.attachedAppWindow()
+        val owner = if (parent != null) JWindow(parent) else JWindow()
         owner.isAlwaysOnTop = true
-        owner.focusableWindowState = true
+        owner.focusableWindowState = menuAnchorShouldBeFocusable()
         owner.background = Color(0, 0, 0, 0)
         owner.setSize(1, 1)
         owner.setLocation(x, y)

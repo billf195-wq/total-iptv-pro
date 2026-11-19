@@ -3,6 +3,7 @@ package com.totaliptv.pro.ui.desktop
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,17 +58,48 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun TipFocusable(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     focusLabel: String? = null,
+    /** Hold OK / Enter (or long-press with touch or mouse). Null keeps the plain click behavior. */
+    onLongClick: (() -> Unit)? = null,
     content: @Composable (focused: Boolean) -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
+    // Hold-OK tracking for D-pad long press. Only used when onLongClick is set.
+    var keyDown by remember { mutableStateOf(false) }
+    var longFired by remember { mutableStateOf(false) }
+    val longPressKeys = if (onLongClick == null) Modifier else Modifier.onPreviewKeyEvent { ev ->
+        val k = ev.key
+        if (k != Key.DirectionCenter && k != Key.Enter && k != Key.NumPadEnter) return@onPreviewKeyEvent false
+        when (ev.type) {
+            KeyEventType.KeyDown -> {
+                if (ev.nativeKeyEvent.repeatCount == 0) {
+                    keyDown = true
+                    longFired = false
+                } else if (keyDown && !longFired) {
+                    longFired = true
+                    onLongClick()
+                }
+                true
+            }
+            KeyEventType.KeyUp -> {
+                val wasDown = keyDown
+                keyDown = false
+                if (wasDown && !longFired) onClick()
+                longFired = false
+                true
+            }
+            else -> false
+        }
+    }
     Box(
         modifier = modifier
+            .then(longPressKeys)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged {
                 focused = it.isFocused
@@ -81,7 +113,13 @@ fun TipFocusable(
             )
             .background(if (focused) TipSurfaceAlt else Color.Transparent)
             .focusable()
-            .clickable(onClick = onClick),
+            .then(
+                if (onLongClick == null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         content(focused)
@@ -97,7 +135,8 @@ fun DesktopPosterCard(
     focusRequester: FocusRequester? = null,
     canFocus: Boolean = true,
     imageHeight: Dp? = null,
-    titleSlotHeight: Dp? = null
+    titleSlotHeight: Dp? = null,
+    onLongClick: (() -> Unit)? = null
 ) {
     val safeName = item.name.ifBlank { "Untitled" }
     val cardMod = if (modifier === Modifier) {
@@ -109,7 +148,8 @@ fun DesktopPosterCard(
         onClick = onClick,
         modifier = cardMod.focusProperties { this.canFocus = canFocus },
         focusLabel = "poster:$safeName",
-        focusRequester = focusRequester
+        focusRequester = focusRequester,
+        onLongClick = onLongClick
     ) { focused ->
         Column(
             Modifier

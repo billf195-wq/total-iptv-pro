@@ -1,10 +1,13 @@
 package com.totaliptv.pro.data.local
 
+import com.totaliptv.pro.data.lock.ParentalGate
 import android.content.Context
 import android.util.Log
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.WatchProgress
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
 /**
@@ -43,13 +46,18 @@ class WatchProgressStore(context: Context) {
         }.getOrDefault(emptyList())
     }
 
-    /** In-progress items eligible for resume (≥15s, not completed), newest first. No home-row cap. */
+    /**
+     * In-progress items eligible for resume (≥15s, not completed), newest first. No home-row cap.
+     * Titles the viewer removed from the row stay hidden until they are played again, and a
+     * manual order (Move to front / left / right) holds until a title is played again.
+     */
     fun continueWatching(limit: Int = Int.MAX_VALUE): List<WatchProgress> {
         val raw = all()
-        val list = raw
-            .filter { it.kind != ContentKind.LIVE && it.shouldResume() }
-            .sortedByDescending { it.updatedAtMs }
-            .take(limit)
+        val list = ContinueWatchingOrder.arrange(
+            raw.filter { it.kind != ContentKind.LIVE && it.shouldResume() && !ParentalGate.hides(it) },
+            hiddenMarks(),
+            orderMarks()
+        ).take(limit)
         if (raw.isNotEmpty() || list.isNotEmpty()) {
             Log.i(TAG, "continueWatching raw=${raw.size} out=${list.size} limit=$limit")
         }
@@ -59,7 +67,12 @@ class WatchProgressStore(context: Context) {
     /** Map of catalog-facing id → progress for poster badges. */
     fun progressByCatalogId(): Map<String, WatchProgress> {
         val out = LinkedHashMap<String, WatchProgress>()
-        for (p in continueWatching(MAX_ENTRIES)) {
+        // Includes titles removed from the Continue watching row so posters keep their % badge.
+        val resumable = all()
+            .filter { it.kind != ContentKind.LIVE && it.shouldResume() }
+            .sortedByDescending { it.updatedAtMs }
+            .take(MAX_ENTRIES)
+        for (p in resumable) {
             out[p.id] = p
             p.catalogId?.takeIf { it.isNotBlank() }?.let { out.putIfAbsent(it, p) }
         }
@@ -110,6 +123,58 @@ class WatchProgressStore(context: Context) {
         writeAll(next)
     }
 
+    /** Hide a title from the Continue watching row. Resume still works; playing it again brings it back. */
+    fun hideFromContinueWatching(id: String) {
+        val entry = all().firstOrNull { it.id == id } ?: return
+        val marks = hiddenMarks().toMutableMap()
+        marks[id] = entry.updatedAtMs
+        writeMarks(KEY_HIDDEN, marks)
+        Log.i(TAG, "cw hide id=$id")
+    }
+
+    /** Move a Continue watching title. Returns false when the move does nothing. */
+    fun moveInContinueWatching(id: String, move: ContinueWatchingOrder.Move): Boolean {
+        val current = continueWatching()
+        val reordered = ContinueWatchingOrder.move(current.map { it.id }, id, move) ?: return false
+        val byId = current.associateBy { it.id }
+        val top = current.maxOfOrNull { ContinueWatchingOrder.effectiveKey(it, orderMarks()) } ?: 0L
+        val marks = LinkedHashMap<String, Long>()
+        val stamps = LinkedHashMap<String, Long>()
+        reordered.forEachIndexed { index, itemId ->
+            val entry = byId[itemId] ?: return@forEachIndexed
+            marks[itemId] = top - index
+            stamps[itemId] = entry.updatedAtMs
+        }
+        writeMarks(KEY_ORDER, marks)
+        writeMarks(KEY_ORDER_STAMP, stamps)
+        Log.i(TAG, "cw move id=$id move=$move")
+        return true
+    }
+
+    private fun hiddenMarks(): Map<String, Long> = readMarks(KEY_HIDDEN)
+
+    private fun orderMarks(): Map<String, ContinueWatchingOrder.Mark> {
+        val keys = readMarks(KEY_ORDER)
+        val stamps = readMarks(KEY_ORDER_STAMP)
+        return keys.mapNotNull { (id, key) ->
+            val stamp = stamps[id] ?: return@mapNotNull null
+            id to ContinueWatchingOrder.Mark(key, stamp)
+        }.toMap()
+    }
+
+    private fun readMarks(key: String): Map<String, Long> {
+        val raw = prefs.getString(key, null) ?: return emptyMap()
+        return runCatching {
+            json.decodeFromString(MapSerializer(String.serializer(), Long.serializer()), raw)
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun writeMarks(key: String, marks: Map<String, Long>) {
+        val encoded = json.encodeToString(MapSerializer(String.serializer(), Long.serializer()), marks)
+        val ok = prefs.edit().putString(key, encoded).commit()
+        if (!ok) Log.e(TAG, "SharedPreferences commit failed ($key)")
+    }
+
     private fun writeAll(list: List<WatchProgress>) {
         val encoded = json.encodeToString(ListSerializer(WatchProgress.serializer()), list)
         // commit() so Home ON_RESUME / tab switch reliably reads fresh data
@@ -121,6 +186,9 @@ class WatchProgressStore(context: Context) {
         private const val TAG = "TotalIPTV.Progress"
         private const val PREFS = "watch_progress"
         private const val KEY = "entries"
+        private const val KEY_HIDDEN = "cw_hidden"
+        private const val KEY_ORDER = "cw_order"
+        private const val KEY_ORDER_STAMP = "cw_order_stamp"
         private const val MAX_ENTRIES = 500
         const val MIN_SAVE_MS = 15_000L
     }

@@ -243,7 +243,13 @@ fun DesktopAppRoot(
 
         // Keep resume fresh when entering Home — never sync-scan on Movies→Home first frame.
         var resume by remember { mutableStateOf<List<WatchProgress>>(emptyList()) }
-        LaunchedEffect(revision, section, app) {
+        /** Bumped after a Continue watching menu action or a detail sheet closes. */
+        var resumeVersion by remember { mutableIntStateOf(0) }
+        var cwMenu by remember { mutableStateOf<Pair<WatchProgress, Int>?>(null) }
+        LaunchedEffect(detailItem) {
+            if (detailItem == null) resumeVersion += 1
+        }
+        LaunchedEffect(revision, section, app, resumeVersion) {
             if (section != DesktopNavSection.HOME) return@LaunchedEffect
             yield()
             resume = withContext(Dispatchers.IO) {
@@ -418,7 +424,8 @@ fun DesktopAppRoot(
                                     onOpenSeries = { item, index -> openDetailOrPlay(item, index = index, scope = "desk-series") },
                                     onResume = { wp: WatchProgress, index: Int ->
                                         openDetailOrPlay(wp.toMediaItem(), focusKey = wp.id, index = index, scope = "desk-cw")
-                                    }
+                                    },
+                                    onResumeMenu = { wp: WatchProgress, index: Int -> cwMenu = wp to index }
                                 )
                                 DesktopNavSection.LIVE -> LivePane(
                                     items = live,
@@ -557,6 +564,47 @@ fun DesktopAppRoot(
                     }
                 }
 
+                cwMenu?.let { (entry, index) ->
+                    val fav = entry.id in favoriteIds ||
+                        (entry.catalogId != null && entry.catalogId in favoriteIds)
+                    com.totaliptv.pro.ui.home.ContinueWatchingMenuDialog(
+                        entry = entry,
+                        actions = com.totaliptv.pro.ui.home.ContinueWatchingAction.forPosition(
+                            index, resume.size, includeFavorite = true
+                        ),
+                        isFavorite = fav,
+                        onAction = { action ->
+                            cwMenu = null
+                            if (action == com.totaliptv.pro.ui.home.ContinueWatchingAction.TOGGLE_FAVORITE) {
+                                toggleFavoriteToast(entry.toMediaItem())
+                            } else {
+                                com.totaliptv.pro.ui.home.ContinueWatchingActions.apply(context, entry, action)?.let {
+                                    Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            val after = runCatching { app?.watchProgress?.continueWatching().orEmpty() }
+                                .getOrDefault(emptyList())
+                            resume = after
+                            val ids = after.map { it.id }
+                            val focusId = if (entry.id in ids) entry.id else
+                                ids.getOrNull(index.coerceAtMost(ids.size - 1))
+                            if (focusId != null) {
+                                restoreFocusId = focusId
+                                restoreFocusIndex = ids.indexOf(focusId)
+                                restoreFocusScope = "desk-cw"
+                                pendingFocusRestore = true
+                            }
+                        },
+                        onDismiss = {
+                            cwMenu = null
+                            restoreFocusId = entry.id
+                            restoreFocusIndex = index
+                            restoreFocusScope = "desk-cw"
+                            pendingFocusRestore = true
+                        }
+                    )
+                }
+
                 detailItem?.let { detail ->
                     val store = app?.watchProgress
                     val detailProgress = runCatching {
@@ -571,16 +619,16 @@ fun DesktopAppRoot(
                         watchProgress = detailProgress,
                         onPlay = {
                             val playTarget = detail
-                            dismissDetail(restore = false)
+                            dismissDetail(restore = true)
                             onPlay(playTarget)
                         },
                         onPlayItem = { playTarget ->
-                            dismissDetail(restore = false)
+                            dismissDetail(restore = true)
                             onPlay(playTarget)
                         },
                         onResume = {
                             val playTarget = detailProgress?.toMediaItem() ?: detail
-                            dismissDetail(restore = false)
+                            dismissDetail(restore = true)
                             onPlay(playTarget)
                         },
                         onPlayFromStart = {
@@ -590,7 +638,7 @@ fun DesktopAppRoot(
                                 detailProgress?.catalogId?.let { store?.clear(it) }
                             }
                             val playTarget = detail
-                            dismissDetail(restore = false)
+                            dismissDetail(restore = true)
                             onPlayFromStart(playTarget)
                         },
                         onToggleFavorite = { toggleFavoriteToast(detail) },

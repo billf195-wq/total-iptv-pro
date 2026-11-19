@@ -71,6 +71,7 @@ class AppPreferences(private val context: Context) {
     private val posterColumnsKey = intPreferencesKey("poster_columns")
     private val recordingsDirKey = stringPreferencesKey("recordings_dir")
     private val autoPipKey = booleanPreferencesKey("auto_pip")
+    private val autoPlayNextKey = booleanPreferencesKey("auto_play_next")
     private val tmdbApiKeyKey = stringPreferencesKey("tmdb_api_key")
 
     companion object {
@@ -133,6 +134,10 @@ class AppPreferences(private val context: Context) {
     val autoPip: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[autoPipKey] ?: defaultAutoPip()
     }
+
+    /** True when this device already has catalog preferences from a prior session. */
+    suspend fun hasStoredUserData(): Boolean =
+        context.dataStore.data.first().asMap().isNotEmpty()
 
     suspend fun getSources(): List<PlaylistSource> = sources.first()
 
@@ -208,6 +213,20 @@ class AppPreferences(private val context: Context) {
     suspend fun setPosterColumns(columns: Int) {
         context.dataStore.edit { prefs ->
             prefs[posterColumnsKey] = normalizePosterColumns(columns)
+        }
+    }
+
+    /** Series: count down and play the next episode on its own. On unless the viewer turns it off. */
+    val autoPlayNext: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[autoPlayNextKey] ?: true
+    }
+
+    suspend fun getAutoPlayNext(): Boolean =
+        context.dataStore.data.first()[autoPlayNextKey] ?: true
+
+    suspend fun setAutoPlayNext(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[autoPlayNextKey] = enabled
         }
     }
 

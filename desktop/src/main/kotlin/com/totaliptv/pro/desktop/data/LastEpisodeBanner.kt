@@ -8,7 +8,7 @@ object LastEpisodeBanner {
     const val AUTO_DISMISS_MS: Long = 4_000L
     /** Next-episode chrome at the start of an episode. Windows and Linux. */
     const val INTRO_SHOW_MS: Long = 6_000L
-    /** After the pointer moves, hide again once it has been still this long. */
+    /** After a right-click reveal, hide again once this long has passed. */
     const val MOUSE_HIDE_MS: Long = 5_000L
     /** Show again when VLC get_time/get_length says this much (or less) remains. */
     const val ENDING_WINDOW_MS: Long = 60_000L
@@ -88,8 +88,10 @@ object LastEpisodeBanner {
 
     /**
      * Next banner: about 6s at episode start, again in the last minute when
-     * position and duration are known, and whenever the pointer moves (5s).
-     * Last-episode chrome keeps the 4s intro. A user dismiss hides until the pointer moves.
+     * position and duration are known, and for [MOUSE_HIDE_MS] after a right-click
+     * nudge (mouseMovedAtMs). Pointer motion alone must not reveal it.
+     * Last-episode chrome keeps the 4s intro. A user dismiss stays hidden until
+     * right-click (or a new episode) nudges again.
      */
     fun reveal(
         mode: Mode,

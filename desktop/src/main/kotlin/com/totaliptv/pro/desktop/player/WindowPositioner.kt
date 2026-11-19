@@ -34,9 +34,398 @@ object WindowPositioner {
 
     private val placedSplitPids = ConcurrentHashMap.newKeySet<Long>()
 
+    private val restoreTicket = java.util.concurrent.atomic.AtomicInteger(0)
+
     /** The Compose frame, so playback can follow the monitor it is on. */
     fun attachAppWindow(window: Window?) {
         appWindow = window
+    }
+
+    /** Owner for the Windows right-click menu so focus can return to the app. */
+    fun attachedAppWindow(): Window? = appWindow
+
+    /** True when AWT [java.awt.Frame.extendedState] includes ICONIFIED. */
+    internal fun isIconifiedState(extendedState: Int): Boolean =
+        extendedState and java.awt.Frame.ICONIFIED != 0
+
+    /** Clears ICONIFIED and leaves Maximized / normal bits unchanged. */
+    internal fun withoutIconified(extendedState: Int): Int =
+        extendedState and java.awt.Frame.ICONIFIED.inv()
+
+    /** Only SW_RESTORE an already-iconic window, so fullscreen / maximized is kept. */
+    internal fun shouldRestoreNativeWindow(isIconic: Boolean): Boolean = isIconic
+
+    /**
+     * 1.2.30 saw AWT ICONIFIED with IsIconic=false and 160x28 bounds. Treat
+     * either signal as iconic so we still call SW_RESTORE.
+     */
+    internal fun needsNativeRestore(iconicAwt: Boolean, iconicNative: Boolean): Boolean =
+        iconicAwt || iconicNative
+
+    /** Collapsed post-iconify sizes like 160x28 need the fullscreen/monitor bounds back. */
+    internal fun needsBoundsRepair(width: Int, height: Int, minWidth: Int = 960, minHeight: Int = 600): Boolean =
+        width < minWidth || height < minHeight
+
+    /**
+     * SetForegroundWindow / toFront / BringWindowToTop on a non-iconic
+     * fullscreen Compose window leaves a blank white Skia surface. Only poke
+     * z-order when we actually un-iconified.
+     */
+    internal fun shouldPokeZOrder(didUniconify: Boolean): Boolean = didUniconify
+
+    /** Later retries are only for a window that is still iconic or still tiny. */
+    internal fun shouldRetryRestore(stillIconic: Boolean, boundsNeedRepair: Boolean): Boolean =
+        stillIconic || boundsNeedRepair
+
+    /** A 1px size nudge is the reliable way to recreate a blank Skia layer. */
+    internal fun shouldNudgeSurface(didUniconify: Boolean, didRepairBounds: Boolean): Boolean =
+        didUniconify || didRepairBounds
+
+    /**
+     * After VLC (or another fullscreen player) exits, Windows often iconifies
+     * the window that was underneath — especially when the app itself is
+     * fullscreen and a right-click menu just closed. Un-minimize only when it
+     * is actually iconic, put the fullscreen bounds back, and force a Compose
+     * redraw. All of this runs on the AWT EDT after the player has exited.
+     */
+    fun restoreAppWindowAfterPlayback() {
+        if (AppPaths.isMac) {
+            restoreMacAppAfterPlayback()
+            return
+        }
+        if (AppPaths.isLinux) {
+            restoreLinuxAppAfterPlayback()
+            return
+        }
+        if (!AppPaths.isWindows) return
+        if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return
+        val ticket = restoreTicket.incrementAndGet()
+        fun schedule(delayMs: Int, forceRepaint: Boolean) {
+            val run = Runnable {
+                if (ticket != restoreTicket.get()) return@Runnable
+                if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return@Runnable
+                val result = restoreAppWindowNow(passDelayMs = delayMs, forceRepaint = forceRepaint)
+                if (delayMs == 0 && (result.didUniconify || result.didRepairBounds)) {
+                    // One trailing redraw after VLC has finished tearing down.
+                    schedule(80, forceRepaint = true)
+                } else if (delayMs < 600 && shouldRetryRestore(result.stillIconic, result.boundsNeedRepair)) {
+                    val next = when (delayMs) {
+                        0 -> 80
+                        80 -> 250
+                        else -> 600
+                    }
+                    schedule(next, forceRepaint = false)
+                }
+            }
+            if (delayMs <= 0) {
+                if (SwingUtilities.isEventDispatchThread()) run.run() else SwingUtilities.invokeLater(run)
+            } else {
+                SwingUtilities.invokeLater {
+                    javax.swing.Timer(delayMs) { ev ->
+                        (ev.source as javax.swing.Timer).stop()
+                        run.run()
+                    }.apply { isRepeats = false; start() }
+                }
+            }
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            schedule(0, forceRepaint = true)
+        } else {
+            SwingUtilities.invokeLater { schedule(0, forceRepaint = true) }
+        }
+    }
+
+    internal const val MAC_BUNDLE_ID: String = "com.totaliptv.pro.desktop"
+
+    /**
+     * Activate this app after VLC leaves so its fullscreen Space comes back
+     * without a Dock click. `open -b` first; AppleScript activate as fallback.
+     */
+    internal fun macActivateCommands(bundleId: String = MAC_BUNDLE_ID): List<List<String>> = listOf(
+        listOf("open", "-b", bundleId),
+        listOf("osascript", "-e", "tell application id \"$bundleId\" to activate")
+    )
+
+    internal fun activateMacApp(commands: List<List<String>> = macActivateCommands()): Boolean {
+        for (cmd in commands) {
+            val ok = runCatching {
+                val proc = ProcessBuilder(cmd)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start()
+                proc.waitFor(2, TimeUnit.SECONDS) && proc.exitValue() == 0
+            }.getOrDefault(false)
+            if (ok) return true
+        }
+        return false
+    }
+
+    /**
+     * Bring the macOS app back to the front of its own Space after VLC exits
+     * (natural end, Esc, the Stop button, or Cmd+Q). Activate first — that is
+     * what a Dock click does — then toFront / requestFocus / repaint on the EDT.
+     */
+    internal fun restoreMacAppAfterPlayback() {
+        if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return
+        val ticket = restoreTicket.incrementAndGet()
+        Thread({
+            if (ticket != restoreTicket.get()) return@Thread
+            activateMacApp()
+        }, "mac-activate-app").apply { isDaemon = true; start() }
+        fun schedule(delayMs: Int, activateAgain: Boolean) {
+            val run = Runnable {
+                if (ticket != restoreTicket.get()) return@Runnable
+                if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return@Runnable
+                if (activateAgain) {
+                    Thread({
+                        if (ticket != restoreTicket.get()) return@Thread
+                        activateMacApp()
+                    }, "mac-activate-app").apply { isDaemon = true; start() }
+                }
+                raiseMacAppWindow()
+            }
+            if (delayMs <= 0) {
+                if (SwingUtilities.isEventDispatchThread()) run.run() else SwingUtilities.invokeLater(run)
+            } else {
+                SwingUtilities.invokeLater {
+                    javax.swing.Timer(delayMs) { ev ->
+                        (ev.source as javax.swing.Timer).stop()
+                        run.run()
+                    }.apply { isRepeats = false; start() }
+                }
+            }
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            schedule(0, activateAgain = false)
+        } else {
+            SwingUtilities.invokeLater { schedule(0, activateAgain = false) }
+        }
+        // Space switching is animated; retry after VLC's Space has closed.
+        schedule(80, activateAgain = true)
+        schedule(250, activateAgain = true)
+        schedule(700, activateAgain = true)
+    }
+
+    internal fun raiseMacAppWindow() {
+        val window = appWindow ?: return
+        val work = Runnable {
+            if (!window.isVisible) window.isVisible = true
+            if (window is java.awt.Frame && isIconifiedState(window.extendedState)) {
+                window.extendedState = withoutIconified(window.extendedState)
+            }
+            val compose = window as? androidx.compose.ui.awt.ComposeWindow
+            if (compose != null && compose.isMinimized) {
+                compose.isMinimized = false
+            }
+            val before = window.bounds
+            if (needsBoundsRepair(before.width, before.height)) {
+                repairWindowBounds(window, compose)
+            }
+            window.toFront()
+            runCatching { window.requestFocus() }
+            refreshComposeSurface(window, nudge = needsBoundsRepair(window.bounds.width, window.bounds.height))
+            com.totaliptv.pro.desktop.WindowFullscreen.log(
+                "mac restore after playback bounds=${window.bounds} visible=${window.isVisible}"
+            )
+        }
+        if (SwingUtilities.isEventDispatchThread()) work.run() else SwingUtilities.invokeLater(work)
+    }
+
+    /**
+     * After VLC exits on Linux (Esc, q, close, or natural end), raise this
+     * app back to the front on the title page. AWT un-iconify / toFront plus
+     * an X11 `_NET_ACTIVE_WINDOW` activate so GNOME does not leave the window
+     * behind or minimized. No 1px nudge unless bounds are broken.
+     */
+    internal fun restoreLinuxAppAfterPlayback() {
+        if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return
+        val ticket = restoreTicket.incrementAndGet()
+        Thread({
+            if (ticket != restoreTicket.get()) return@Thread
+            LinuxX11WindowPlacer.activateCurrentApp()
+        }, "linux-activate-app").apply { isDaemon = true; start() }
+        fun schedule(delayMs: Int, activateAgain: Boolean) {
+            val run = Runnable {
+                if (ticket != restoreTicket.get()) return@Runnable
+                if (com.totaliptv.pro.desktop.AppShutdown.isExiting()) return@Runnable
+                if (activateAgain) {
+                    Thread({
+                        if (ticket != restoreTicket.get()) return@Thread
+                        LinuxX11WindowPlacer.activateCurrentApp()
+                    }, "linux-activate-app").apply { isDaemon = true; start() }
+                }
+                raiseLinuxAppWindow()
+            }
+            if (delayMs <= 0) {
+                if (SwingUtilities.isEventDispatchThread()) run.run() else SwingUtilities.invokeLater(run)
+            } else {
+                SwingUtilities.invokeLater {
+                    javax.swing.Timer(delayMs) { ev ->
+                        (ev.source as javax.swing.Timer).stop()
+                        run.run()
+                    }.apply { isRepeats = false; start() }
+                }
+            }
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            schedule(0, activateAgain = false)
+        } else {
+            SwingUtilities.invokeLater { schedule(0, activateAgain = false) }
+        }
+        schedule(80, activateAgain = true)
+        schedule(250, activateAgain = true)
+        schedule(700, activateAgain = true)
+    }
+
+    internal fun raiseLinuxAppWindow() {
+        val window = appWindow ?: return
+        val work = Runnable {
+            if (!window.isVisible) window.isVisible = true
+            if (window is java.awt.Frame && isIconifiedState(window.extendedState)) {
+                window.extendedState = withoutIconified(window.extendedState)
+            }
+            val compose = window as? androidx.compose.ui.awt.ComposeWindow
+            if (compose != null && compose.isMinimized) {
+                compose.isMinimized = false
+            }
+            val before = window.bounds
+            if (needsBoundsRepair(before.width, before.height)) {
+                repairWindowBounds(window, compose)
+            }
+            window.toFront()
+            runCatching { window.requestFocus() }
+            refreshComposeSurface(window, nudge = needsBoundsRepair(window.bounds.width, window.bounds.height))
+            com.totaliptv.pro.desktop.WindowFullscreen.log(
+                "linux restore after playback bounds=${window.bounds} visible=${window.isVisible}"
+            )
+        }
+        if (SwingUtilities.isEventDispatchThread()) work.run() else SwingUtilities.invokeLater(work)
+    }
+
+    private data class RestoreResult(
+        val didUniconify: Boolean,
+        val didRepairBounds: Boolean,
+        val stillIconic: Boolean,
+        val boundsNeedRepair: Boolean
+    )
+
+    private fun restoreAppWindowNow(passDelayMs: Int, forceRepaint: Boolean): RestoreResult {
+        val window = appWindow
+        if (window == null) {
+            return RestoreResult(false, false, false, false)
+        }
+        check(SwingUtilities.isEventDispatchThread()) { "restore must run on the AWT EDT" }
+        val frame = window as? java.awt.Frame
+        val compose = window as? androidx.compose.ui.awt.ComposeWindow
+        val before = frame?.extendedState ?: -1
+        val hwnd = hwndOf(window)
+        val iconicNative = hwnd != null && try {
+            iconicApi?.IsIconic(hwnd) == true
+        } catch (_: Throwable) {
+            false
+        }
+        val iconicAwt = (frame != null && isIconifiedState(frame.extendedState)) ||
+            (compose?.isMinimized == true)
+        val wasIconic = needsNativeRestore(iconicAwt, iconicNative)
+        var didUniconify = false
+        if (wasIconic) {
+            // SW_RESTORE first. Clearing AWT ICONIFIED before that (1.2.30)
+            // applied the 160x28 "normal" size and skipped the native restore
+            // because IsIconic was already false.
+            if (shouldRestoreNativeWindow(true) && hwnd != null) {
+                runCatching { User32.INSTANCE.ShowWindow(hwnd, WinUser.SW_RESTORE) }
+            }
+            if (compose != null && compose.isMinimized) {
+                compose.isMinimized = false
+            }
+            if (frame != null && isIconifiedState(frame.extendedState)) {
+                frame.extendedState = withoutIconified(frame.extendedState)
+            }
+            didUniconify = true
+        }
+        if (!window.isVisible) window.isVisible = true
+        var didRepairBounds = false
+        val beforeBounds = window.bounds
+        if (needsBoundsRepair(beforeBounds.width, beforeBounds.height)) {
+            repairWindowBounds(window, compose)
+            didRepairBounds = true
+        }
+        val after = window.bounds
+        val stillIconic = (frame != null && isIconifiedState(frame.extendedState)) ||
+            (compose?.isMinimized == true) ||
+            (hwnd != null && try { iconicApi?.IsIconic(hwnd) == true } catch (_: Throwable) { false })
+        val boundsNeedRepair = needsBoundsRepair(after.width, after.height)
+        if (shouldPokeZOrder(didUniconify)) {
+            window.toFront()
+            runCatching { window.requestFocus() }
+        }
+        if (forceRepaint || didUniconify || didRepairBounds) {
+            refreshComposeSurface(window, nudge = shouldNudgeSurface(didUniconify, didRepairBounds))
+        }
+        if (passDelayMs == 0 || didUniconify || didRepairBounds || stillIconic) {
+            com.totaliptv.pro.desktop.WindowFullscreen.log(
+                "restore after playback delay=${passDelayMs}ms awtExt=$before now=${frame?.extendedState} " +
+                    "iconicAwt=$iconicAwt iconicNative=$iconicNative uniconify=$didUniconify " +
+                    "repair=$didRepairBounds bounds=${window.bounds}"
+            )
+        }
+        return RestoreResult(didUniconify, didRepairBounds, stillIconic, boundsNeedRepair)
+    }
+
+    private fun repairWindowBounds(window: Window, compose: androidx.compose.ui.awt.ComposeWindow?) {
+        if (compose != null) {
+            val placement = compose.placement
+            compose.placement = placement
+            if (!needsBoundsRepair(window.bounds.width, window.bounds.height)) return
+        }
+        val target = runCatching {
+            val cfg = window.graphicsConfiguration
+            val screen = cfg?.bounds
+            if (screen != null && screen.width >= 960 && screen.height >= 600) {
+                java.awt.Rectangle(screen.x, screen.y, screen.width, screen.height)
+            } else {
+                null
+            }
+        }.getOrNull()
+        if (target != null) {
+            window.bounds = target
+        }
+    }
+
+    private fun refreshComposeSurface(window: Window, nudge: Boolean) {
+        runCatching { window.revalidate() }
+        runCatching { window.repaint() }
+        runCatching { window.requestFocus() }
+        runCatching { window.toolkit?.sync() }
+        if (nudge) {
+            val b = window.bounds
+            if (b.width > 16 && b.height > 16) {
+                runCatching {
+                    window.setSize(b.width, b.height - 1)
+                    window.validate()
+                    window.setSize(b.width, b.height)
+                    window.validate()
+                    window.repaint()
+                }
+            }
+        }
+        val pane = (window as? javax.swing.RootPaneContainer)?.contentPane
+        pane?.repaint()
+        pane?.components?.forEach { child ->
+            runCatching { child.revalidate() }
+            runCatching { child.repaint() }
+        }
+    }
+
+    private fun hwndOf(window: Window): WinDef.HWND? = try {
+        if (!window.isDisplayable) {
+            null
+        } else {
+            val ptr = Native.getComponentPointer(window)
+            if (ptr == null || Pointer.nativeValue(ptr) == 0L) null else WinDef.HWND(ptr)
+        }
+    } catch (_: Throwable) {
+        null
     }
 
     /**
@@ -813,6 +1202,18 @@ object WindowPositioner {
     private interface DpiUser32 : StdCallLibrary {
         fun SetThreadDpiAwarenessContext(context: Pointer): Pointer?
         fun GetDpiForWindow(hwnd: WinDef.HWND): Int
+    }
+
+    private interface IconicApi : StdCallLibrary {
+        fun IsIconic(hwnd: WinDef.HWND): Boolean
+    }
+
+    private val iconicApi: IconicApi? by lazy {
+        if (!AppPaths.isWindows) {
+            null
+        } else {
+            runCatching { Native.load("user32", IconicApi::class.java) }.getOrNull()
+        }
     }
 
     private interface DwmApiLib : StdCallLibrary {

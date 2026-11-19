@@ -47,10 +47,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.totaliptv.pro.desktop.artwork.ArtworkRole
 import com.totaliptv.pro.desktop.artwork.RatingOrder
+import com.totaliptv.pro.desktop.data.BrowseCatalog
 import com.totaliptv.pro.desktop.data.Catalog
+import com.totaliptv.pro.desktop.data.CatalogCategories
 import com.totaliptv.pro.desktop.data.Category
 import com.totaliptv.pro.desktop.data.ChannelEpg
 import com.totaliptv.pro.desktop.data.ContentKind
+import com.totaliptv.pro.desktop.data.LastPlace
+import com.totaliptv.pro.desktop.data.LastPlaceStore
+import com.totaliptv.pro.desktop.data.tmdb.ServiceIndex
+import com.totaliptv.pro.desktop.data.tmdb.ServiceLookup
 import com.totaliptv.pro.desktop.data.LiveChannelMapping
 import com.totaliptv.pro.desktop.data.LastEpisodeBanner
 import com.totaliptv.pro.desktop.data.SeriesPlayback
@@ -67,14 +73,40 @@ import com.totaliptv.pro.desktop.dvr.RecordingEntry
 import com.totaliptv.pro.desktop.dvr.ScheduledRecording
 
 enum class MainNav {
-    HOME, LIVE, MOVIES, SERIES, GUIDE, FAVORITES, RECORDINGS, SETTINGS
+    HOME, LIVE, MOVIES, SERIES, GUIDE, FAVORITES, RECORDINGS, SETTINGS;
+
+    fun toLastPlaceScreen(): String = when (this) {
+        HOME -> LastPlace.SCREEN_HOME
+        LIVE -> LastPlace.SCREEN_LIVE
+        MOVIES -> LastPlace.SCREEN_MOVIES
+        SERIES -> LastPlace.SCREEN_SERIES
+        GUIDE -> LastPlace.SCREEN_GUIDE
+        FAVORITES -> LastPlace.SCREEN_FAVORITES
+        RECORDINGS -> LastPlace.SCREEN_RECORDINGS
+        SETTINGS -> LastPlace.SCREEN_SETTINGS
+    }
+
+    companion object {
+        fun fromLastPlace(screen: String?): MainNav = when (screen) {
+            LastPlace.SCREEN_LIVE -> LIVE
+            LastPlace.SCREEN_MOVIES -> MOVIES
+            LastPlace.SCREEN_SERIES -> SERIES
+            LastPlace.SCREEN_GUIDE -> GUIDE
+            LastPlace.SCREEN_FAVORITES -> FAVORITES
+            LastPlace.SCREEN_RECORDINGS -> RECORDINGS
+            LastPlace.SCREEN_SETTINGS -> SETTINGS
+            else -> HOME
+        }
+    }
 }
 
 /** Movies / Series browse sort (persisted as prefs.browseSort). */
 enum class BrowseSort(val prefsValue: String, val label: String) {
     AZ("AZ", "A–Z"),
     ZA("ZA", "Z–A"),
-    RECENT("RECENT", "Most recent");
+    RECENT("RECENT", "Most recent"),
+    /** Highest rating first inside the selected group (same rules as the Top rated group); unrated last. */
+    TOP("TOP", "Top rated");
 
     companion object {
         fun fromPrefs(value: String?): BrowseSort =
@@ -133,11 +165,41 @@ fun BrowseScreen(
     onDeleteRecording: (RecordingEntry) -> Unit = {},
     onCancelSchedule: (ScheduledRecording) -> Unit = {}
 ) {
-    var nav by remember { mutableStateOf(MainNav.HOME) }
-    var selectedCategoryId by remember { mutableStateOf<String?>(null) }
+    val restoredPlace = remember { LastPlaceStore.shared.load() }
+    val scrollStates = remember {
+        val initial = mutableMapOf<String, ScrollSpot>()
+        restoredPlace?.let { place ->
+            val sort = BrowseSort.fromPrefs(prefs.browseSort).prefsValue
+            val key = when (place.screen) {
+                LastPlace.SCREEN_HOME -> BrowseScrollStates.HOME
+                LastPlace.SCREEN_LIVE -> BrowseScrollStates.live(place.categoryId)
+                LastPlace.SCREEN_MOVIES -> BrowseScrollStates.movies(place.categoryId, sort)
+                LastPlace.SCREEN_SERIES -> BrowseScrollStates.series(place.categoryId, sort)
+                LastPlace.SCREEN_FAVORITES -> BrowseScrollStates.FAVORITES
+                else -> null
+            }
+            if (key != null) initial[key] = ScrollSpot(place.firstVisibleIndex, place.firstVisibleOffset)
+            place.rowScroll.forEach { initial[it.key] = ScrollSpot(it.index, it.offset) }
+        }
+        BrowseScrollStates(initial)
+    }
+    var nav by remember { mutableStateOf(MainNav.fromLastPlace(restoredPlace?.screen)) }
+    var selectedCategoryId by remember { mutableStateOf(restoredPlace?.categoryId) }
     var query by remember { mutableStateOf("") }
     val banner = rememberBannerBitmap()
     val favoriteKeys = remember(favoriteEntries) { favoriteEntries.map { it.key }.toSet() }
+    val serviceIndex by ServiceLookup.index.collectAsState()
+    val serviceStatus by ServiceLookup.status.collectAsState()
+
+    fun openMoviesOrSeries(target: MainNav) {
+        val kind = if (target == MainNav.SERIES) ContentKind.SERIES else ContentKind.VOD
+        val cats = BrowseCatalog.categories(kind, catalog, serviceIndex)
+        nav = target
+        query = ""
+        if (!BrowseCatalog.belongsTo(kind, selectedCategoryId, cats)) {
+            selectedCategoryId = BrowseCatalog.defaultCategoryId(kind, cats)
+        }
+    }
 
     if (seriesDetail != null || seriesLoading) {
         val seriesMedia = remember(seriesDetail, catalog) {
@@ -232,6 +294,21 @@ fun BrowseScreen(
         else -> null
     }
 
+    LaunchedEffect(nav, selectedCategoryId) {
+        LastPlaceStore.shared.saveBrowse(nav.toLastPlaceScreen(), selectedCategoryId)
+    }
+    LaunchedEffect(nav, catalog, serviceIndex) {
+        val kind = section ?: return@LaunchedEffect
+        if (kind == ContentKind.LIVE) return@LaunchedEffect
+        val cats = BrowseCatalog.categories(kind, catalog, serviceIndex)
+        if (!BrowseCatalog.belongsTo(kind, selectedCategoryId, cats)) {
+            selectedCategoryId = BrowseCatalog.defaultCategoryId(kind, cats)
+        } else if (selectedCategoryId == null && restoredPlace?.screen != nav.toLastPlaceScreen()) {
+            // First visit to Movies/Series this session: default to Newly added, not All.
+            selectedCategoryId = BrowseCatalog.defaultCategoryId(kind, cats)
+        }
+    }
+
     Column(Modifier.fillMaxSize().tvContentBackground()) {
         TopBanner(banner)
 
@@ -261,14 +338,10 @@ fun BrowseScreen(
                     }
                 }
                 NavBtn("Movies", Icons.Default.Movie, nav == MainNav.MOVIES) {
-                    nav = MainNav.MOVIES
-                    selectedCategoryId = null
-                    query = ""
+                    openMoviesOrSeries(MainNav.MOVIES)
                 }
                 NavBtn("Series", Icons.Default.Tv, nav == MainNav.SERIES) {
-                    nav = MainNav.SERIES
-                    selectedCategoryId = null
-                    query = ""
+                    openMoviesOrSeries(MainNav.SERIES)
                 }
                 NavBtn("TV Guide", Icons.Default.Schedule, nav == MainNav.GUIDE) {
                     val stayOnLiveFamily = nav == MainNav.LIVE || nav == MainNav.GUIDE
@@ -390,6 +463,7 @@ fun BrowseScreen(
                         onOpenSeries = onOpenSeries,
                         onResumeEntry = onResumeEntry,
                         posterColumns = prefs.posterColumns.let { if (it in setOf(5, 6, 8, 11)) it else 11 },
+                        scrollStates = scrollStates,
                         modifier = Modifier.weight(1f).fillMaxHeight()
                     )
                 }
@@ -447,6 +521,7 @@ fun BrowseScreen(
                         onOpenSeries = onOpenSeries,
                         onPlayLive = onPlay,
                         onToggleFavorite = onToggleFavorite,
+                        scrollStates = scrollStates,
                         modifier = Modifier.weight(1f).fillMaxHeight()
                     )
                 }
@@ -455,6 +530,7 @@ fun BrowseScreen(
                     BrowseContentPane(
                         kind = kind,
                         catalog = catalog,
+                        scrollStates = scrollStates,
                         posterColumns = prefs.posterColumns.let { if (it in setOf(5, 6, 8, 11)) it else 6 },
                         browseSort = BrowseSort.fromPrefs(prefs.browseSort),
                         onBrowseSortChange = { sort ->
@@ -465,6 +541,8 @@ fun BrowseScreen(
                         query = query,
                         onQueryChange = { query = it },
                         statusMessage = statusMessage,
+                        serviceIndex = serviceIndex,
+                        serviceStatus = serviceStatus,
                         favoriteKeys = favoriteKeys,
                         onPlay = onPlay,
                         onOpenSeries = onOpenSeries,
@@ -514,6 +592,7 @@ private fun TopBanner(banner: ImageBitmap?) {
 private fun BrowseContentPane(
     kind: ContentKind,
     catalog: Catalog,
+    scrollStates: BrowseScrollStates,
     posterColumns: Int,
     browseSort: BrowseSort,
     onBrowseSortChange: (BrowseSort) -> Unit,
@@ -522,6 +601,8 @@ private fun BrowseContentPane(
     query: String,
     onQueryChange: (String) -> Unit,
     statusMessage: String?,
+    serviceIndex: ServiceIndex? = null,
+    serviceStatus: String? = null,
     favoriteKeys: Set<String>,
     onPlay: (MediaItem) -> Unit,
     onOpenSeries: (MediaItem) -> Unit,
@@ -531,32 +612,20 @@ private fun BrowseContentPane(
     onRecordNow: ((MediaItem) -> Unit)? = null,
     activeRecording: RecordingEntry? = null
 ) {
-    val categories = when (kind) {
-        ContentKind.LIVE -> catalog.liveCategories
-        ContentKind.VOD -> catalog.vodCategories
-        ContentKind.SERIES -> catalog.seriesCategories
+    val categories = remember(kind, catalog, serviceIndex) {
+        BrowseCatalog.categories(kind, catalog, serviceIndex)
     }
-    val allItems = when (kind) {
-        ContentKind.LIVE -> catalog.liveItems
-        ContentKind.VOD -> catalog.vodItems
-        ContentKind.SERIES -> catalog.seriesItems
-    }
-    val filtered = remember(kind, selectedCategoryId, query, catalog, browseSort) {
+    val allItems = BrowseCatalog.itemsOf(kind, catalog)
+    val filtered = remember(kind, selectedCategoryId, query, catalog, browseSort, serviceIndex) {
         if (kind == ContentKind.LIVE) {
             LiveChannelMapping.filterLiveChannels(allItems, selectedCategoryId, query)
         } else {
-            val base = HomeDedupe.dropIdenticalIds(allItems).asSequence()
-                .filter { selectedCategoryId == null || it.categoryId == selectedCategoryId }
+            val base = BrowseCatalog.items(kind, catalog, selectedCategoryId, serviceIndex)
                 .filter {
                     query.isBlank() || it.name.contains(query, ignoreCase = true) ||
                         (it.groupTitle?.contains(query, ignoreCase = true) == true)
                 }
-                .toList()
-            when (browseSort) {
-                BrowseSort.AZ -> RatingOrder.sortByTitle(base, descending = false)
-                BrowseSort.ZA -> RatingOrder.sortByTitle(base, descending = true)
-                BrowseSort.RECENT -> RatingOrder.sortRecent(base)
-            }
+            BrowseCatalog.sortBrowse(base, selectedCategoryId, browseSort, serviceIndex)
         }
     }
 
@@ -594,9 +663,13 @@ private fun BrowseContentPane(
                 }
             }
         }
-        if (!statusMessage.isNullOrBlank()) {
+        val lookupLine = listOfNotNull(
+            statusMessage?.takeIf { it.isNotBlank() },
+            serviceStatus?.takeIf { it.isNotBlank() && kind != ContentKind.LIVE }
+        ).distinct().joinToString("  ·  ")
+        if (lookupLine.isNotBlank()) {
             Spacer(Modifier.height(4.dp))
-            Text(statusMessage, color = TipAccent, style = MaterialTheme.typography.bodyMedium)
+            Text(lookupLine, color = TipAccent, style = MaterialTheme.typography.bodyMedium)
         }
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
@@ -652,8 +725,64 @@ private fun BrowseContentPane(
             Spacer(Modifier.height(12.dp))
         }
 
+        val kindKey = when (kind) {
+            ContentKind.LIVE -> "LIVE"
+            ContentKind.VOD -> "VOD"
+            ContentKind.SERIES -> "SERIES"
+        }
+        val listKey = when (kind) {
+            ContentKind.LIVE -> BrowseScrollStates.live(selectedCategoryId)
+            ContentKind.VOD -> BrowseScrollStates.movies(selectedCategoryId, browseSort.prefsValue)
+            ContentKind.SERIES -> BrowseScrollStates.series(selectedCategoryId, browseSort.prefsValue)
+        }
+        androidx.compose.runtime.DisposableEffect(listKey) {
+            onDispose {
+                val spot = scrollStates.snapshot(listKey)
+                val rows = scrollStates.snapshotsPrefixed(BrowseScrollStates.chips(kindKey)).map { e ->
+                    com.totaliptv.pro.desktop.data.RowScroll(e.key, e.value.index, e.value.offset)
+                }
+                LastPlaceStore.shared.saveBrowse(
+                    screen = when (kind) {
+                        ContentKind.LIVE -> LastPlace.SCREEN_LIVE
+                        ContentKind.VOD -> LastPlace.SCREEN_MOVIES
+                        ContentKind.SERIES -> LastPlace.SCREEN_SERIES
+                    },
+                    categoryId = selectedCategoryId,
+                    firstVisibleIndex = spot.index,
+                    firstVisibleOffset = spot.offset,
+                    rowScroll = rows
+                )
+            }
+        }
+        androidx.compose.runtime.LaunchedEffect(listKey) {
+            androidx.compose.runtime.snapshotFlow {
+                val s = scrollStates.snapshot(listKey)
+                Triple(s.index, s.offset, scrollStates.snapshotsPrefixed(BrowseScrollStates.chips(kindKey)))
+            }.collect { triple ->
+                val index = triple.first
+                val scrollOffset = triple.second
+                val rowMap = triple.third
+                LastPlaceStore.shared.saveBrowse(
+                    screen = when (kind) {
+                        ContentKind.LIVE -> LastPlace.SCREEN_LIVE
+                        ContentKind.VOD -> LastPlace.SCREEN_MOVIES
+                        ContentKind.SERIES -> LastPlace.SCREEN_SERIES
+                    },
+                    categoryId = selectedCategoryId,
+                    firstVisibleIndex = index,
+                    firstVisibleOffset = scrollOffset,
+                    rowScroll = rowMap.map { e ->
+                        com.totaliptv.pro.desktop.data.RowScroll(e.key, e.value.index, e.value.offset)
+                    }
+                )
+            }
+        }
+
         if (categories.isNotEmpty()) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ScrollableChipRow(
+                selectedIndex = categories.indexOfFirst { it.id == selectedCategoryId }.let { if (selectedCategoryId == null) 0 else if (it < 0) -1 else it + 1 },
+                listState = scrollStates.list(BrowseScrollStates.chips(kindKey))
+            ) {
                 item {
                     FilterChip(
                         selected = selectedCategoryId == null,
@@ -677,7 +806,10 @@ private fun BrowseContentPane(
         }
 
         if (kind == ContentKind.LIVE) {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyColumn(
+                state = scrollStates.list(listKey),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 items(filtered, key = { it.id }) { item ->
                     MediaRow(
                         item = item,
@@ -693,6 +825,7 @@ private fun BrowseContentPane(
             // Column count from Settings (5 / 6 / 11) — posters size to the cell automatically.
             LazyVerticalGrid(
                 columns = GridCells.Fixed(posterColumns.coerceIn(5, 11)),
+                state = scrollStates.grid(listKey),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
@@ -727,6 +860,7 @@ private fun FavoritesPane(
     onOpenSeries: (MediaItem) -> Unit,
     onPlayLive: (MediaItem) -> Unit,
     onToggleFavorite: (MediaItem) -> Unit,
+    scrollStates: BrowseScrollStates,
     modifier: Modifier = Modifier
 ) {
     val resolved = remember(favoriteEntries, catalog, query) {
@@ -802,6 +936,7 @@ private fun FavoritesPane(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(140.dp),
+                state = scrollStates.grid(BrowseScrollStates.FAVORITES),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
@@ -1318,8 +1453,8 @@ private fun SeriesDetailPane(
                 val seasons = SeriesPlayback.seasonNumbers(detail.episodes)
                 var selectedSeason by remember(detail.seriesId, resumeSeason) { mutableStateOf(resumeSeason) }
                 if (seasons.size > 1) {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ScrollableChipRow(
+                        selectedIndex = if (selectedSeason == null) 0 else seasons.indexOf(selectedSeason).let { if (it < 0) -1 else it + 1 },
                         modifier = Modifier.padding(bottom = 8.dp)
                     ) {
                         item {

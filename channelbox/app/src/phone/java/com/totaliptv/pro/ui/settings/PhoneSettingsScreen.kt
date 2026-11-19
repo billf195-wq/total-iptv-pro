@@ -1,5 +1,7 @@
 package com.totaliptv.pro.ui.settings
 
+import com.totaliptv.pro.data.lock.ParentalGate
+import com.totaliptv.pro.data.lock.PinFlow
 import android.app.Activity
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -36,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.BuildConfig
 import com.totaliptv.pro.R
 import com.totaliptv.pro.TotalIptvProApp
+import com.totaliptv.pro.billing.LicenseStrings
 import com.totaliptv.pro.diagnostics.CrashLog
 import com.totaliptv.pro.diagnostics.DebugLog
 import com.totaliptv.pro.data.local.AppPreferences
@@ -66,6 +69,8 @@ fun PhoneSettingsScreen(
     val sources by repository.sources.collectAsState(initial = emptyList())
     val preferredPlayer by app.preferences.preferredPlayer.collectAsState(initial = PreferredPlayer.BUILTIN)
     val autoPip by app.preferences.autoPip.collectAsState(initial = AppPreferences.defaultAutoPip())
+    val autoPlayNext by app.preferences.autoPlayNext.collectAsState(initial = true)
+    var showHowTo by remember { mutableStateOf(false) }
     val appearance by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
     val accent by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
     val updateBaseUrl by app.preferences.updateBaseUrl.collectAsState(
@@ -84,6 +89,19 @@ fun PhoneSettingsScreen(
     val serviceStatus by repository.serviceLookupStatus.collectAsState()
     var editingTmdbKey by remember { mutableStateOf(false) }
     var tmdbDraft by remember(tmdbKey) { mutableStateOf(tmdbKey) }
+    val licenseStatus by app.license.status.collectAsState()
+    val licensePrice by app.license.price.collectAsState()
+    val licenseMessage by app.license.message.collectAsState()
+    val activity = context as? android.app.Activity
+    val lockRevision by ParentalGate.revision.collectAsState()
+    val pinEntries = remember(lockRevision) { PinLockEntry.visibleEntries() }
+    var pinDialog by remember { mutableStateOf<PinLockDialog?>(null) }
+    PhonePinLockDialogHost(dialog = pinDialog, repository = repository, onClose = { pinDialog = it })
+
+    if (showHowTo) {
+        PhoneHowToScreen(onBack = { showHowTo = false }, contentPadding = contentPadding)
+        return
+    }
 
     Column(
         modifier = Modifier
@@ -104,12 +122,43 @@ fun PhoneSettingsScreen(
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = { showHowTo = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("How to Use")
+        }
+        Spacer(Modifier.height(16.dp))
+        Text("Unlock", style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            LicenseStrings.statusLine(licenseStatus, licensePrice),
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        if (licenseStatus.showBuyButton) {
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    if (activity != null) scope.launch { app.license.buy(activity) }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(LicenseStrings.buyLabel(licensePrice)) }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { scope.launch { app.license.restore() } },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(LicenseStrings.RESTORE) }
+            if (!licenseMessage.isNullOrBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(licenseMessage!!, color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         Text(
             stringResource(R.string.trademark_disclaimer),
             color = OnCinemaMuted,
             style = MaterialTheme.typography.bodySmall
         )
 
+        if (BuildConfig.SELF_UPDATER_ENABLED) {
         Spacer(Modifier.height(20.dp))
         Text(
             "App update",
@@ -180,7 +229,7 @@ fun PhoneSettingsScreen(
                         updateStatus = "Downloading ${ready.manifest.versionName}…"
                         try {
                             if (activity != null && !AppUpdateChecker.canInstallPackages(context)) {
-                                updateStatus = "Allow install unknown apps, then tap Install again"
+                                updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.UNKNOWN_APPS_HINT
                                 Toast.makeText(
                                     context,
                                     "Enable install unknown apps for Total IPTV Pro Phone",
@@ -189,11 +238,15 @@ fun PhoneSettingsScreen(
                                 AppUpdateChecker.openUnknownSourcesSettings(activity)
                                 return@launch
                             }
-                            val file = AppUpdateChecker.downloadApk(context, ready.apkUrl, ready.manifest.size, ready.manifest.sha256)
+                            com.totaliptv.pro.data.update.UpdateInstaller.downloadAndInstall(context, ready) { pct ->
+                                updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.downloadingLabel(ready.manifest.versionName, pct)
+                            }
                             updateStatus = "Opening installer…"
-                            AppUpdateChecker.launchInstaller(context, file)
+                        } catch (c: kotlinx.coroutines.CancellationException) {
+                            // Settings was closed; the download keeps going and still opens the installer.
+                            throw c
                         } catch (t: Throwable) {
-                            updateStatus = "Download failed: ${SensitiveText.forUser(t)}"
+                            updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.friendlyError(t)
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         } finally {
                             updateBusy = false
@@ -247,6 +300,7 @@ fun PhoneSettingsScreen(
             TextButton(onClick = { pendingInstall = null; updateStatus = null }) {
                 Text("Dismiss update")
             }
+        }
         }
 
         Spacer(Modifier.height(24.dp))
@@ -446,6 +500,34 @@ fun PhoneSettingsScreen(
             onClick = { scope.launch { app.preferences.setAutoPip(!autoPip) } },
             label = { Text(if (autoPip) "Picture-in-Picture on Home: On" else "Picture-in-Picture on Home: Off") }
         )
+        Spacer(Modifier.height(8.dp))
+        FilterChip(
+            selected = autoPlayNext,
+            onClick = { scope.launch { app.preferences.setAutoPlayNext(!autoPlayNext) } },
+            label = { Text(if (autoPlayNext) "Auto-play next episode: On" else "Auto-play next episode: Off") }
+        )
+
+        Spacer(Modifier.height(24.dp))
+        Text(PinLockEntry.SECTION, style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            remember(lockRevision) { PinFlow.statusLine() },
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        pinEntries.forEach { entry ->
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    pinLockEntryClicked(
+                        entry,
+                        open = { pinDialog = it },
+                        toast = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(entry.label) }
+        }
 
         Spacer(Modifier.height(24.dp))
         Text("Appearance", style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)

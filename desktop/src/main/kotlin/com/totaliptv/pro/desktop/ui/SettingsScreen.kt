@@ -28,6 +28,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.desktop.AppVersion
+import com.totaliptv.pro.desktop.artwork.TmdbArtwork
+import com.totaliptv.pro.desktop.data.tmdb.TmdbAttribution
 import com.totaliptv.pro.desktop.util.AppPaths
 import com.totaliptv.pro.desktop.data.EpgUserOffset
 import com.totaliptv.pro.desktop.data.SavedPrefs
@@ -53,6 +55,8 @@ fun SettingsScreen(
     val available = remember { StreamPlayer.availablePlayers() }
     var player by remember(prefs.preferredPlayer) { mutableStateOf(prefs.preferredPlayer) }
     var openFullscreen by remember(prefs.openPlayerFullscreen) { mutableStateOf(prefs.openPlayerFullscreen) }
+    // read from disk: F11 in the main window saves this without going through AppRoot's prefs
+    var startFullscreen by remember(prefs) { mutableStateOf(com.totaliptv.pro.desktop.data.PreferencesStore.load().startFullscreen) }
     var sharpPosters by remember(prefs.sharpPosters) { mutableStateOf(prefs.sharpPosters) }
     var tmdbKey by remember(prefs.tmdbApiKey) { mutableStateOf(prefs.tmdbApiKey) }
     var tmdbRatings by remember(prefs.tmdbRatings) { mutableStateOf(prefs.tmdbRatings) }
@@ -88,6 +92,7 @@ fun SettingsScreen(
         nextRecordingsDir: String = prefs.recordingsDir,
         nextEpg: Int = epgOffset,
         nextFullscreen: Boolean = openFullscreen,
+        nextStartFullscreen: Boolean = com.totaliptv.pro.desktop.data.PreferencesStore.load().startFullscreen,
         nextSharp: Boolean = sharpPosters,
         nextTmdbKey: String = tmdbKey,
         nextTmdbRatings: Boolean = tmdbRatings
@@ -99,6 +104,7 @@ fun SettingsScreen(
         guideStyle = if (nextGuide == "classic") "classic" else "current"
         epgOffset = nextEpg
         openFullscreen = nextFullscreen
+        startFullscreen = nextStartFullscreen
         sharpPosters = nextSharp
         tmdbKey = nextTmdbKey
         tmdbRatings = nextTmdbRatings
@@ -112,6 +118,7 @@ fun SettingsScreen(
                 recordingsDir = nextRecordingsDir,
                 epgTimeOffsetHours = nextEpg,
                 openPlayerFullscreen = nextFullscreen,
+                startFullscreen = nextStartFullscreen,
                 sharpPosters = nextSharp,
                 tmdbApiKey = nextTmdbKey.trim(),
                 tmdbRatings = nextTmdbRatings
@@ -167,12 +174,13 @@ fun SettingsScreen(
         }
     }
 
+    val settingsScroll = rememberScrollState()
+    Box(Modifier.fillMaxSize().tvContentBackground()) {
     Column(
         Modifier
             .fillMaxSize()
-            .tvContentBackground()
-            .padding(20.dp)
-            .verticalScroll(rememberScrollState())
+            .padding(start = 20.dp, top = 20.dp, bottom = 20.dp, end = 34.dp)
+            .verticalScroll(settingsScroll)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Settings, null, tint = TipBlue)
@@ -228,6 +236,23 @@ fun SettingsScreen(
                 Text("Detected: ${available.joinToString(", ")}", style = MaterialTheme.typography.bodyMedium)
             }
             Spacer(Modifier.height(14.dp))
+            Text("Start in full screen", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
+            Text(
+                "The app fills the whole screen with no title bar or taskbar. F11 switches full screen on and off (and is remembered). Esc leaves full screen, except while a video is playing.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TipChoiceChip(selected = startFullscreen, label = "On") {
+                    persist(nextStartFullscreen = true)
+                    com.totaliptv.pro.desktop.WindowFullscreen.request = true
+                }
+                TipChoiceChip(selected = !startFullscreen, label = "Off") {
+                    persist(nextStartFullscreen = false)
+                    com.totaliptv.pro.desktop.WindowFullscreen.request = false
+                }
+            }
+            Spacer(Modifier.height(14.dp))
             Text("Open player full screen", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
             Text(
                 "Live TV, movies, and series open VLC, mpv, or ffplay full screen. Game Day split screen stays side by side.",
@@ -245,10 +270,13 @@ fun SettingsScreen(
             Spacer(Modifier.height(10.dp))
             Text("Series next episode", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
             Text(
-                if (AppPaths.isWindows) {
-                    "Windows: both a floating always-on-top Next episode button and Ctrl+Right / Media Next skip to SxxE(n+1) while VLC is fullscreen. Auto-advance only after ~20s of real play (failed VLC exits do not skip ahead). On the last episode the Next control is disabled and shows “Last episode of this series.” VLC’s own Next stays on the same episode (one URL). Debug: ${AppPaths.configDir.resolve("playback-debug.log")}"
-                } else {
-                    "Linux launches one episode URL (same as Windows) and auto-advances to a different SxxE(n+1) URL when VLC/mpv exits after ~20s of real play. Skip with the always-on-top Next control, the in-app Next button, or Ctrl+Right / Media Next while this window is focused. Global hotkeys are not registered on Linux (they would need root). Fullscreen VLC often keeps keyboard focus — if Next keys do nothing, wait for the episode to finish or Alt+Tab back here. On the last episode Next is disabled and shows “Last episode of this series.” VLC’s own Next stays on the same episode. Debug: ${AppPaths.configDir.resolve("playback-debug.log")}"
+                when {
+                    AppPaths.isWindows ->
+                    "Windows: both a floating always-on-top Next episode button and Ctrl+Right / Media Next skip to SxxE(n+1) while VLC is fullscreen. Press Esc in VLC to end playback and return to the title page (Esc no longer only leaves fullscreen). Auto-advance only after ~20s of real play near the end, or when VLC reports the title has ended (failed VLC exits do not skip ahead). On the last episode the Next control is disabled and shows “Last episode of this series.” VLC’s own Next stays on the same episode (one URL). Debug: ${AppPaths.configDir.resolve("playback-debug.log")}"
+                    AppPaths.isMac ->
+                    "Mac: click the floating Stop button or press Esc to end playback and return to the title page (Space in VLC only pauses). Quit VLC with Cmd+Q and this app comes back by itself. Auto-advance only after ~20s of real play near the end of an episode. Debug: ${AppPaths.configDir.resolve("playback-debug.log")}"
+                    else ->
+                    "Linux: press Esc in VLC (or q / Ctrl+Q, or close VLC) to stop and return to the title page; Space only pauses. The in-app Stop player button works when this window is focused. Linux launches one episode URL (same as Windows) and auto-advances to a different SxxE(n+1) URL when VLC/mpv exits after ~20s of real play. Skip with the always-on-top Next control, the in-app Next button, or Ctrl+Right / Media Next while this window is focused. Global hotkeys are not registered on Linux (they would need root). Fullscreen VLC often keeps keyboard focus — if Next keys do nothing, use Esc in VLC or Alt+Tab back here. On the last episode Next is disabled and shows “Last episode of this series.” VLC’s own Next stays on the same episode. Debug: ${AppPaths.configDir.resolve("playback-debug.log")}"
                 },
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -322,7 +350,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(14.dp))
             Text("TMDB API key", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
             Text(
-                "v3 API key or v4 read token from themoviedb.org → Settings → API. Leave blank to use the TMDB_API_KEY environment variable (or tmdb-api-key.txt). The same key loads sharper posters.",
+                "v3 API key or v4 read token from themoviedb.org → Settings → API. Leave blank to use a built-in key when this build includes one, or the TMDB_API_KEY environment variable (or tmdb-api-key.txt). A key you type here always takes over. The same key loads sharper posters and fills the service groups.",
                 style = MaterialTheme.typography.bodyMedium
             )
             Spacer(Modifier.height(6.dp))
@@ -357,6 +385,20 @@ fun SettingsScreen(
                     focusedPlaceholderColor = TipMuted,
                     unfocusedPlaceholderColor = TipMuted
                 )
+            )
+            if (tmdbKey.isBlank() && TmdbArtwork.hasBuiltInKey()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Using the built-in key",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TipMuted
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Netflix, Prime Video, HBO Max, Apple TV+, Hulu, Disney+ and Paramount+ are trademarks of their owners; not affiliated or endorsed",
+                style = MaterialTheme.typography.bodySmall,
+                color = TipMuted
             )
             Spacer(Modifier.height(14.dp))
             Text("TMDB ratings", style = MaterialTheme.typography.titleMedium, color = TipOnBg)
@@ -614,6 +656,23 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = TipMuted
             )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Netflix, Prime Video, HBO Max, Apple TV+, Hulu, Disney+ and Paramount+ are trademarks of their owners; not affiliated or endorsed",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TipMuted
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                TmdbAttribution.TMDB,
+                style = MaterialTheme.typography.bodySmall,
+                color = TipMuted
+            )
+            Text(
+                TmdbAttribution.JUSTWATCH,
+                style = MaterialTheme.typography.bodySmall,
+                color = TipMuted
+            )
             Spacer(Modifier.height(12.dp))
             OutlinedButton(
                 onClick = onQuit,
@@ -630,6 +689,13 @@ fun SettingsScreen(
             style = MaterialTheme.typography.bodyMedium,
             color = TipMuted
         )
+    }
+    // 1.2.27: visible, wide scroll bar (was missing entirely)
+    androidx.compose.foundation.VerticalScrollbar(
+        adapter = androidx.compose.foundation.rememberScrollbarAdapter(settingsScroll),
+        style = TipWideScrollbarStyle,
+        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 6.dp, horizontal = 4.dp)
+    )
     }
 }
 

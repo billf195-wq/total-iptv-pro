@@ -83,11 +83,28 @@ class WindowsPlaybackMenuTest {
     fun appRootBindsTheMenuAndSinglePlayDoesNotSnapWindows() {
         val root = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/ui/AppRoot.kt").readText()
         assertTrue(root.contains("WindowsPlaybackMenu.bind"))
+        assertTrue(root.contains("onRightClick"))
+        assertTrue(root.contains("revealOnRightClick"))
+        val menuSrc = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/WindowsPlaybackMenu.kt").readText()
+        assertTrue(menuSrc.contains("onRightClick"))
+        assertTrue(menuSrc.contains("runCatching { onRightClick() }") || menuSrc.contains("onRightClick()"))
         assertTrue(root.contains("skipToNextEpisode()"))
         val player = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/StreamPlayer.kt").readText()
         assertTrue(player.contains("WindowsPlaybackMenu.arm"))
         assertTrue(player.contains("useWin32MonitorFullscreen(windows: Boolean, fullscreen: Boolean): Boolean = false"))
         val split = player.substringAfter("internal fun splitSideCommand")
         assertFalse(split.substringBefore("internal fun linuxSplitSideCommand").contains("WindowsPlaybackMenu"))
+    }
+
+    @Test
+    fun menuAnchorDoesNotStealFocus() {
+        assertFalse(WindowsPlaybackMenu.menuAnchorShouldBeFocusable())
+        val src = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/WindowsPlaybackMenu.kt").readText()
+        assertTrue("focusableWindowState = menuAnchorShouldBeFocusable()" in src)
+        assertTrue("WindowPositioner.attachedAppWindow()" in src)
+        assertFalse(
+            "focusableWindowState = true" in src,
+            "a focusable ownerless JWindow lets Windows minimize the app on Stop"
+        )
     }
 }

@@ -57,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.data.local.WatchProgressStore
+import com.totaliptv.pro.data.local.WatchedStore
+import com.totaliptv.pro.ui.home.WatchedActions
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
@@ -94,6 +96,8 @@ fun PhoneDetailSheet(
     var seriesLoading by remember(item.id) { mutableStateOf(item.kind == ContentKind.SERIES) }
     var selectedSeason by remember(item.id) { mutableIntStateOf(1) }
     var selectedEpisodeId by remember(item.id) { mutableIntStateOf(-1) }
+    /** Bumped when Mark watched / unwatched changes, so checkmarks redraw. */
+    var watchedVersion by remember(item.id) { mutableIntStateOf(0) }
 
     val isSeriesPicker = item.kind == ContentKind.SERIES && !item.id.startsWith("series-ep-")
 
@@ -125,6 +129,16 @@ fun PhoneDetailSheet(
     }
 
     val canResume = progress?.shouldResume() == true
+    val watchedTargetId = when {
+        isSeriesPicker && selectedEpisodeId > 0 -> WatchedStore.episodeId(selectedEpisodeId)
+        isSeriesPicker -> null
+        enriched.kind == ContentKind.LIVE -> null
+        else -> enriched.id
+    }
+    val watchedIds = remember(item.id, watchedVersion) {
+        runCatching { (context.applicationContext as? TotalIptvProApp)?.watched?.ids() }.getOrNull().orEmpty()
+    }
+    val targetWatched = watchedTargetId != null && watchedTargetId in watchedIds
     val seasonEpisodes = seriesInfo?.seasons?.firstOrNull { it.season == selectedSeason }?.episodes.orEmpty()
     val dvrSnap by remember(context) {
         (context.applicationContext as TotalIptvProApp).dvr.snapshot
@@ -207,6 +221,9 @@ fun PhoneDetailSheet(
                     mergedDisplayRating(enriched)?.let {
                         Text("Rating $it", color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
                     }
+                    if (!isSeriesPicker && targetWatched) {
+                        Text("✓ Watched", color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
+                    }
                     if (canResume && progress != null) {
                         Spacer(Modifier.height(10.dp))
                         val frac = progress!!.fraction()
@@ -265,8 +282,9 @@ fun PhoneDetailSheet(
                                 selected = selectedEpisodeId == ep.episodeId,
                                 onClick = { selectedEpisodeId = ep.episodeId },
                                 label = {
+                                    val epWatched = WatchedStore.episodeId(ep.episodeId) in watchedIds
                                     Text(
-                                        "E${ep.episodeNum}  ${ep.title}",
+                                        (if (epWatched) "✓ " else "") + "E${ep.episodeNum}  ${ep.title}",
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -407,6 +425,27 @@ fun PhoneDetailSheet(
                     ) {
                         Text(if (resolvingPreview) "…" else "Preview")
                     }
+                }
+            }
+            if (watchedTargetId != null) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = {
+                        val next = !targetWatched
+                        WatchedActions.setWatched(context, watchedTargetId, next)
+                        watchedVersion += 1
+                        if (next && (progress?.id == watchedTargetId || progress?.catalogId == watchedTargetId)) {
+                            progress = null
+                        }
+                        Toast.makeText(
+                            context,
+                            if (next) "Marked as watched" else "Marked as unwatched",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (targetWatched) "✓ Watched" else "Mark watched", maxLines = 1)
                 }
             }
         }

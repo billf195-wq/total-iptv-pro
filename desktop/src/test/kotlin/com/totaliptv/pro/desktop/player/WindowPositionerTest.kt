@@ -2,6 +2,7 @@ package com.totaliptv.pro.desktop.player
 
 import com.totaliptv.pro.desktop.player.SplitSide
 import kotlin.test.Test
+import org.junit.Assume
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
@@ -333,6 +334,10 @@ class WindowPositionerTest {
 
     @Test
     fun xresClientIdSpecMatchesLp64Layout() {
+        Assume.assumeTrue(
+            "XResClientIdSpec is the Linux LP64 layout",
+            System.getProperty("os.name").orEmpty().lowercase().contains("linux")
+        )
         assertEquals(16, LinuxX11WindowPlacer.xresSpecSize())
         assertEquals(0, LinuxX11WindowPlacer.xresSpecFieldOffset("client"))
         assertEquals(8, LinuxX11WindowPlacer.xresSpecFieldOffset("mask"))
@@ -352,5 +357,107 @@ class WindowPositionerTest {
         assertEquals(320, placed.width, placed.detail)
         assertEquals(180, placed.height, placed.detail)
         assertFalse(placed.detail.isBlank())
+    }
+
+    @Test
+    fun iconifiedStateIsClearedWithoutDroppingMaximized() {
+        val iconified = java.awt.Frame.ICONIFIED
+        val maximized = java.awt.Frame.MAXIMIZED_BOTH
+        assertFalse(WindowPositioner.isIconifiedState(0))
+        assertFalse(WindowPositioner.isIconifiedState(maximized))
+        assertTrue(WindowPositioner.isIconifiedState(iconified))
+        assertTrue(WindowPositioner.isIconifiedState(iconified or maximized))
+        assertEquals(0, WindowPositioner.withoutIconified(iconified))
+        assertEquals(maximized, WindowPositioner.withoutIconified(iconified or maximized))
+        assertEquals(maximized, WindowPositioner.withoutIconified(maximized))
+        assertFalse(WindowPositioner.shouldRestoreNativeWindow(isIconic = false))
+        assertTrue(WindowPositioner.shouldRestoreNativeWindow(isIconic = true))
+    }
+
+    @Test
+    fun stopPlaybackRestoresTheAppWindow() {
+        val stop = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/StreamPlayer.kt").readText()
+        assertTrue(
+            "WindowPositioner.restoreAppWindowAfterPlayback()" in stop,
+            "stopping or exiting the player must un-minimize the app window"
+        )
+        val stopFn = stop.substringAfter("fun stop()").substringBefore("private fun stopProcessOnly()")
+        assertTrue(
+            "restoreAppWindowAfterPlayback()" in stopFn,
+            "right-click Stop goes through StreamPlayer.stop()"
+        )
+    }
+
+    @Test
+    fun restoreWhenAwtIconicEvenIfNativeIsNot() {
+        // The 1.2.30 BBB case: awtExt=1, IsIconic=false, bounds 160x28.
+        assertTrue(WindowPositioner.needsNativeRestore(iconicAwt = true, iconicNative = false))
+        assertTrue(WindowPositioner.needsNativeRestore(iconicAwt = false, iconicNative = true))
+        assertFalse(WindowPositioner.needsNativeRestore(iconicAwt = false, iconicNative = false))
+        assertTrue(WindowPositioner.needsBoundsRepair(160, 28))
+        assertTrue(WindowPositioner.needsBoundsRepair(800, 28))
+        assertFalse(WindowPositioner.needsBoundsRepair(3440, 1440))
+        assertFalse(WindowPositioner.needsBoundsRepair(1280, 800))
+        assertFalse(WindowPositioner.shouldPokeZOrder(didUniconify = false))
+        assertTrue(WindowPositioner.shouldPokeZOrder(didUniconify = true))
+        assertFalse(WindowPositioner.shouldRetryRestore(stillIconic = false, boundsNeedRepair = false))
+        assertTrue(WindowPositioner.shouldRetryRestore(stillIconic = true, boundsNeedRepair = false))
+        assertTrue(WindowPositioner.shouldRetryRestore(stillIconic = false, boundsNeedRepair = true))
+        assertTrue(WindowPositioner.shouldNudgeSurface(didUniconify = true, didRepairBounds = false))
+        assertTrue(WindowPositioner.shouldNudgeSurface(didUniconify = false, didRepairBounds = true))
+        assertFalse(WindowPositioner.shouldNudgeSurface(didUniconify = false, didRepairBounds = false))
+    }
+
+    @Test
+    fun restoreDoesNotPokeZOrderOrShowWindowWhenAlreadyVisible() {
+        val src = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/WindowPositioner.kt").readText()
+        assertTrue("needsNativeRestore" in src)
+        assertTrue("refreshComposeSurface" in src)
+        assertTrue("SW_RESTORE first" in src || "ShowWindow(hwnd, WinUser.SW_RESTORE)" in src)
+        val restoreFn = src.substringAfter("private fun restoreAppWindowNow").substringBefore("private fun repairWindowBounds")
+        assertTrue("shouldPokeZOrder(didUniconify)" in restoreFn)
+        assertTrue("refreshComposeSurface" in restoreFn)
+        // SetForegroundWindow was the 1.2.30 blank-Skia trigger; only un-iconify may toFront.
+        assertFalse("SetForegroundWindow" in restoreFn)
+        assertFalse("BringWindowToTop" in restoreFn)
+        assertTrue("isEventDispatchThread()" in src.substringAfter("fun restoreAppWindowAfterPlayback()"))
+    }
+
+    @Test
+    fun macActivateCommandsUseBundleIdAndOpenThenOsascript() {
+        val cmds = WindowPositioner.macActivateCommands()
+        assertEquals(listOf("open", "-b", WindowPositioner.MAC_BUNDLE_ID), cmds[0])
+        assertEquals("osascript", cmds[1][0])
+        assertEquals("-e", cmds[1][1])
+        assertTrue("com.totaliptv.pro.desktop" in cmds[1][2])
+        assertTrue("activate" in cmds[1][2])
+        assertEquals("com.totaliptv.pro.desktop", WindowPositioner.MAC_BUNDLE_ID)
+    }
+
+    @Test
+    fun restoreAfterPlaybackHasAMacActivatePath() {
+        val src = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/WindowPositioner.kt").readText()
+        val restore = src.substringAfter("fun restoreAppWindowAfterPlayback()")
+        assertTrue("AppPaths.isMac" in restore)
+        assertTrue("restoreMacAppAfterPlayback()" in restore)
+        assertTrue("activateMacApp()" in src)
+        assertTrue("raiseMacAppWindow()" in src)
+        assertTrue("window.toFront()" in src.substringAfter("internal fun raiseMacAppWindow()"))
+        assertTrue("requestFocus()" in src.substringAfter("internal fun raiseMacAppWindow()"))
+        assertTrue("refreshComposeSurface" in src.substringAfter("internal fun raiseMacAppWindow()"))
+    }
+
+    @Test
+    fun restoreAfterPlaybackHasALinuxActivatePath() {
+        val src = java.io.File("src/main/kotlin/com/totaliptv/pro/desktop/player/WindowPositioner.kt").readText()
+        val restore = src.substringAfter("fun restoreAppWindowAfterPlayback()")
+        assertTrue("AppPaths.isLinux" in restore)
+        assertTrue("restoreLinuxAppAfterPlayback()" in restore)
+        assertTrue("raiseLinuxAppWindow()" in src)
+        assertTrue("LinuxX11WindowPlacer.activateCurrentApp()" in src)
+        val raise = src.substringAfter("internal fun raiseLinuxAppWindow()")
+        assertTrue("window.toFront()" in raise)
+        assertTrue("requestFocus()" in raise)
+        assertTrue("refreshComposeSurface" in raise)
     }
 }

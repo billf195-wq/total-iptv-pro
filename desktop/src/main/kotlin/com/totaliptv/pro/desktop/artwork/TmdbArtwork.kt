@@ -105,11 +105,22 @@ object TmdbArtwork {
         return imageFromSearch(key, query, year, kind, role, fetch)
     }
 
-    fun resolveApiKey(pref: String?, env: String?, fileText: String?): String {
+    fun resolveApiKey(
+        pref: String?,
+        env: String?,
+        fileText: String?,
+        builtIn: String? = builtInKey()
+    ): String {
         return pref?.trim().orEmpty()
             .ifBlank { env?.trim().orEmpty() }
             .ifBlank { fileText?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim().orEmpty() }
+            .ifBlank { builtIn?.trim().orEmpty() }
     }
+
+    /** Baked-in key from the generateTmdbBuiltInKey Gradle task; empty when none was supplied. */
+    fun builtInKey(): String = runCatching { TmdbBuiltInKey.VALUE }.getOrDefault("")
+
+    fun hasBuiltInKey(): Boolean = builtInKey().isNotBlank()
 
     internal fun sizeRank(token: String): Int {
         val lower = token.lowercase()

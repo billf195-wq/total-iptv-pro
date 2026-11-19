@@ -51,8 +51,8 @@ android {
         applicationId = "com.totaliptv.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 112
-        versionName = "1.4.100"
+        versionCode = 119
+        versionName = "1.4.107"
         buildConfigField(
             "String",
             "DEFAULT_UPDATE_BASE_URL",
@@ -89,13 +89,13 @@ android {
         )
     }
 
-    flavorDimensions += "device"
+    flavorDimensions += listOf("device", "distribution")
     productFlavors {
         create("tv") {
             dimension = "device"
             // Keep Shield / Leanback applicationId unchanged.
-            versionCode = 112
-            versionName = "1.4.100"
+            versionCode = 119
+            versionName = "1.4.107"
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",
@@ -106,14 +106,26 @@ android {
             dimension = "device"
             applicationIdSuffix = ".phone"
             // Phone-only bump so Shield is not forced to update.
-            versionCode = 89
-            versionName = "1.4.77-phone"
+            versionCode = 96
+            versionName = "1.4.84-phone"
             resValue("string", "app_name", "Total IPTV Pro Phone")
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",
                 "\"\""
             )
+        }
+        // Sideload (GitHub / Drive) keeps the in-app updater. This is the default
+        // so existing assembleTvRelease / testTv* task names map here when possible.
+        create("sideload") {
+            dimension = "distribution"
+            isDefault = true
+            buildConfigField("boolean", "SELF_UPDATER_ENABLED", "true")
+        }
+        // Google Play builds must not check GitHub/Drive or request install permission.
+        create("play") {
+            dimension = "distribution"
+            buildConfigField("boolean", "SELF_UPDATER_ENABLED", "false")
         }
     }
 
@@ -151,7 +163,10 @@ android {
     applicationVariants.configureEach {
         if (buildType.name != "release") return@configureEach
         val assetVersion = versionName.removeSuffix("-phone")
-        val apkName = "TotalIPTVPro-android-$flavorName-$assetVersion-release.apk"
+        val deviceFlavor = productFlavors.first { it.dimension == "device" }.name
+        val distFlavor = productFlavors.first { it.dimension == "distribution" }.name
+        val distSuffix = if (distFlavor == "play") "-play" else ""
+        val apkName = "TotalIPTVPro-android-$deviceFlavor-$assetVersion${distSuffix}-release.apk"
         outputs.configureEach {
             (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName = apkName
         }
@@ -234,6 +249,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.coil.compose)
+    // Google Play Billing Library. Apache-2.0.
+    implementation(libs.billing)
 
     "tvImplementation"(libs.androidx.tv.foundation)
     "tvImplementation"(libs.androidx.tv.material)
@@ -254,6 +271,6 @@ dependencies {
 }
 
 // NewApi is an error on debug and release builds, not only lintVitalRelease.
-tasks.matching { it.name.matches(Regex("assemble(Tv|Phone)(Debug|Release)")) }.configureEach {
+tasks.matching { it.name.matches(Regex("assemble(Tv|Phone)(Sideload|Play)(Debug|Release)")) }.configureEach {
     dependsOn("lint${name.removePrefix("assemble")}")
 }

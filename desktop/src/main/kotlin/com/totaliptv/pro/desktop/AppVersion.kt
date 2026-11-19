@@ -31,8 +31,66 @@ package com.totaliptv.pro.desktop
  *         including GNOME text scaling and HiDPI.
  * 1.2.25: TV guide fills the measured width (12–24h). Linux playback enters
  *         VLC fullscreen on the app's monitor so the Qt chrome stays hidden.
+ * 1.2.26 (personal): Store-edition improvements without Store restrictions —
+ *         TV-picture splash with spinning loader after sign-in, series
+ *         Stop/Hide/Next + audio menu only on right-click (not mouse move),
+ *         no-sound / volume-mixer notes in the README, Classic TV Guide default.
+ * 1.2.27: Category/season chip rows scroll with wheel, Shift+wheel and Left/Right
+ *         keys, with end arrows; Settings gets a wide visible scroll bar.
+ * 1.2.28: "Start in full screen" (on by default) — the app window opens borderless full
+ *         screen with no title bar or taskbar; F11 toggles and is remembered; Esc leaves
+ *         full screen except while a video plays.
+ * 1.2.29: Android 1.4.100 features on desktop — Movies/Series groups in order
+ *         Newly added (default), Top rated (TMDB only, 50+ votes), Netflix, Prime Video,
+ *         HBO / Max, Apple TV+, Hulu, Disney+, Paramount+, then provider groups;
+ *         trademark line in Settings / About; TMDB results cached and resumed across
+ *         restarts; background work paused while playing; last screen and group restored.
+ * 1.2.30: Stopping playback (including the Windows right-click Stop menu) returns
+ *         to the title page in the full-size app window and no longer minimizes it.
+ * 1.2.31: After Stop, un-minimize only when the window is actually iconic, repair
+ *         collapsed bounds, and force a Compose redraw so the title page is not a
+ *         blank white surface. Also a macOS Apple Silicon test build with the same
+ *         features; VLC.app is a separate install, and data lives in
+ *         ~/Library/Application Support/total-iptv-pro.
+ * 1.2.32: macOS playback — official VLC.app has no Qt module, so Qt and other
+ *         Windows/Linux-only flags (unknown options) made VLC exit 1 before
+ *         the stream started. Mac launches use only flags that VLC.app accepts.
+ * 1.2.33: After VLC exits (end, Esc, Stop, or Cmd+Q), the macOS app is
+ *         reactivated on its title page instead of leaving its fullscreen
+ *         Space off to the side. VLC uses --no-macosx-nativefullscreenmode
+ *         so it does not create its own Space. Esc quits VLC (it no longer
+ *         only leaves fullscreen), and a floating Stop button is shown while
+ *         a title plays.
+ * 1.2.34: Linux desktop — same 1.2.31/1.2.33 features (service groups, Top
+ *         rated, cache/resume, last place). After VLC exits, the app is
+ *         raised back to the front on the title page. Esc stops VLC (it does
+ *         not only leave fullscreen). Config stays under XDG (~/.config or
+ *         $XDG_CONFIG_HOME).
+ * 1.2.35: Remember vertical list/grid scroll, each row's horizontal position,
+ *         and restore them when leaving a title with Back or after playback
+ *         stops, instead of jumping to the top.
+ * 1.2.36: Windows end-of-playback — if VLC reaches EOF or stalls near the
+ *         end, send RC quit (then force-kill after ~1.5s) so the app returns
+ *         instead of waiting forever. After every player exit, raise and
+ *         redraw the app on a late pass (~80/250/700/1500 ms) without the
+ *         1.2.30 white-screen SetForegroundWindow path. Esc quits Windows
+ *         VLC, the same as on Mac and Linux.
+ * 1.2.40: Windows VLC fullscreen shows its bottom seek / play bar on mouse
+ *         move too (--qt-fs-controller instead of --no-qt-fs-controller).
+ *         QT_QPA_PLATFORM stays Linux-only. Everything else unchanged.
+ * 1.2.39: Linux VLC fullscreen shows its bottom seek / play bar on mouse move
+ *         (--qt-fs-controller instead of --no-qt-fs-controller) and VLC is
+ *         pinned to XWayland (QT_QPA_PLATFORM=xcb). Windows and Mac unchanged.
+ * 1.2.38: Movies / Series Sort row gets a "Top rated" button after Most recent.
+ *         It ranks whichever group is picked (All, Newly added, Netflix, any
+ *         service or provider group) with the Top rated group's rules. The
+ *         Top rated group stays in the category row.
+ * 1.2.37: Keep the 1.2.36 EOF watchdog and Windows Esc-to-quit. Revert the
+ *         late raise / repaint / Skia-nudge restore passes; Windows restore
+ *         after playback is again the 1.2.35 behavior, which does not leave
+ *         a white screen after Stop on the next-episode banner.
  */
 object AppVersion {
-    const val VERSION_CODE: Int = 37
-    const val VERSION_NAME: String = "1.2.25"
+    const val VERSION_CODE: Int = 52
+    const val VERSION_NAME: String = "1.2.40"
 }

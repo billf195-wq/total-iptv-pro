@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.desktop.AppShutdown
 import com.totaliptv.pro.desktop.data.Catalog
+import com.totaliptv.pro.desktop.data.tmdb.ServiceLookup
 import com.totaliptv.pro.desktop.data.ContentKind
 import com.totaliptv.pro.desktop.data.CatalogRepository
 import com.totaliptv.pro.desktop.data.ChannelEpg
@@ -85,7 +86,11 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
     var vodLoading by remember { mutableStateOf(false) }
     var vodError by remember { mutableStateOf<String?>(null) }
 
-    var showSplash by remember { mutableStateOf(true) }
+    // 1.2.26: TV splash appears after sign-in, never before it. With a saved login
+    // (personal installs) it shows at cold start while the catalog loads; on a
+    // first run it waits until the sign-in succeeds. Only once per launch.
+    var showSplash by remember { mutableStateOf(prefs.onboarded) }
+    var splashPlayed by remember { mutableStateOf(prefs.onboarded) }
     val playSeq = remember { AtomicInteger(0) }
     var lastSeriesEpisodes by remember { mutableStateOf<List<SeriesEpisode>>(emptyList()) }
     var lastSeriesName by remember { mutableStateOf("") }
@@ -101,13 +106,16 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
         seriesSession = session
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(showSplash) {
+        if (!showSplash) return@LaunchedEffect
         delay(SplashTiming.DURATION_MS)
         showSplash = false
     }
 
     fun persist(p: SavedPrefs) {
-        PreferencesStore.save(p)
+        // 1.2.28: F11 saves startFullscreen straight to disk, so an older in-memory copy must not undo it.
+        val onDisk = PreferencesStore.load().startFullscreen
+        PreferencesStore.save(if (p.startFullscreen == prefs.startFullscreen) p.copy(startFullscreen = onDisk) else p)
         prefs = PreferencesStore.load()
         dvrTick++
     }
@@ -207,7 +215,13 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                 )
                 persist(merged)
                 catalog = cat
+                ServiceLookup.start()
                 showOnboarding = false
+                // First sign-in this launch (no saved login at start): play the TV banner now.
+                if (!fromRefresh && !splashPlayed) {
+                    splashPlayed = true
+                    showSplash = true
+                }
                 statusMessage = if (fromRefresh) {
                     "Catalog updated — Live ${cat.liveItems.size}, Movies ${cat.vodItems.size}, Series ${cat.seriesItems.size}"
                 } else {
@@ -838,6 +852,9 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
             onNext = {
                 seriesNextHost?.dismiss("next")
                 skipToNextEpisode()
+            },
+            onRightClick = {
+                seriesNextHost?.revealOnRightClick()
             }
         )
     }
@@ -877,6 +894,9 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
             prefKey = prefs.tmdbApiKey,
             ratings = prefs.tmdbRatings
         )
+        LaunchedEffect(prefs.tmdbApiKey, catalog != null) {
+            if (catalog != null) ServiceLookup.start()
+        }
         if (showSplash) {
             SplashScreen()
             return@TipTheme
@@ -897,6 +917,8 @@ fun AppRoot(seriesNextHost: SeriesNextHost? = null, onQuit: () -> Unit = {}) {
                         Spacer(Modifier.height(16.dp))
                         Text("Loading catalog…", style = MaterialTheme.typography.bodyLarge, color = TipOnBg)
                         Text("Using saved login", style = MaterialTheme.typography.bodyMedium, color = TipMuted)
+                        Spacer(Modifier.height(14.dp))
+                        SplashLoadingLine()
                     }
                 }
             }

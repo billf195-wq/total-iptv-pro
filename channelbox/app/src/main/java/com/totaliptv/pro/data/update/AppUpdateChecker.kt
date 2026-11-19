@@ -45,6 +45,7 @@ fun UpdateCheckResult.Available.installLabel(): String {
 }
 
 object AppUpdateChecker {
+    const val DOWNLOAD_ATTEMPTS = 2
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -65,6 +66,9 @@ object AppUpdateChecker {
      * Drive is unreachable. Manual downloads stay on the public releases page.
      */
     suspend fun check(baseUrl: String): UpdateCheckResult = withContext(Dispatchers.IO) {
+        if (!com.totaliptv.pro.BuildConfig.SELF_UPDATER_ENABLED) {
+            return@withContext UpdateCheckResult.UpToDate
+        }
         val drive = runCatching { checkDrive() }.getOrElse {
             UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
         }
@@ -111,24 +115,90 @@ object AppUpdateChecker {
         }
     }
 
+    /**
+     * 1.4.107: streams the APK to a .part file (no 20+ MB byte array in memory, which could
+     * run out of memory on small TV sticks with a big catalog loaded), hashes it while it
+     * downloads, checks it is really an APK, and tries [DOWNLOAD_ATTEMPTS] times.
+     * [onProgress] gets 0..100 when the size is known.
+     */
     suspend fun downloadApk(
         context: Context,
         apkUrl: String,
         expectedSize: Long = 0,
-        expectedSha256: String = ""
+        expectedSha256: String = "",
+        onProgress: ((Int) -> Unit)? = null
     ): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
         val out = File(dir, "TotalIPTVPro-update.apk")
-        if (out.exists()) out.delete()
+        val part = File(dir, "TotalIPTVPro-update.apk.part")
+        var last: Throwable? = null
+        for (attempt in 1..DOWNLOAD_ATTEMPTS) {
+            try {
+                downloadOnce(apkUrl, part, expectedSize, expectedSha256, onProgress)
+                if (out.exists()) out.delete()
+                if (!part.renameTo(out)) {
+                    part.copyTo(out, overwrite = true)
+                    part.delete()
+                }
+                return@withContext out
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                part.delete()
+                throw e
+            } catch (e: Throwable) {
+                part.delete()
+                last = e
+            }
+        }
+        throw last ?: IllegalStateException("Download failed")
+    }
+
+    private fun downloadOnce(
+        apkUrl: String,
+        part: File,
+        expectedSize: Long,
+        expectedSha256: String,
+        onProgress: ((Int) -> Unit)?
+    ) {
+        if (part.exists()) part.delete()
         val req = Request.Builder().url(apkUrl).get().build()
         client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) error("Download failed (${resp.code})")
-            val bytes = resp.body?.bytes() ?: error("Empty APK body")
-            if (bytes.size < 100_000) error("APK too small (${bytes.size} bytes)")
-            UpdateSources.verifyApk(bytes, expectedSize, expectedSha256)?.let { error(it) }
-            out.writeBytes(bytes)
+            val body = resp.body ?: error("Empty APK body")
+            val total = if (expectedSize > 0) expectedSize else body.contentLength()
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            val head = ByteArray(2)
+            var headLen = 0
+            var count = 0L
+            var lastPct = -1
+            body.byteStream().use { input ->
+                part.outputStream().buffered().use { sink ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        if (n == 0) continue
+                        if (headLen < 2) {
+                            val take = minOf(2 - headLen, n)
+                            System.arraycopy(buf, 0, head, headLen, take)
+                            headLen += take
+                        }
+                        sink.write(buf, 0, n)
+                        md.update(buf, 0, n)
+                        count += n
+                        if (total > 0 && onProgress != null) {
+                            val pct = (count * 100 / total).toInt().coerceIn(0, 100)
+                            if (pct != lastPct) {
+                                lastPct = pct
+                                onProgress(pct)
+                            }
+                        }
+                    }
+                }
+            }
+            val sha = md.digest().joinToString("") { "%02x".format(it) }
+            UpdateSources.verifyDownload(count, head.copyOf(headLen), sha, expectedSize, expectedSha256)
+                ?.let { error(it) }
         }
-        out
     }
 
     fun canInstallPackages(context: Context): Boolean {
@@ -157,6 +227,10 @@ object AppUpdateChecker {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // 1.4.107: start the installer fresh. Without this, an installer screen left
+            // open from an earlier update ("App installed." or "App not installed.") was
+            // shown again on top of the new install prompt.
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
         context.startActivity(intent)
     }

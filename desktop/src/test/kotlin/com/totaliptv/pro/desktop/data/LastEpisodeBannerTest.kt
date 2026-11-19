@@ -147,6 +147,11 @@ class LastEpisodeBannerTest {
         assertTrue(overlay.contains("INTRO_SHOW_MS") || overlay.contains("reveal("))
         assertTrue(overlay.contains("player-exited"))
         assertTrue(overlay.contains("sampleMouse"))
+        assertTrue(overlay.contains("revealOnRightClick"))
+        assertFalse(
+            overlay.contains("mouseMovedAtMs = nowMs"),
+            "pointer motion must not set mouseMovedAtMs"
+        )
         assertEquals(6_000L, LastEpisodeBanner.INTRO_SHOW_MS)
         assertEquals(5_000L, LastEpisodeBanner.MOUSE_HIDE_MS)
         assertEquals(60_000L, LastEpisodeBanner.ENDING_WINDOW_MS)

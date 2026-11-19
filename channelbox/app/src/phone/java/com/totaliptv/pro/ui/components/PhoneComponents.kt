@@ -2,6 +2,7 @@ package com.totaliptv.pro.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,12 +40,15 @@ import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.LiveMarker
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun PhonePosterCard(
     item: MediaItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    progress: WatchProgress? = null
+    progress: WatchProgress? = null,
+    /** Long tap (Continue watching menu). Null keeps the plain tap. */
+    onLongClick: (() -> Unit)? = null
 ) {
     val surface = CinemaSurfaceHigh
     val muted = OnCinemaMuted
@@ -54,7 +58,10 @@ fun PhonePosterCard(
     Column(
         modifier = modifier
             .width(120.dp)
-            .clickable(onClick = onClick)
+            .then(
+                if (onLongClick == null) Modifier.clickable(onClick = onClick)
+                else Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            )
     ) {
         Box(
             modifier = Modifier

@@ -1,12 +1,18 @@
 package com.totaliptv.pro
 
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
+import com.totaliptv.pro.data.lock.ParentalGate
+import com.totaliptv.pro.data.lock.ParentalLockStore
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.totaliptv.pro.diagnostics.CrashLog
 import com.totaliptv.pro.data.LogoUrls
+import com.totaliptv.pro.billing.ExistingAppData
+import com.totaliptv.pro.billing.LicenseController
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.local.LastPlaceStore
 import com.totaliptv.pro.data.local.SavedLoginStore
@@ -30,9 +36,13 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         private set
     lateinit var watchProgress: WatchProgressStore
         private set
+    lateinit var watched: com.totaliptv.pro.data.local.WatchedStore
+        private set
     lateinit var dvr: DvrRecorder
         private set
     lateinit var lastPlace: LastPlaceStore
+        private set
+    lateinit var license: LicenseController
         private set
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -41,6 +51,13 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         super.onCreate()
         CrashLog.install(this)
         preferences = AppPreferences(this)
+        // PIN lock: load the salted hash + choices before the catalog publishes its first lists.
+        ParentalGate.install(ParentalLockStore(this))
+        registerActivityLifecycleCallbacks(ParentalForegroundTracker())
+        license = LicenseController.create(this) {
+            preferences.hasStoredUserData() || ExistingAppData.presentOnDevice(this, emptySet())
+        }
+        license.start()
         repository = CatalogRepository(preferences)
         repository.attachVodCacheDir(filesDir)
         lastPlace = LastPlaceStore(File(filesDir, "last-place.json"))
@@ -49,6 +66,7 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         // Streaming service groups: cached TMDB lists, refreshed in background.
         repository.startServiceLookup()
         watchProgress = WatchProgressStore(this)
+        watched = com.totaliptv.pro.data.local.WatchedStore(this)
         dvr = DvrRecorder(this)
         appScope.launch {
             runCatching { dvr.reconcileInterrupted() }
@@ -110,4 +128,24 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
             )
             .build()
     }
+}
+
+/** Counts started activities so the PIN lock knows when the whole app goes to / returns from the background. */
+private class ParentalForegroundTracker : Application.ActivityLifecycleCallbacks {
+    private var started = 0
+
+    override fun onActivityStarted(activity: Activity) {
+        if (started++ == 0) ParentalGate.onAppForeground()
+    }
+
+    override fun onActivityStopped(activity: Activity) {
+        started = (started - 1).coerceAtLeast(0)
+        if (started == 0 && !activity.isChangingConfigurations) ParentalGate.onAppBackground()
+    }
+
+    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+    override fun onActivityResumed(activity: Activity) = Unit
+    override fun onActivityPaused(activity: Activity) = Unit
+    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+    override fun onActivityDestroyed(activity: Activity) = Unit
 }

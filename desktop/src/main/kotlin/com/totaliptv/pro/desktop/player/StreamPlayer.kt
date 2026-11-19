@@ -1,6 +1,7 @@
 package com.totaliptv.pro.desktop.player
 
 import com.totaliptv.pro.desktop.data.MediaItem
+import com.totaliptv.pro.desktop.data.PlaybackGate
 import com.totaliptv.pro.desktop.util.AppPaths
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,13 +68,14 @@ object StreamPlayer {
     /**
      * Windows movie/series fullscreen. Qt stays the interface so
      * `--qt-fullscreen-screennumber` can follow the app's monitor, but the
-     * title, decorations, minimal-view chrome, and fullscreen controller stay
-     * off. No crop, aspect override, or `--no-embedded-video` (that opens a
+     * title, decorations, and minimal-view chrome stay off. The fullscreen
+     * controller (seek bar) is on since 1.2.40. No crop, aspect override, or `--no-embedded-video` (that opens a
      * second window). Default autoscale letterboxes in black.
      */
     internal val VLC_WINDOWS_TRUE_FULLSCREEN: List<String> = listOf(
         "--no-video-title-show",
-        "--no-qt-fs-controller",
+        // 1.2.40: show VLC's fullscreen seek / play bar on mouse move (was --no-qt-fs-controller).
+        "--qt-fs-controller",
         "--no-video-deco",
         "--qt-minimal-view",
         "--no-qt-system-tray",
@@ -84,14 +86,81 @@ object StreamPlayer {
      * Linux movie, series, and live fullscreen. The X11 placer still moves the
      * window onto the app's monitor before VLC is fullscreen (GNOME will not
      * move a window that is already fullscreen on another output). These flags
-     * hide the title and the fullscreen controller once `fullscreen on` is sent
-     * over RC. Not used for Game Day: that path is `--intf=dummy` and has no Qt chrome.
+     * hide the title once `fullscreen on` is sent over RC. Not used for Game Day:
+     * that path is `--intf=dummy` and has no Qt chrome.
+     *
+     * 1.2.39: `--qt-fs-controller` (was `--no-qt-fs-controller`) so moving the
+     * mouse brings up VLC's bottom seek / play bar in fullscreen. Passed
+     * explicitly so a user vlcrc that turned it off cannot hide it again.
      */
     internal val VLC_LINUX_TRUE_FULLSCREEN: List<String> = listOf(
         "--no-video-title-show",
-        "--no-qt-fs-controller",
+        "--qt-fs-controller",
         "--qt-minimal-view"
     )
+
+    /**
+     * Linux single-play VLC runs on X11 (XWayland under GNOME Wayland): the X11
+     * placer finds and moves the VLC window by pid, and VLC 3's Qt fullscreen
+     * controller is an X11 popup. Pin Qt to xcb so a QT_QPA_PLATFORM=wayland
+     * session default cannot move VLC off XWayland and break either.
+     */
+    internal fun linuxVlcEnvironment(isVlc: Boolean, windows: Boolean, macos: Boolean, hasDisplay: Boolean): Map<String, String> =
+        if (isVlc && !windows && !macos && hasDisplay) mapOf("QT_QPA_PLATFORM" to "xcb") else emptyMap()
+
+    /**
+     * macOS VLC.app fullscreen. Official VLC.app ships the Cocoa interface, not
+     * Qt, so `--no-qt-fs-controller` / `--qt-minimal-view` are unknown options
+     * and VLC exits 1 immediately (1.2.32).
+     * `--no-macosx-nativefullscreenmode` (accepted by VLC.app 3.0) keeps VLC on
+     * the app's Space instead of creating a new one that leaves the app off to
+     * the side when playback ends (1.2.33).
+     */
+    internal val VLC_MAC_TRUE_FULLSCREEN: List<String> = listOf(
+        "--no-video-title-show",
+        "--no-video-deco",
+        "--no-macosx-nativefullscreenmode"
+    )
+
+    /**
+     * Esc in Mac VLC would otherwise only leave fullscreen (the picture
+     * "shrinks"). Unset that binding and make Esc quit so Stop is reliable.
+     * Verified present on official VLC.app.
+     */
+    internal val VLC_MAC_STOP_KEYS: List<String> = listOf(
+        "--key-leave-fullscreen=Unset",
+        "--key-quit=Esc",
+        "--global-key-quit=Esc"
+    )
+
+    /**
+     * Same Esc-to-quit bindings on Linux VLC 3.0 (Qt). Verified accepted by
+     * Ubuntu VLC 3.0.23; `--no-macosx-nativefullscreenmode` is not passed.
+     */
+    internal val VLC_LINUX_STOP_KEYS: List<String> = listOf(
+        "--key-leave-fullscreen=Unset",
+        "--key-quit=Esc",
+        "--global-key-quit=Esc"
+    )
+
+    /**
+     * Same Esc-to-quit bindings on Windows VLC 3.0 (Qt). Without these, Esc
+     * only leaves fullscreen and the process can stay up after a title ends.
+     */
+    internal val VLC_WINDOWS_STOP_KEYS: List<String> = listOf(
+        "--key-leave-fullscreen=Unset",
+        "--key-quit=Esc",
+        "--global-key-quit=Esc"
+    )
+
+    /** RC command that asks VLC to leave after EOF is detected. */
+    internal const val EOF_QUIT_COMMAND: String = "quit"
+
+    /** Position must sit still this long, near the end, before we treat it as EOF. */
+    internal const val EOF_STALL_MS: Long = 10_000L
+
+    /** After RC quit, wait this long before destroyForcibly if VLC is still alive. */
+    internal const val EOF_FORCE_KILL_MS: Long = 1_500L
 
     /** VLC RC: force fullscreen. `fullscreen` alone toggles; `on` stays on. */
     internal const val LINUX_VLC_FULLSCREEN_RC = "fullscreen on"
@@ -184,7 +253,8 @@ object StreamPlayer {
         val x11Fullscreen = useX11MonitorFullscreen(
             AppPaths.isWindows,
             fullscreen,
-            !System.getenv("DISPLAY").isNullOrBlank()
+            !System.getenv("DISPLAY").isNullOrBlank(),
+            macos = AppPaths.isMac
         )
         val win32Fullscreen = useWin32MonitorFullscreen(AppPaths.isWindows, fullscreen)
         val fullscreenScreen = if (fullscreen) {
@@ -201,10 +271,13 @@ object StreamPlayer {
             fullscreenScreen
         )
             ?: error(
-                if (AppPaths.isWindows) {
-                    "No media player found. Install VLC (recommended), or add mpv/ffplay to PATH."
-                } else {
-                    "No media player found. Install vlc, mpv, or ffmpeg (ffplay)."
+                when {
+                    AppPaths.isWindows ->
+                        "No media player found. Install VLC (recommended), or add mpv/ffplay to PATH."
+                    AppPaths.isMac ->
+                        "No media player found. Install VLC from videolan.org into Applications, or add mpv/ffplay."
+                    else ->
+                        "No media player found. Install vlc, mpv, or ffmpeg (ffplay)."
                 }
             )
         lastLaunchWasPlaylist = resolved.playlist
@@ -214,10 +287,23 @@ object StreamPlayer {
             killWindowsPlayerTree(resolved.command.first())
         }
         markLaunch()
-        val proc = ProcessBuilder(launchCommand)
-            .redirectError(ProcessBuilder.Redirect.DISCARD)
+        val stderrFile = playerStderrFile()
+        val pb = ProcessBuilder(launchCommand)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-            .start()
+        pb.environment().putAll(
+            linuxVlcEnvironment(
+                isVlc = resolved.command.first().contains("vlc", ignoreCase = true),
+                windows = AppPaths.isWindows,
+                macos = AppPaths.isMac,
+                hasDisplay = !System.getenv("DISPLAY").isNullOrBlank()
+            )
+        )
+        if (stderrFile != null) {
+            pb.redirectError(stderrFile)
+        } else {
+            pb.redirectError(ProcessBuilder.Redirect.DISCARD)
+        }
+        val proc = pb.start()
         current = proc
         if (x11Fullscreen && scope != null && launchCommand.none { it == "--fullscreen" }) {
             val monitor = WindowPositioner.linuxPlaybackMonitor()
@@ -238,26 +324,71 @@ object StreamPlayer {
             WindowPositioner.fullscreenOnAppMonitorAsync(scope, proc, proc.pid())
         }
         armWindowsPlaybackMenu(launchCommand, proc, fullscreen)
-        if (onProgress != null && scope != null && !treatLive && resolved.command.first().contains("vlc", ignoreCase = true)) {
-            progressJob = scope.launch(Dispatchers.IO) {
+        if (AppPaths.isMac) {
+            MacPlaybackOverlay.arm()
+            MacStopHotkey.arm()
+        }
+        syncPlaybackGate()
+        // VOD/series VLC: always arm the EOF watchdog, even when resume progress
+        // is not being recorded. Live omits this so a sliding window is not quit.
+        val isVlc = resolved.command.first().contains("vlc", ignoreCase = true)
+        if (!treatLive && isVlc) {
+            val loopScope = scope ?: kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
+            progressJob = loopScope.launch(Dispatchers.IO) {
                 delay(2000)
+                var lastAdvancedAtMs = System.currentTimeMillis()
+                var lastSeenPositionMs = -1L
                 while (proc.isAlive) {
                     val prog = VlcControl.queryProgress(PROGRESS_RC_PORT)
                     if (prog != null) {
-                        notePlaybackSample(
-                            positionMs = prog.currentTimeSeconds * 1000L,
-                            lengthMs = prog.totalLengthSeconds * 1000L
-                        )
-                        if (prog.totalLengthSeconds > 0) {
-                            onProgress(
-                                prog.currentTimeSeconds * 1000L,
-                                prog.totalLengthSeconds * 1000L,
-                                prog.percent
-                            )
+                        val pos = prog.currentTimeSeconds * 1000L
+                        val len = prog.totalLengthSeconds * 1000L
+                        notePlaybackSample(positionMs = pos, lengthMs = len)
+                        if (pos != lastSeenPositionMs && pos >= 0L) {
+                            lastAdvancedAtMs = System.currentTimeMillis()
+                            lastSeenPositionMs = pos
+                        }
+                        if (onProgress != null && prog.totalLengthSeconds > 0) {
+                            onProgress(pos, len, prog.percent)
                         }
                     }
-                    if (VlcControl.queryEnded(PROGRESS_RC_PORT)) {
+                    val ended = VlcControl.queryEnded(PROGRESS_RC_PORT)
+                    if (ended) {
                         notePlaybackSample(lastPositionMs, lastLengthMs, ended = true)
+                    }
+                    val nowMs = System.currentTimeMillis()
+                    val stalled = isStalledNearEnd(
+                        lastPositionMs,
+                        lastLengthMs,
+                        lastAdvancedAtMs,
+                        nowMs
+                    )
+                    if (shouldQuitAtEof(ended, lastPositionMs, lastLengthMs, stalled)) {
+                        notePlaybackSample(lastPositionMs, lastLengthMs, ended = true)
+                        PlaybackDebugLog.note(
+                            formatEofQuitNote(
+                                ended = ended,
+                                positionMs = lastPositionMs,
+                                lengthMs = lastLengthMs,
+                                stalled = stalled,
+                                forceKill = false
+                            )
+                        )
+                        VlcControl.sendCommand(PROGRESS_RC_PORT, EOF_QUIT_COMMAND)
+                        delay(EOF_FORCE_KILL_MS)
+                        if (proc.isAlive) {
+                            PlaybackDebugLog.note(
+                                formatEofQuitNote(
+                                    ended = ended,
+                                    positionMs = lastPositionMs,
+                                    lengthMs = lastLengthMs,
+                                    stalled = stalled,
+                                    forceKill = true
+                                )
+                            )
+                            proc.destroyForcibly()
+                        }
+                        break
                     }
                     delay(2000)
                 }
@@ -350,6 +481,7 @@ object StreamPlayer {
                 applySplitVolumes(session)
             }
         }
+        syncPlaybackGate()
         return session
     }
 
@@ -376,6 +508,8 @@ object StreamPlayer {
         session.leftProcess?.destroyForcibly()
         session.rightProcess?.destroyForcibly()
         splitSession = null
+        syncPlaybackGate()
+        WindowPositioner.restoreAppWindowAfterPlayback()
     }
 
     /**
@@ -391,6 +525,7 @@ object StreamPlayer {
                     session.leftProcess?.destroyForcibly()
                     session.rightProcess?.destroyForcibly()
                     if (splitSession === session) splitSession = null
+                    syncPlaybackGate()
                 }
                 return
             }
@@ -411,10 +546,14 @@ object StreamPlayer {
         if (AppPaths.isWindows) {
             killWindowsPlayerTree(currentBinaryHint())
         }
+        syncPlaybackGate()
+        WindowPositioner.restoreAppWindowAfterPlayback()
     }
 
     private fun stopProcessOnly() {
         WindowsPlaybackMenu.disarm()
+        MacPlaybackOverlay.disarm()
+        MacStopHotkey.disarm()
         current?.destroyForcibly()
         current = null
     }
@@ -443,12 +582,27 @@ object StreamPlayer {
         return try {
             val code = proc.waitFor()
             markExit(code)
+            // User Stop force-kills the player (e.g. 137); only keep stderr for unexpected exits.
+            if (code != 0 && !stoppedByUser) {
+                logPlayerStderr(code)
+            } else {
+                clearPlayerStderr()
+            }
             val natural = !stoppedByUser
             if (current === proc) current = null
+            MacPlaybackOverlay.disarm()
+            MacStopHotkey.disarm()
+            syncPlaybackGate()
+            WindowPositioner.restoreAppWindowAfterPlayback()
             natural
         } catch (_: InterruptedException) {
+            syncPlaybackGate()
             false
         }
+    }
+
+    internal fun syncPlaybackGate() {
+        PlaybackGate.setPlaying(isPlaying())
     }
 
     internal fun markLaunch(nowMs: Long = System.currentTimeMillis()) {
@@ -466,9 +620,88 @@ object StreamPlayer {
         if (ended) lastReachedEof = true
     }
 
+    /**
+     * True when VLC has ended the input, the clock is at or past duration, or
+     * playback has sat still near the end long enough to treat as a stuck EOF.
+     */
+    internal fun shouldQuitAtEof(
+        ended: Boolean,
+        positionMs: Long,
+        lengthMs: Long,
+        stalledNearEnd: Boolean
+    ): Boolean {
+        if (ended) return true
+        if (lengthMs > 0L && positionMs >= lengthMs) return true
+        return stalledNearEnd
+    }
+
+    internal fun isStalledNearEnd(
+        positionMs: Long,
+        lengthMs: Long,
+        lastAdvancedAtMs: Long,
+        nowMs: Long,
+        stallMs: Long = EOF_STALL_MS,
+        nearEndMs: Long = PlaybackAdvance.NEAR_END_MS
+    ): Boolean {
+        if (lengthMs <= 0L || positionMs < 0L) return false
+        if (nowMs - lastAdvancedAtMs < stallMs) return false
+        return PlaybackAdvance.nearEnd(positionMs, lengthMs, nearEndMs)
+    }
+
+    internal fun formatEofQuitNote(
+        ended: Boolean,
+        positionMs: Long,
+        lengthMs: Long,
+        stalled: Boolean,
+        forceKill: Boolean,
+        forceKillMs: Long = EOF_FORCE_KILL_MS
+    ): String {
+        return if (forceKill) {
+            "eof-quit force-kill after ${forceKillMs}ms ended=$ended posMs=$positionMs lenMs=$lengthMs stalled=$stalled"
+        } else {
+            "eof-quit ended=$ended posMs=$positionMs lenMs=$lengthMs stalled=$stalled"
+        }
+    }
+
     internal fun markExit(exitCode: Int, nowMs: Long = System.currentTimeMillis()) {
         lastExitCode = exitCode
         lastPlaybackDurationMs = (nowMs - lastLaunchAtMs).coerceAtLeast(0L)
+    }
+
+    private fun playerStderrFile(): File? = runCatching {
+        val dir = AppPaths.configDir.toFile()
+        dir.mkdirs()
+        dir.resolve("vlc-launch-stderr.log")
+    }.getOrNull()
+
+    /** Copy a short redacted VLC stderr snippet into playback-debug.log, then delete the temp file. */
+    private fun logPlayerStderr(exitCode: Int) {
+        val file = playerStderrFile() ?: return
+        runCatching {
+            if (!file.isFile) return
+            val raw = file.readText().take(2000)
+            val redacted = redactPlayerStderr(raw)
+            if (redacted.isNotBlank()) {
+                PlaybackDebugLog.note("player-stderr exitCode=$exitCode $redacted")
+            }
+        }
+        clearPlayerStderr()
+    }
+
+    private fun clearPlayerStderr() {
+        runCatching { playerStderrFile()?.delete() }
+    }
+
+    internal fun redactPlayerStderr(raw: String): String {
+        val noUrls = raw.replace(Regex("""(?:https?|rtsp|rtmp|mms)://\S+""")) { match ->
+            PlaybackDebugLog.redactStreamUrl(match.value)
+        }
+        return noUrls.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .take(8)
+            .joinToString(" | ")
+            .take(800)
     }
 
     fun availablePlayers(): List<String> {
@@ -582,8 +815,9 @@ object StreamPlayer {
     internal fun useX11MonitorFullscreen(
         windows: Boolean,
         fullscreen: Boolean,
-        displayAvailable: Boolean
-    ): Boolean = !windows && fullscreen && displayAvailable
+        displayAvailable: Boolean,
+        macos: Boolean = false
+    ): Boolean = !windows && !macos && fullscreen && displayAvailable
 
     /**
      * Always false. Snapping a normal VLC window onto the monitor leaves the
@@ -649,6 +883,13 @@ object StreamPlayer {
      * console). Linux VLC 3.0 rejects the option and exits immediately, so it
      * is passed only when [windows] is true. `--extraintf=rc` and `--rc-host`
      * stay on both platforms so resume progress still works.
+     *
+     * Official VLC.app on macOS has no Qt plugin. Qt flags (`--qt-continue=0`,
+     * `--no-qt-privacy-ask`, `--qt-minimal-view`, `--no-qt-fs-controller`, …)
+     * and also `--no-one-instance` / `--no-playlist-enqueue` are unknown
+     * options and VLC exits 1 before playback (1.2.31). Those are omitted
+     * when [macos] is true. `--ignore-config` is accepted on Mac and keeps a
+     * user vlcrc from overriding the CLI.
      */
     internal fun vlcCommand(
         binary: String,
@@ -657,25 +898,35 @@ object StreamPlayer {
         live: Boolean = false,
         startPositionSeconds: Long? = null,
         fullscreen: Boolean = true,
-        fullscreenScreen: Int = -1
+        fullscreenScreen: Int = -1,
+        macos: Boolean = AppPaths.isMac
     ): List<String> {
         val args = mutableListOf(binary)
-        if (windows) {
+        if (windows || macos) {
             args += "--ignore-config"
         }
         if (fullscreen) {
             args += "--fullscreen"
-            if (windows) {
-                args += VLC_WINDOWS_TRUE_FULLSCREEN
-                qtFullscreenScreenArg(fullscreenScreen)?.let { args += it }
-            } else {
-                // Stripped again by the X11 placer. The screen number stays so
-                // the later RC `fullscreen on` does not follow a saved screen.
-                args += VLC_LINUX_TRUE_FULLSCREEN
-                qtFullscreenScreenArg(fullscreenScreen)?.let { args += it }
+            when {
+                windows -> {
+                    args += VLC_WINDOWS_TRUE_FULLSCREEN
+                    qtFullscreenScreenArg(fullscreenScreen)?.let { args += it }
+                }
+                macos -> {
+                    // macOS VLC.app: hide title/deco; stay on this Space; no Qt / X11.
+                    args += VLC_MAC_TRUE_FULLSCREEN
+                }
+                else -> {
+                    // Stripped again by the X11 placer. The screen number stays so
+                    // the later RC `fullscreen on` does not follow a saved screen.
+                    args += VLC_LINUX_TRUE_FULLSCREEN
+                    qtFullscreenScreenArg(fullscreenScreen)?.let { args += it }
+                }
             }
         }
-        args += VLC_QT_QUIET
+        if (!macos) {
+            args += VLC_QT_QUIET
+        }
         args += VLC_AUDIO_LANGUAGE
         if (!live) {
             args += "--play-and-exit"
@@ -688,8 +939,19 @@ object StreamPlayer {
             args += "--extraintf=rc"
             args += "--rc-host=127.0.0.1:$PROGRESS_RC_PORT"
         }
-        args += "--no-one-instance"
-        args += "--no-playlist-enqueue"
+        if (!macos) {
+            args += "--no-one-instance"
+            args += "--no-playlist-enqueue"
+        }
+        if (macos) {
+            args += VLC_MAC_STOP_KEYS
+        }
+        if (!windows && !macos) {
+            args += VLC_LINUX_STOP_KEYS
+        }
+        if (windows) {
+            args += VLC_WINDOWS_STOP_KEYS
+        }
         args += "--no-repeat"
         args += "--no-loop"
         if (windows) {
@@ -893,8 +1155,18 @@ object StreamPlayer {
         runCatching { Thread.sleep(WINDOWS_KILL_SETTLE_MS.toLong()) }
     }
 
+    /** Standard VLC.app locations on macOS (system and per-user Applications). */
+    internal fun macVlcCandidates(home: String = System.getProperty("user.home").orEmpty()): List<File> =
+        listOf(
+            File("/Applications/VLC.app/Contents/MacOS/VLC"),
+            File(home, "Applications/VLC.app/Contents/MacOS/VLC")
+        )
+
     private fun resolveVlcBinary(): String? {
         resolveOnPath("vlc")?.let { return it }
+        if (AppPaths.isMac) {
+            return macVlcCandidates().firstOrNull { it.isFile && it.canExecute() }?.absolutePath
+        }
         if (!AppPaths.isWindows) {
             if (File("/usr/bin/vlc").canExecute()) return "/usr/bin/vlc"
             return null

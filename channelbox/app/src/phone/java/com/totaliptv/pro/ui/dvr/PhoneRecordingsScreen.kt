@@ -49,7 +49,9 @@ fun PhoneRecordingsScreen(
 ) {
     val context = LocalContext.current
     val dvr = DvrActions.recorder(context)
-    val snapshot by dvr.snapshot.collectAsState()
+    val dvrSnapshot by dvr.snapshot.collectAsState()
+    val lockRevision by com.totaliptv.pro.data.lock.ParentalGate.revision.collectAsState()
+    val snapshot = remember(dvrSnapshot, lockRevision) { com.totaliptv.pro.data.lock.ParentalGate.visible(dvrSnapshot) }
     val timeFmt = SimpleDateFormat("MMM d h:mm a", Locale.getDefault())
     var pendingDelete by remember { mutableStateOf<RecordingEntry?>(null) }
     BackHandler(enabled = pendingDelete != null) { pendingDelete = null }

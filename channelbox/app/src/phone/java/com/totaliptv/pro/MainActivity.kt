@@ -55,6 +55,7 @@ import com.totaliptv.pro.ui.splash.LogoBannerSplash
 import com.totaliptv.pro.ui.splash.StartupSplashGate
 import com.totaliptv.pro.ui.search.PhoneSearchScreen
 import com.totaliptv.pro.ui.settings.PhoneSettingsScreen
+import com.totaliptv.pro.ui.billing.PhoneBuyScreen
 import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.theme.AppearanceMode
 import com.totaliptv.pro.ui.theme.TotalIptvProTheme
@@ -86,6 +87,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         restorePlaybackOnStart = savedInstanceState == null
         val app = application as TotalIptvProApp
+        if (savedInstanceState == null) {
+            // 1.4.107: confirm a finished self-update, so "Check for update" never leaves doubt.
+            com.totaliptv.pro.data.update.UpdateInstaller.consumeUpdatedMessage(
+                this,
+                com.totaliptv.pro.BuildConfig.VERSION_CODE,
+                com.totaliptv.pro.BuildConfig.VERSION_NAME
+            )?.let { android.widget.Toast.makeText(this, it, android.widget.Toast.LENGTH_LONG).show() }
+        }
         setContent {
             val appearance by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
             val accent by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
@@ -103,11 +112,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        (application as? TotalIptvProApp)?.license?.refreshInBackground()
+    }
+
     private fun playResolved(
         repository: CatalogRepository,
         item: MediaItem,
         startOver: Boolean = false
     ) {
+        if (!(application as TotalIptvProApp).license.status.value.allowsUse) return
         val bound = repository.playableFrom(item)
         val catalogId = item.seriesCatalogId
             ?: bound.seriesCatalogId
@@ -236,6 +251,7 @@ private fun PhoneAppRoot(
     var splashDone by remember { mutableStateOf(StartupSplashGate.shownThisProcess) }
     val refreshHomeStart = remember { com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.value }
     val refreshHomeReq by com.totaliptv.pro.data.repo.ManualRefresh.homeRequests.collectAsState()
+    val licenseStatus by app.license.status.collectAsState()
     LaunchedEffect(refreshHomeReq) {
         if (refreshHomeReq > refreshHomeStart) {
             showOnboarding = false
@@ -269,6 +285,11 @@ private fun PhoneAppRoot(
         ) {
             Text("Starting…")
         }
+        return
+    }
+
+    if (splashDone && prefsReady && !licenseStatus.allowsUse) {
+        PhoneBuyScreen(license = app.license)
         return
     }
 

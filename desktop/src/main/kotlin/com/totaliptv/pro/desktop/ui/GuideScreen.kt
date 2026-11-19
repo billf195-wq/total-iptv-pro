@@ -51,7 +51,7 @@ fun GuideScreen(
     epgByStreamId: Map<Int, ChannelEpg>,
     epgLoadingIds: Set<Int>,
     playingTitle: String?,
-    guideStyle: String = "current",
+    guideStyle: String = "classic",
     selectedCategoryId: String? = null,
     onCategoryChange: (String?) -> Unit = {},
     query: String = "",
@@ -128,7 +128,7 @@ fun GuideScreen(
         )
         Spacer(Modifier.height(10.dp))
         if (categories.isNotEmpty()) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ScrollableChipRow(selectedIndex = categories.indexOfFirst { it.id == selectedCategoryId }.let { if (selectedCategoryId == null) 0 else if (it < 0) -1 else it + 1 }) {
                 item {
                     FilterChip(
                         selected = selectedCategoryId == null,

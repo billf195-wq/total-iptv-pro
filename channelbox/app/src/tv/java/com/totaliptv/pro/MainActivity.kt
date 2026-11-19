@@ -45,6 +45,7 @@ import com.totaliptv.pro.ui.onboarding.OnboardingScreen
 import com.totaliptv.pro.ui.player.PlayerActivity
 import com.totaliptv.pro.ui.search.SearchScreen
 import com.totaliptv.pro.ui.settings.SettingsScreen
+import com.totaliptv.pro.ui.billing.TvBuyScreen
 import com.totaliptv.pro.ui.dvr.RecordingsScreen
 import com.totaliptv.pro.ui.theme.AccentPreset
 import com.totaliptv.pro.ui.theme.AppearanceMode
@@ -86,6 +87,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         restorePlaybackOnStart = savedInstanceState == null
         val app = application as TotalIptvProApp
+        if (savedInstanceState == null) {
+            // 1.4.107: confirm a finished self-update, so "Check for update" never leaves doubt.
+            com.totaliptv.pro.data.update.UpdateInstaller.consumeUpdatedMessage(
+                this,
+                com.totaliptv.pro.BuildConfig.VERSION_CODE,
+                com.totaliptv.pro.BuildConfig.VERSION_NAME
+            )?.let { android.widget.Toast.makeText(this, it, android.widget.Toast.LENGTH_LONG).show() }
+        }
         // Snapshot layout for THIS activity instance. Hot-swapping Classic root <-> DesktopAppRoot
         // mid-composition freezes Shield TV; recreate cleanly when the preference changes.
         setContent {
@@ -103,6 +112,7 @@ class MainActivity : ComponentActivity() {
             var startupChecked by remember { mutableStateOf(StartupSplashGate.shownThisProcess) }
             val appearance by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
             val accent by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
+            val licenseStatus by app.license.status.collectAsState()
 
             LaunchedEffect(Unit) {
                 val initial = runCatching { app.preferences.getAppLayoutMode() }
@@ -215,6 +225,13 @@ class MainActivity : ComponentActivity() {
                 return@setContent
             }
 
+            if (!licenseStatus.allowsUse) {
+                TotalIptvProTheme(appearance = appearance, accent = accent) {
+                    TvBuyScreen(license = app.license)
+                }
+                return@setContent
+            }
+
             Box(modifier = Modifier.fillMaxSize()) {
             if (boundLayout == AppLayoutMode.DESKTOP) {
                 DesktopAppRoot(
@@ -239,11 +256,17 @@ class MainActivity : ComponentActivity() {
     }
 
 
+    override fun onResume() {
+        super.onResume()
+        (application as? TotalIptvProApp)?.license?.refreshInBackground()
+    }
+
     private fun playResolved(
         repository: CatalogRepository,
         item: MediaItem,
         startOver: Boolean = false
     ) {
+        if (!(application as TotalIptvProApp).license.status.value.allowsUse) return
         // Always re-bind to catalog by id so Live clicks cannot play a mismatched streamUrl
         // after category/sort list churn.
         val bound = repository.playableFrom(item)

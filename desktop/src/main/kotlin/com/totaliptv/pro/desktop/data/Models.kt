@@ -18,6 +18,8 @@ data class SavedPrefs(
     val preferredPlayer: String = "auto",
     /** Live, movies, and series open VLC/mpv/ffplay full screen. Game Day split screen ignores this. */
     val openPlayerFullscreen: Boolean = true,
+    /** 1.2.28: the app window itself starts in borderless full screen (no title bar, no taskbar). F11 toggles and saves; Esc leaves for this session. */
+    val startFullscreen: Boolean = true,
     /** dark | light */
     val themeMode: String = "dark",
     /** Poster grid columns for Movies/Series (5, 6, or 11). Default 11. */
@@ -32,7 +34,7 @@ data class SavedPrefs(
     /**
      * TV Guide layout: "current" (timeline + detail) or "classic" (channel list + schedule list).
      */
-    val guideStyle: String = "current",
+    val guideStyle: String = "classic",   // 1.2.26: Classic TV Guide is the default view
     val windowWidth: Int = 1280,
     val windowHeight: Int = 800,
     val windowX: Int? = null,
@@ -118,6 +120,10 @@ data class MediaItem(
         rating5Based?.takeIf { it > 0.0 }?.let { return it * 2.0 } // map 0–5 → ~0–10
         return 0.0
     }
+
+    /** Provider rating text for badges / Top rated fallback when no TMDB key is set. */
+    fun displayRating(): String? =
+        Ratings.normalizeXtream(rating, rating5Based?.toString())
 }
 
 data class SeriesEpisode(
