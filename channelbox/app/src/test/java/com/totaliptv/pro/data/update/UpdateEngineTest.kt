@@ -185,7 +185,7 @@ class UpdateEngineTest {
         assertTrue(r.message.contains("Google Drive: " + UpdateErrors.WEB_PAGE), r.message)
         assertTrue(r.message.contains("GitHub had a problem (HTTP 500)"), r.message)
         assertFalse(r.message.contains("GitHub: GitHub"), r.message)
-        assertTrue(r.message.contains("the home shelf: skipped"), r.message)
+        assertTrue(r.message.contains("The home shelf: skipped"), r.message)
         assertFalse(r.message.contains("192.168"), r.message)
         assertFalse(r.message.contains("http"), r.message)
     }
@@ -329,5 +329,38 @@ class UpdateEngineTest {
         if (System.getenv("TIP_TEST_UPDATE_ENDPOINTS").isNullOrBlank()) {
             assertEquals("", com.totaliptv.pro.BuildConfig.TEST_UPDATE_ENDPOINTS)
         }
+    }
+}
+
+/** 1.4.107 passed BuildConfig.FLAVOR ("tvSideload") where "tv"/"phone" was expected, so Drive and GitHub never matched. */
+class UpdateFlavorTest {
+    @Test
+    fun deviceFlavorIsTvOrPhone() {
+        assertTrue(com.totaliptv.pro.BuildConfig.FLAVOR_device in setOf("tv", "phone"))
+    }
+
+    @Test
+    fun defaultsForThisBuildAreSetUp() {
+        val e = UpdateEndpoints.defaults(com.totaliptv.pro.BuildConfig.FLAVOR_device)
+        assertTrue(e.driveManifestUrl.startsWith("https://drive.usercontent.google.com/"))
+        assertTrue(e.versionFileUrl.endsWith("version-${com.totaliptv.pro.BuildConfig.FLAVOR_device}.json"))
+        assertTrue(e.githubReleasesUrl.startsWith("https://api.github.com/"))
+    }
+
+    @Test
+    fun updateCodeUsesDeviceFlavorOnly() {
+        val checker = File("src/main/java/com/totaliptv/pro/data/update/AppUpdateChecker.kt").readText()
+        val prefs = File("src/main/java/com/totaliptv/pro/data/local/AppPreferences.kt").readText()
+        val bad = Regex("""BuildConfig\.FLAVOR\s*[,)]""")
+        assertFalse(bad.containsMatchIn(checker), "AppUpdateChecker must use BuildConfig.FLAVOR_device")
+        assertFalse(Regex("""OWNER_UPDATE_BASE_URL\),\s*BuildConfig\.FLAVOR\s*\)""").containsMatchIn(prefs))
+    }
+
+    @Test
+    fun multiReasonMessageIsSentences() {
+        val msg = UpdateErrors.checkFailed(
+            listOf("Google Drive" to "Google Drive is not set up for this build", "GitHub" to "x failed")
+        )
+        assertEquals("Google Drive is not set up for this build. GitHub: x failed.", msg)
     }
 }

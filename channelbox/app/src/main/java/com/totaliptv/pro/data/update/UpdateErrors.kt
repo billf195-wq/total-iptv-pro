@@ -94,6 +94,13 @@ object UpdateErrors {
     }
 
     /** One message for a failed check. Same reason everywhere -> said once, with the sources tried. */
+    private fun sentence(raw: String): String {
+        val t = raw.trim()
+        if (t.isEmpty()) return t
+        val cap = t.replaceFirstChar { it.uppercaseChar() }
+        return if (cap.last() in ".!?") cap else "$cap."
+    }
+
     fun checkFailed(failures: List<Pair<String, String>>): String {
         if (failures.isEmpty()) return UpdateSources.UPDATE_UNAVAILABLE
         val real = failures.filter { it.second != SHELF_SKIPPED }.ifEmpty { failures }
@@ -104,7 +111,9 @@ object UpdateErrors {
             reasons[0] + " Tried " + joinNames(real.map { it.first }) + "." +
                 (if (skipped) " Home shelf skipped (not on that network)." else "")
         } else {
-            failures.joinToString(" ") { (name, why) -> if (why.startsWith(name, ignoreCase = true)) why else "$name: $why" }
+            failures.joinToString(" ") { (name, why) ->
+                sentence(if (why.startsWith(name, ignoreCase = true)) why else "$name: $why")
+            }
         }.also { if (names.isEmpty()) return UpdateSources.UPDATE_UNAVAILABLE }
     }
 

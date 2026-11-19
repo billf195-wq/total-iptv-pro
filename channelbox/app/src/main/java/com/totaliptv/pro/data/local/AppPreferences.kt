@@ -162,7 +162,7 @@ class AppPreferences(private val context: Context) {
     private fun shelfUrl(stored: String?): String =
         UpdateSources.shelfForDevice(
             UpdateSources.resolveShelf(stored, BuildConfig.OWNER_UPDATE_BASE_URL),
-            BuildConfig.FLAVOR
+            BuildConfig.FLAVOR_device
         )
 
     suspend fun setUpdateBaseUrl(url: String) {

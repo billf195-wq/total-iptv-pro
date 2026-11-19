@@ -64,10 +64,11 @@ object AppUpdateChecker {
     private fun engine(): UpdateEngine = UpdateEngine(
         client = client,
         endpoints = UpdateEndpoints.withOverride(
-            UpdateEndpoints.defaults(BuildConfig.FLAVOR),
+            UpdateEndpoints.defaults(BuildConfig.FLAVOR_device),
             BuildConfig.TEST_UPDATE_ENDPOINTS
         ),
-        flavor = BuildConfig.FLAVOR,
+        // FLAVOR is "tvSideload"/"phonePlay"...; the update code needs only the device part.
+        flavor = BuildConfig.FLAVOR_device,
         versionCode = BuildConfig.VERSION_CODE,
         versionName = BuildConfig.VERSION_NAME,
         localIpv4 = ::localIpv4
