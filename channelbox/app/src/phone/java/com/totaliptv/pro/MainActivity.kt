@@ -87,6 +87,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         restorePlaybackOnStart = savedInstanceState == null
         val app = application as TotalIptvProApp
+        if (savedInstanceState == null) {
+            // 1.4.107: confirm a finished self-update, so "Check for update" never leaves doubt.
+            com.totaliptv.pro.data.update.UpdateInstaller.consumeUpdatedMessage(
+                this,
+                com.totaliptv.pro.BuildConfig.VERSION_CODE,
+                com.totaliptv.pro.BuildConfig.VERSION_NAME
+            )?.let { android.widget.Toast.makeText(this, it, android.widget.Toast.LENGTH_LONG).show() }
+        }
         setContent {
             val appearance by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
             val accent by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)

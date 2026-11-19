@@ -229,7 +229,7 @@ fun PhoneSettingsScreen(
                         updateStatus = "Downloading ${ready.manifest.versionName}…"
                         try {
                             if (activity != null && !AppUpdateChecker.canInstallPackages(context)) {
-                                updateStatus = "Allow install unknown apps, then tap Install again"
+                                updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.UNKNOWN_APPS_HINT
                                 Toast.makeText(
                                     context,
                                     "Enable install unknown apps for Total IPTV Pro Phone",
@@ -238,11 +238,15 @@ fun PhoneSettingsScreen(
                                 AppUpdateChecker.openUnknownSourcesSettings(activity)
                                 return@launch
                             }
-                            val file = AppUpdateChecker.downloadApk(context, ready.apkUrl, ready.manifest.size, ready.manifest.sha256)
+                            com.totaliptv.pro.data.update.UpdateInstaller.downloadAndInstall(context, ready) { pct ->
+                                updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.downloadingLabel(ready.manifest.versionName, pct)
+                            }
                             updateStatus = "Opening installer…"
-                            AppUpdateChecker.launchInstaller(context, file)
+                        } catch (c: kotlinx.coroutines.CancellationException) {
+                            // Settings was closed; the download keeps going and still opens the installer.
+                            throw c
                         } catch (t: Throwable) {
-                            updateStatus = "Download failed: ${SensitiveText.forUser(t)}"
+                            updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.friendlyError(t)
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         } finally {
                             updateBusy = false

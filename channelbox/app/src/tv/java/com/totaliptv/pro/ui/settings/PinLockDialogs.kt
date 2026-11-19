@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -81,6 +82,21 @@ fun PinLockDialogHost(
     }
 }
 
+/**
+ * 1.4.107: a dialog window can attach after the first focus request on slower TV boxes,
+ * which left nothing (or the wrong button) focused. Retry until the intended button has focus.
+ */
+@Composable
+private fun DialogFirstFocus(requester: FocusRequester, isFocused: () -> Boolean) {
+    LaunchedEffect(requester) {
+        for (attempt in 0 until PinFocusReturn.ATTEMPTS) {
+            kotlinx.coroutines.delay(PinFocusReturn.STEP_MS)
+            if (isFocused()) break
+            runCatching { requester.requestFocus() }
+        }
+    }
+}
+
 private fun Key.digitOrNull(): Char? = when (this) {
     Key.Zero, Key.NumPad0 -> '0'
     Key.One, Key.NumPad1 -> '1'
@@ -103,6 +119,7 @@ fun PinPadDialog(mode: PinMode, onDone: () -> Unit, onDismiss: () -> Unit) {
     var view by remember(mode) { mutableStateOf(PinPadView.of(flow)) }
     val gate = remember(mode) { LongPressReleaseGate() }
     val firstFocus = remember(mode) { FocusRequester() }
+    var padHasFocus by remember(mode) { mutableStateOf(false) }
     fun after(changed: Boolean) {
         view = PinPadView.of(flow)
         if (changed && flow.step == PinFlow.Step.DONE) onDone()
@@ -159,7 +176,15 @@ fun PinPadDialog(mode: PinMode, onDone: () -> Unit, onDismiss: () -> Unit) {
                             },
                             modifier = Modifier
                                 .width(96.dp)
-                                .then(if (label == "1") Modifier.focusRequester(firstFocus) else Modifier)
+                                .then(
+                                    if (label == "1") {
+                                        Modifier
+                                            .onFocusChanged { padHasFocus = it.isFocused }
+                                            .focusRequester(firstFocus)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
                         ) {
                             Text(label, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                         }
@@ -168,10 +193,7 @@ fun PinPadDialog(mode: PinMode, onDone: () -> Unit, onDismiss: () -> Unit) {
             }
             Button(onClick = { if (gate.allowsClick()) onDismiss() }) { Text("Cancel") }
         }
-        LaunchedEffect(mode) {
-            kotlinx.coroutines.delay(60)
-            runCatching { firstFocus.requestFocus() }
-        }
+        DialogFirstFocus(firstFocus) { padHasFocus }
     }
 }
 
@@ -180,6 +202,7 @@ fun PinPadDialog(mode: PinMode, onDone: () -> Unit, onDismiss: () -> Unit) {
 fun ForgotPinDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     val cancelFocus = remember { FocusRequester() }
     val gate = remember { LongPressReleaseGate() }
+    var hasFocus by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -200,13 +223,12 @@ fun ForgotPinDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
             Button(onClick = { if (gate.allowsClick()) onConfirm() }) { Text(PinLockEntry.FORGOT_CONFIRM) }
             Button(
                 onClick = { if (gate.allowsClick()) onDismiss() },
-                modifier = Modifier.focusRequester(cancelFocus)
+                modifier = Modifier
+                    .onFocusChanged { hasFocus = it.isFocused }
+                    .focusRequester(cancelFocus)
             ) { Text("Cancel") }
         }
-        LaunchedEffect(Unit) {
-            kotlinx.coroutines.delay(60)
-            runCatching { cancelFocus.requestFocus() }
-        }
+        DialogFirstFocus(cancelFocus) { hasFocus }
     }
 }
 
@@ -219,6 +241,7 @@ fun LockedCategoriesDialog(repository: CatalogRepository, onDismiss: () -> Unit)
     val categories = remember(kind) { repository.allCategoriesForLock(kind) }
     val tabFocus = remember { FocusRequester() }
     val gate = remember { LongPressReleaseGate() }
+    var hasFocus by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -239,7 +262,13 @@ fun LockedCategoriesDialog(repository: CatalogRepository, onDismiss: () -> Unit)
                 listOf(ContentKind.LIVE to "Live", ContentKind.VOD to "Movies", ContentKind.SERIES to "Series").forEach { (k, label) ->
                     Button(
                         onClick = { if (gate.allowsClick()) kind = k },
-                        modifier = if (k == ContentKind.LIVE) Modifier.focusRequester(tabFocus) else Modifier
+                        modifier = if (k == ContentKind.LIVE) {
+                            Modifier
+                                .onFocusChanged { hasFocus = it.isFocused }
+                                .focusRequester(tabFocus)
+                        } else {
+                            Modifier
+                        }
                     ) { Text(if (k == kind) "• $label" else label) }
                 }
             }
@@ -259,10 +288,7 @@ fun LockedCategoriesDialog(repository: CatalogRepository, onDismiss: () -> Unit)
             }
             Button(onClick = { if (gate.allowsClick()) onDismiss() }) { Text("Done") }
         }
-        LaunchedEffect(Unit) {
-            kotlinx.coroutines.delay(60)
-            runCatching { tabFocus.requestFocus() }
-        }
+        DialogFirstFocus(tabFocus) { hasFocus }
     }
 }
 

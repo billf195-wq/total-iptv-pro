@@ -76,3 +76,23 @@ fun pinLockEntryClicked(entry: PinLockEntry, open: (PinLockDialog?) -> Unit, toa
         else -> PinLockEntry.pinModeFor(entry)?.let { open(PinLockDialog.Pad(it)) }
     }
 }
+
+/**
+ * 1.4.107: where D-pad focus goes when a PIN lock dialog closes (TV Classic and Desktop).
+ * Back to the slot that was used, or the last slot still shown (Turn off leaves only
+ * "Set PIN"). The Classic list scrolls the section header into view before focusing.
+ */
+object PinFocusReturn {
+    val MAX_SLOTS: Int = PinLockEntry.entries.size
+    const val ATTEMPTS = 25
+    const val STEP_MS = 60L
+    /** Items above slot 0 in the Classic list: the section title and the status line. */
+    const val HEADER_ITEMS = 2
+
+    fun slotAfterClose(usedSlot: Int, entryCount: Int): Int {
+        if (entryCount <= 0) return 0
+        return usedSlot.coerceIn(0, entryCount - 1)
+    }
+
+    fun scrollIndex(slot0Index: Int): Int = (slot0Index - HEADER_ITEMS).coerceAtLeast(0)
+}

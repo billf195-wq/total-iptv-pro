@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -133,14 +134,30 @@ fun SettingsScreen(
     val pinEntries = remember(lockRevision) { PinLockEntry.visibleEntries() }
     var pinDialog by remember { mutableStateOf<PinLockDialog?>(null) }
     var pinReturnFocus by remember { mutableStateOf(false) }
-    val pinFocus = remember { FocusRequester() }
+    // 1.4.107: one requester per PIN slot. Focus goes back to the slot that was used
+    // (or the last one left), and the list scrolls the PIN lock section back into view
+    // first. A LazyColumn card that scrolled off screen is not composed, so
+    // requestFocus() on it can never land; 1.4.106 gave up and focus fell to Back.
+    val pinFocus = remember { List(PinFocusReturn.MAX_SLOTS) { FocusRequester() } }
+    var pinReturnSlot by remember { mutableStateOf(-1) }
+    var pinFocusedSlot by remember { mutableStateOf(-1) }
+    var pinSlot0Index by remember { mutableStateOf(-1) }
+    val settingsList = rememberLazyListState()
     LaunchedEffect(pinDialog, pinEntries) {
         if (pinDialog == null && pinReturnFocus) {
-            for (attempt in 0 until 10) {
-                kotlinx.coroutines.delay(60)
-                if (runCatching { pinFocus.requestFocus() }.isSuccess) break
+            val slot = PinFocusReturn.slotAfterClose(pinReturnSlot, pinEntries.size)
+            for (attempt in 0 until PinFocusReturn.ATTEMPTS) {
+                kotlinx.coroutines.delay(PinFocusReturn.STEP_MS)
+                if (pinFocusedSlot == slot) break
+                val shown = settingsList.layoutInfo.visibleItemsInfo.any { it.key == "pin-slot-$slot" }
+                if (!shown && pinSlot0Index >= 0) {
+                    runCatching { settingsList.scrollToItem(PinFocusReturn.scrollIndex(pinSlot0Index)) }
+                    continue
+                }
+                runCatching { pinFocus[slot].requestFocus() }
             }
             pinReturnFocus = false
+            pinReturnSlot = -1
         }
     }
     PinLockDialogHost(dialog = pinDialog, repository = repository, onClose = { pinDialog = it })
@@ -179,6 +196,7 @@ fun SettingsScreen(
         Button(onClick = onBack) { Text("Back") }
 
         LazyColumn(
+            state = settingsList,
             contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize()
@@ -320,7 +338,7 @@ fun SettingsScreen(
                                 updateStatus = "Downloading ${ready.manifest.versionName}…"
                                 try {
                                     if (activity != null && !AppUpdateChecker.canInstallPackages(context)) {
-                                        updateStatus = "Allow install unknown apps, then tap Install again"
+                                        updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.UNKNOWN_APPS_HINT
                                         Toast.makeText(
                                             context,
                                             "Enable install unknown apps for Total IPTV Pro",
@@ -329,11 +347,15 @@ fun SettingsScreen(
                                         AppUpdateChecker.openUnknownSourcesSettings(activity)
                                         return@launch
                                     }
-                                    val file = AppUpdateChecker.downloadApk(context, ready.apkUrl, ready.manifest.size, ready.manifest.sha256)
+                                    com.totaliptv.pro.data.update.UpdateInstaller.downloadAndInstall(context, ready) { pct ->
+                                        updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.downloadingLabel(ready.manifest.versionName, pct)
+                                    }
                                     updateStatus = "Opening installer…"
-                                    AppUpdateChecker.launchInstaller(context, file)
+                                } catch (c: kotlinx.coroutines.CancellationException) {
+                                    // Settings was closed; the download keeps going and still opens the installer.
+                                    throw c
                                 } catch (t: Throwable) {
-                                    updateStatus = "Download failed: ${SensitiveText.forUser(t)}"
+                                    updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.friendlyError(t)
                                     Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                                 } finally {
                                     updateBusy = false
@@ -610,8 +632,16 @@ fun SettingsScreen(
                     FocusableCard(
                         title = entry.label,
                         subtitle = entry.subtitle,
-                        focusRequester = if (index == 0) pinFocus else null,
+                        modifier = Modifier.onFocusChanged {
+                            if (it.isFocused) pinFocusedSlot = index
+                            else if (pinFocusedSlot == index) pinFocusedSlot = -1
+                        },
+                        focusRequester = pinFocus[index],
                         onClick = {
+                            settingsList.layoutInfo.visibleItemsInfo
+                                .firstOrNull { it.key == "pin-slot-$index" }
+                                ?.let { pinSlot0Index = it.index - index }
+                            pinReturnSlot = index
                             pinLockEntryClicked(
                                 entry,
                                 open = { pinDialog = it; pinReturnFocus = true },

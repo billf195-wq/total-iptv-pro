@@ -7,6 +7,7 @@ import com.totaliptv.pro.data.lock.PinFlow
 import com.totaliptv.pro.ui.settings.PinLockDialog
 import com.totaliptv.pro.ui.settings.PinLockDialogHost
 import com.totaliptv.pro.ui.settings.PinLockEntry
+import com.totaliptv.pro.ui.settings.PinFocusReturn
 import com.totaliptv.pro.ui.settings.pinLockEntryClicked
 import android.app.Activity
 import android.widget.EditText
@@ -960,12 +961,21 @@ fun DesktopSettingsPane(
         val pinEntries = remember(lockRevision) { PinLockEntry.visibleEntries() }
         var pinDialog by remember { mutableStateOf<PinLockDialog?>(null) }
         var pinReturnFocus by remember { mutableStateOf(false) }
-        val pinFocus = remember { FocusRequester() }
+        // 1.4.107: focus returns to the PIN button that was used (or the last one left)
+        // and is retried until it really lands; 1.4.106 tried once after 80 ms.
+        val pinFocus = remember { List(PinFocusReturn.MAX_SLOTS) { FocusRequester() } }
+        var pinReturnSlot by remember { mutableStateOf(-1) }
+        var pinFocusedSlot by remember { mutableStateOf(-1) }
         LaunchedEffect(pinDialog, pinEntries) {
             if (pinDialog == null && pinReturnFocus) {
-                kotlinx.coroutines.delay(80)
-                runCatching { pinFocus.requestFocus() }
+                val slot = PinFocusReturn.slotAfterClose(pinReturnSlot, pinEntries.size)
+                for (attempt in 0 until PinFocusReturn.ATTEMPTS) {
+                    kotlinx.coroutines.delay(PinFocusReturn.STEP_MS)
+                    if (pinFocusedSlot == slot) break
+                    runCatching { pinFocus[slot].requestFocus() }
+                }
                 pinReturnFocus = false
+                pinReturnSlot = -1
             }
         }
         PinLockDialogHost(dialog = pinDialog, repository = repository, onClose = { pinDialog = it })
@@ -979,10 +989,17 @@ fun DesktopSettingsPane(
         pinEntries.chunked(3).forEachIndexed { rowIndex, rowEntries ->
             if (rowIndex > 0) Spacer(Modifier.height(TipDimens.dp(8)))
             Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
-                rowEntries.forEach { entry ->
+                rowEntries.forEachIndexed { col, entry ->
+                    val slot = rowIndex * 3 + col
                     TipFocusable(
-                        modifier = if (entry == pinEntries.first()) Modifier.focusRequester(pinFocus) else Modifier,
+                        modifier = Modifier
+                            .onFocusChanged {
+                                if (it.isFocused) pinFocusedSlot = slot
+                                else if (pinFocusedSlot == slot) pinFocusedSlot = -1
+                            }
+                            .focusRequester(pinFocus[slot]),
                         onClick = {
+                            pinReturnSlot = slot
                             pinLockEntryClicked(
                                 entry,
                                 open = { pinDialog = it; pinReturnFocus = true },
@@ -1242,15 +1259,19 @@ fun DesktopSettingsPane(
                         updateStatus = "Downloading ${ready.manifest.versionName}…"
                         try {
                             if (activity != null && !AppUpdateChecker.canInstallPackages(context)) {
-                                updateStatus = "Allow install unknown apps, then tap Install again"
+                                updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.UNKNOWN_APPS_HINT
                                 AppUpdateChecker.openUnknownSourcesSettings(activity)
                                 return@launch
                             }
-                            val file = AppUpdateChecker.downloadApk(context, ready.apkUrl, ready.manifest.size, ready.manifest.sha256)
+                            com.totaliptv.pro.data.update.UpdateInstaller.downloadAndInstall(context, ready) { pct ->
+                                updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.downloadingLabel(ready.manifest.versionName, pct)
+                            }
                             updateStatus = "Opening installer…"
-                            AppUpdateChecker.launchInstaller(context, file)
+                        } catch (c: kotlinx.coroutines.CancellationException) {
+                            // Settings was closed; the download keeps going and still opens the installer.
+                            throw c
                         } catch (t: Throwable) {
-                            updateStatus = "Download failed: ${SensitiveText.forUser(t)}"
+                            updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.friendlyError(t)
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         } finally {
                             updateBusy = false
