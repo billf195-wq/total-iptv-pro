@@ -66,7 +66,7 @@ object UpdateErrors {
         }
         find(ShelfSkippedException::class.java)?.let { return SHELF_SKIPPED }
         find(WebPageException::class.java)?.let { return WEB_PAGE }
-        find(HttpStatusException::class.java)?.let { return httpReason(it) }
+        find(HttpStatusException::class.java)?.let { return httpReason(it).replaceFirstChar { c -> c.uppercaseChar() } }
         find(DamagedDownloadException::class.java)?.let { return DAMAGED }
         find(IncompleteDownloadException::class.java)?.let { return STOPPED }
         if (chain.any { it is UnknownHostException }) return NO_INTERNET

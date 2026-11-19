@@ -365,6 +365,14 @@ class UpdateFlavorTest {
     }
 
     @Test
+    fun httpReasonStartsWithACapital() {
+        assertEquals(
+            "The home shelf had a problem (HTTP 502). Try again later.",
+            UpdateErrors.reason(HttpStatusException(502, "the home shelf"))
+        )
+    }
+
+    @Test
     fun sameReasonFromSeveralSourcesIsSaidOnce() {
         val p = UpdateErrors.PROXY_BLOCKED
         val msg = UpdateErrors.checkFailed(
