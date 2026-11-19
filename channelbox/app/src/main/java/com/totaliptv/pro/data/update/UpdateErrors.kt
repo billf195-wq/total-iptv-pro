@@ -53,6 +53,7 @@ object UpdateErrors {
     const val DAMAGED = "The download was incomplete or blocked (size or checksum did not match)."
     const val BAD_INFO = "The update info could not be read."
     const val SHELF_SKIPPED = "skipped (this device is not on that home network)."
+    const val PROXY_BLOCKED = "A proxy or network filter blocked the secure connection."
     const val GITHUB_LIMIT = "GitHub's hourly limit for this network was reached. Try again in an hour."
 
     fun reason(t: Throwable): String {
@@ -69,6 +70,7 @@ object UpdateErrors {
         find(DamagedDownloadException::class.java)?.let { return DAMAGED }
         find(IncompleteDownloadException::class.java)?.let { return STOPPED }
         if (chain.any { it is UnknownHostException }) return NO_INTERNET
+        if (chain.any { it.message.orEmpty().contains("response code for CONNECT", true) }) return PROXY_BLOCKED
         if (chain.any { it is ConnectException || it is NoRouteToHostException }) return CANT_CONNECT
         if (chain.any { it is SSLException || it is CertificateException }) return SECURE_FAILED
         if (chain.any { it is SocketTimeoutException }) return TIMED_OUT

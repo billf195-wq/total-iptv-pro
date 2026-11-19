@@ -301,6 +301,8 @@ class UpdateEngineTest {
         assertEquals("", UpdateSources.shaFromDigest(null))
         assertTrue(UpdateSources.versionFileUrl("tv").endsWith("/releases/latest/download/version-tv.json"))
         assertEquals(UpdateErrors.NO_INTERNET, UpdateErrors.reason(UnknownHostException("x")))
+        assertEquals(UpdateErrors.PROXY_BLOCKED, UpdateErrors.reason(java.io.IOException("Unexpected response code for CONNECT: 403")))
+        assertEquals(UpdateErrors.CANT_CONNECT, UpdateErrors.reason(java.net.ConnectException("Failed to connect to /10.0.2.2:1")))
         assertEquals("Google Drive", UpdateEngine.siteName("https://drive.usercontent.google.com/x", ""))
         assertEquals("GitHub", UpdateEngine.siteName("https://release-assets.githubusercontent.com/x", ""))
         val e = UpdateEndpoints.withOverride(UpdateEndpoints.defaults("tv"), "drive=http://10.0.2.2:1/d.json")
