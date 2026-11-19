@@ -104,8 +104,9 @@ object HowToGuide {
                 "Adult categories are then hidden everywhere: lists, Search, " +
                 (if (tv) "the TV Guide, " else "") +
                 "Favorites, Continue watching and Recordings. Choose locked categories to hide more " +
-                "Live, Movies or Series categories. Unlock with PIN shows everything until the app closes " +
-                "or sits in the background for 5 minutes; Lock now hides it again. Change PIN and Turn off " +
+                "Live, Movies or Series categories. Unlock with PIN shows everything until you choose " +
+                "Lock now or leave the app for 5 minutes (restarting the app also locks it). The status line shows " +
+                "how many categories are locked. The lock hides categories; it does not ask for a PIN to open the app. Change PIN and Turn off " +
                 "PIN lock ask for the current PIN. Forgot PIN sets a new PIN and clears your chosen categories."
         )
         out += Section(

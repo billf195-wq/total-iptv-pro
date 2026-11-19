@@ -114,6 +114,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 1.4.108: carry on an update that was waiting for "Install unknown apps".
+        com.totaliptv.pro.data.update.UpdateInstaller.resumeAfterPermission(this)
         (application as? TotalIptvProApp)?.license?.refreshInBackground()
     }
 

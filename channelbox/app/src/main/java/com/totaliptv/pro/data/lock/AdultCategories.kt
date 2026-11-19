@@ -3,21 +3,29 @@ package com.totaliptv.pro.data.lock
 /**
  * Conservative adult-category detection by category NAME only (titles are never scanned, so a
  * movie called "xXx" stays visible). Case-insensitive. Matches whole markers only:
- * "adult"/"adults", "xxx", "18+"/"+18", "for adults", "porn". "Young adult" and "Adult Swim"
+ * "adult"/"adults" (and adultos, adulte, adulti), "xxx" (also spaced or dotted), "18+"/"+18" (also spaced
+ * or punctuated), "for adults", "porn", "erotic". "Young adult" and "Adult Swim"
  * are deliberately not matched.
  */
 object AdultCategories {
     private val exclusions = listOf(
         Regex("""\byoung[\s\-_]*adults?\b"""),
-        Regex("""\badult[\s\-_]*swim\b""")
+        Regex("""\badult[\s\-_]*swim\b"""),
+        Regex("""\bj[oó]venes[\s\-_]*adult(?:os|as)\b""")
     )
     private val markers = listOf(
-        Regex("""(?<![a-z0-9])adults?(?![a-z0-9])"""),
-        Regex("""(?<![a-z0-9])xxx(?![a-z0-9])"""),
-        Regex("""(?<![0-9])18\s?\+"""),
-        Regex("""\+\s?18(?![0-9])"""),
+        // adult / adults, plus 1.4.108: adultos, adultas, adulte(s), adulti (not "adultery")
+        Regex("""(?<![a-z0-9])adult(?:s|e|es|o|os|a|as|i)?(?![a-z0-9])"""),
+        // xxx, and 1.4.108: spaced or punctuated "x x x", "x.x.x", "x-x-x"
+        Regex("""(?<![a-z0-9])x[\s.\-_*]?x[\s.\-_*]?x(?![a-z0-9])"""),
+        // 18+ / +18, and 1.4.108: "18 +", "(18+)", "[18 +]", "18-+", "+ 18", "18 plus", fullwidth plus
+        Regex("""(?<![0-9])18\s*[-.]?\s*[+\uFF0B]"""),
+        Regex("""[+\uFF0B]\s*[-.]?\s*18(?![0-9])"""),
+        Regex("""(?<![0-9])18\s*-?\s*plus\b"""),
         Regex("""(?<![a-z0-9])porn"""),
-        Regex("""\bfor\s+adults\b""")
+        Regex("""\bfor\s+adults\b"""),
+        // 1.4.108: erotic, erotica, erotico(s), erotique, erotik, erotisch
+        Regex("""(?<![a-z0-9])er[oó]ti(?:c|ca|cas|co|cos|que|k|sch)(?![a-z0-9])""")
     )
 
     fun isAdult(name: String?): Boolean {

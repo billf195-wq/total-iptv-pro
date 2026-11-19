@@ -64,10 +64,10 @@ class LicenseUiSourceTest {
     @Test
     fun versionsWereBumpedForThePlayUnlock() {
         val gradle = File("build.gradle.kts").readText()
-        assertTrue(gradle.contains("versionName = \"1.4.107\""))
-        assertTrue(gradle.contains("versionName = \"1.4.84-phone\""))
-        assertTrue(gradle.contains("versionCode = 119"))
-        assertTrue(gradle.contains("versionCode = 96"))
+        assertTrue(gradle.contains("versionName = \"1.4.108\""))
+        assertTrue(gradle.contains("versionName = \"1.4.85-phone\""))
+        assertTrue(gradle.contains("versionCode = 120"))
+        assertTrue(gradle.contains("versionCode = 97"))
         assertFalse(gradle.contains("versionName = \"1.4.102\""))
         assertFalse(gradle.contains("versionName = \"1.4.79-phone\""))
     }

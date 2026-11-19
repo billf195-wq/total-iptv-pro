@@ -68,7 +68,11 @@ class AdultCategoriesTest {
     fun matchesAdultMarkersCaseInsensitive() {
         listOf(
             "Adult", "ADULTS", "XXX Movies", "xxx", "18+", "Movies 18 +", "+18 Live", "For Adults",
-            "VOD | ADULT", "Adult-Live", "porn", "|XXX| HD"
+            "VOD | ADULT", "Adult-Live", "porn", "|XXX| HD",
+            // 1.4.108
+            "ADULTOS", "Peliculas Adultas", "Adulte", "Films adultes", "Film per adulti", "Erotic",
+            "EROTICA HD", "Eróticos", "X X X", "x.x.x", "X-X-X Live", "(18+)", "[18 +]", "18 + VOD",
+            "+ 18", "18-+", "18 PLUS", "Movies 18＋"
         ).forEach { assertTrue(AdultCategories.isAdult(it), it) }
     }
 
@@ -76,7 +80,9 @@ class AdultCategoriesTest {
     fun isConservative() {
         listOf(
             "Young Adult", "Adult Swim", "Kids", "News", "Sports 1080p", "Top 100", "UK 18",
-            "Series 2018+", "Classics", "Boxxx", "Maxxx", "Adultery Drama", "", "Netflix"
+            "Series 2018+", "Classics", "Boxxx", "Maxxx", "Adultery Drama", "", "Netflix",
+            // 1.4.108
+            "Jóvenes adultos", "Box x", "Top 180", "XL Sports", "Heroic Tales", "Season 18", "2018 plus"
         ).forEach { assertFalse(AdultCategories.isAdult(it), it) }
         assertFalse(AdultCategories.isAdult(null))
     }
@@ -407,5 +413,44 @@ class ParentalWiringSourceTest {
         // Phone is touch-first: its picker hint must not tell the user to press OK.
         assertTrue(src("phone/java/com/totaliptv/pro/ui/settings/PhonePinLockDialogs.kt").contains("PinLockEntry.PICKER_HINT_TOUCH"))
         assertTrue(src("main/java/com/totaliptv/pro/TotalIptvProApp.kt").contains("ParentalGate.install(ParentalLockStore(this))"))
+    }
+}
+
+/** 1.4.108: PIN status line and Unlock wording. */
+class PinStatusLineTest {
+    @Test
+    fun statusLineCountsLockedCategoriesAndWarnsWhenNone() {
+        assertTrue(PinFlow.statusLine(false, false, -1).startsWith("Off."))
+        assertEquals("On — locked. 3 categories hidden (adult and chosen categories).", PinFlow.statusLine(true, true, 3))
+        assertEquals("On — locked. 1 category hidden (adult and chosen categories).", PinFlow.statusLine(true, true, 1))
+        assertTrue(PinFlow.statusLine(true, true, 0).contains("no categories are locked yet"))
+        assertTrue(PinFlow.statusLine(true, true, -1).contains("Adult and chosen categories are hidden"))
+        val unlocked = PinFlow.statusLine(true, false, 3)
+        assertTrue(unlocked.contains("until you choose Lock now or leave the app for 5 minutes"), unlocked)
+        assertFalse(unlocked.contains("app closes"))
+        assertTrue(PinFlow.statusLine(true, false, 0).contains("No categories are locked yet"))
+    }
+
+    @Test
+    fun unlockWordingNoLongerSaysUntilTheAppCloses() {
+        val e = com.totaliptv.pro.ui.settings.PinLockEntry.UNLOCK
+        assertFalse(e.subtitle.contains("app closes"))
+        assertTrue(e.subtitle.contains("Lock now") && e.subtitle.contains("5 minutes"))
+        val done = com.totaliptv.pro.ui.settings.PinLockEntry.doneMessage(PinMode.UNLOCK)!!
+        assertTrue(done.contains("5 minutes"))
+    }
+
+    @Test
+    fun gateReportsLockedCategoryCount() {
+        ParentalGate.install(object : ParentalGate.Store {
+            override fun readConfig() = LockConfig()
+            override fun writeConfig(config: LockConfig) {}
+            override fun readRemembered() = emptySet<String>()
+            override fun writeRemembered(ids: Set<String>) {}
+        })
+        val before = ParentalGate.revision.value
+        ParentalGate.onCatalogFiltered(setOf("a"), false, 4)
+        assertEquals(4, ParentalGate.lockedCategoryCount)
+        assertTrue(ParentalGate.revision.value > before)
     }
 }

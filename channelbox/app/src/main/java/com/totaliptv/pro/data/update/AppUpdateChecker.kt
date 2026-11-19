@@ -11,7 +11,6 @@ import com.totaliptv.pro.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -26,12 +25,20 @@ data class UpdateManifest(
     val driveFileId: String = "",
     val url: String = "",
     val size: Long = 0,
-    val sha256: String = ""
+    val sha256: String = "",
+    /** 1.4.108: extra download links for the same file (tried after [url]). */
+    val mirrors: List<String> = emptyList()
 )
 
 sealed class UpdateCheckResult {
     data object UpToDate : UpdateCheckResult()
-    data class Available(val manifest: UpdateManifest, val apkUrl: String) : UpdateCheckResult()
+    data class Available(
+        val manifest: UpdateManifest,
+        val apkUrl: String,
+        val mirrors: List<String> = emptyList(),
+        /** Plain source name ("Google Drive", "GitHub", ...). */
+        val source: String = ""
+    ) : UpdateCheckResult()
     data class Failed(val message: String) : UpdateCheckResult()
 }
 
@@ -45,160 +52,102 @@ fun UpdateCheckResult.Available.installLabel(): String {
 }
 
 object AppUpdateChecker {
-    const val DOWNLOAD_ATTEMPTS = 2
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    const val DOWNLOAD_ATTEMPTS = UpdateEngine.ATTEMPTS
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
-    fun normalizeBase(raw: String): String {
-        var u = raw.trim()
-        if (u.isEmpty()) return ""
-        if (!u.startsWith("http://") && !u.startsWith("https://")) u = "http://$u"
-        if (!u.endsWith("/")) u += "/"
-        return u
-    }
+    fun normalizeBase(raw: String): String = AppUpdateCheckerBase.normalizeBase(raw)
+
+    private fun engine(): UpdateEngine = UpdateEngine(
+        client = client,
+        endpoints = UpdateEndpoints.withOverride(
+            UpdateEndpoints.defaults(BuildConfig.FLAVOR),
+            BuildConfig.TEST_UPDATE_ENDPOINTS
+        ),
+        flavor = BuildConfig.FLAVOR,
+        versionCode = BuildConfig.VERSION_CODE,
+        versionName = BuildConfig.VERSION_NAME,
+        localIpv4 = ::localIpv4
+    )
+
+    /** This device's IPv4 addresses (no permission needed). */
+    fun localIpv4(): List<String> = runCatching {
+        java.net.NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+            .filter { runCatching { it.isUp && !it.isLoopback }.getOrDefault(false) }
+            .flatMap { it.inetAddresses.toList() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .mapNotNull { it.hostAddress }
+    }.getOrDefault(emptyList())
 
     /**
-     * 1.4.92: Google Drive manifest only; the home shelf is the fallback when
-     * Drive is unreachable. Manual downloads stay on the public releases page.
+     * 1.4.108: Google Drive manifest, then the GitHub releases list, then the per-release
+     * version file, then the optional home shelf (skipped when it is a private address on
+     * another network). A failure names the real reason for each source.
      */
     suspend fun check(baseUrl: String): UpdateCheckResult = withContext(Dispatchers.IO) {
         if (!com.totaliptv.pro.BuildConfig.SELF_UPDATER_ENABLED) {
             return@withContext UpdateCheckResult.UpToDate
         }
-        val drive = runCatching { checkDrive() }.getOrElse {
-            UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
-        }
-        if (drive !is UpdateCheckResult.Failed) return@withContext drive
-        if (!UpdateSources.shouldCheckShelf(baseUrl)) return@withContext drive
-        checkShelf(baseUrl)
-    }
-
-    private fun checkDrive(): UpdateCheckResult {
-        val manifestId = UpdateSources.driveManifestId(BuildConfig.FLAVOR)
-        if (manifestId.isBlank()) return UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
-        val req = Request.Builder().url(UpdateSources.driveDownloadUrl(manifestId)).get().build()
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) error("HTTP ${resp.code}")
-            val body = resp.body?.string().orEmpty()
-            val manifest = json.decodeFromString(UpdateManifest.serializer(), body)
-            if (manifest.versionCode <= BuildConfig.VERSION_CODE) return UpdateCheckResult.UpToDate
-            val url = UpdateSources.driveApkUrl(manifest.url, manifest.driveFileId)
-                ?: error("Drive manifest has no APK")
-            return UpdateCheckResult.Available(manifest, url)
-        }
-    }
-
-    private fun checkShelf(baseUrl: String): UpdateCheckResult {
-        return try {
-            val base = normalizeBase(baseUrl)
-            val req = Request.Builder().url(base + "version.json").get().build()
-            client.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) {
-                    return UpdateCheckResult.Failed("Server returned ${resp.code}")
-                }
-                val body = resp.body?.string().orEmpty()
-                if (body.isBlank()) return UpdateCheckResult.Failed("Empty version.json")
-                val manifest = json.decodeFromString(UpdateManifest.serializer(), body)
-                if (manifest.versionCode > BuildConfig.VERSION_CODE) {
-                    val apkName = manifest.apk.ifBlank { "TotalIPTVPro.apk" }
-                    UpdateCheckResult.Available(manifest, base + apkName)
-                } else {
-                    UpdateCheckResult.UpToDate
-                }
-            }
-        } catch (_: Throwable) {
-            UpdateCheckResult.Failed(UpdateSources.UPDATE_UNAVAILABLE)
-        }
+        engine().check(baseUrl)
     }
 
     /**
-     * 1.4.107: streams the APK to a .part file (no 20+ MB byte array in memory, which could
-     * run out of memory on small TV sticks with a big catalog loaded), hashes it while it
-     * downloads, checks it is really an APK, and tries [DOWNLOAD_ATTEMPTS] times.
-     * [onProgress] gets 0..100 when the size is known.
+     * 1.4.108: streams to a .part file (resumes with HTTP Range after a drop), checks free space,
+     * tries the manifest link then mirrors / GitHub, [DOWNLOAD_ATTEMPTS] tries each with backoff,
+     * and verifies the zip header, size and SHA-256. [onProgress] gets 0..100 when the size is known.
      */
     suspend fun downloadApk(
         context: Context,
-        apkUrl: String,
-        expectedSize: Long = 0,
-        expectedSha256: String = "",
+        ready: UpdateCheckResult.Available,
         onProgress: ((Int) -> Unit)? = null
     ): File = withContext(Dispatchers.IO) {
-        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
-        val out = File(dir, "TotalIPTVPro-update.apk")
-        val part = File(dir, "TotalIPTVPro-update.apk.part")
-        var last: Throwable? = null
-        for (attempt in 1..DOWNLOAD_ATTEMPTS) {
-            try {
-                downloadOnce(apkUrl, part, expectedSize, expectedSha256, onProgress)
-                if (out.exists()) out.delete()
-                if (!part.renameTo(out)) {
-                    part.copyTo(out, overwrite = true)
-                    part.delete()
-                }
-                return@withContext out
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                part.delete()
-                throw e
-            } catch (e: Throwable) {
-                part.delete()
-                last = e
-            }
-        }
-        throw last ?: IllegalStateException("Download failed")
+        if (!com.totaliptv.pro.BuildConfig.SELF_UPDATER_ENABLED) error("Updates come from Google Play")
+        engine().download(File(context.cacheDir, "updates"), ready, onProgress)
     }
 
-    private fun downloadOnce(
-        apkUrl: String,
-        part: File,
-        expectedSize: Long,
-        expectedSha256: String,
-        onProgress: ((Int) -> Unit)?
-    ) {
-        if (part.exists()) part.delete()
-        val req = Request.Builder().url(apkUrl).get().build()
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) error("Download failed (${resp.code})")
-            val body = resp.body ?: error("Empty APK body")
-            val total = if (expectedSize > 0) expectedSize else body.contentLength()
-            val md = java.security.MessageDigest.getInstance("SHA-256")
-            val head = ByteArray(2)
-            var headLen = 0
-            var count = 0L
-            var lastPct = -1
-            body.byteStream().use { input ->
-                part.outputStream().buffered().use { sink ->
-                    val buf = ByteArray(64 * 1024)
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        if (n == 0) continue
-                        if (headLen < 2) {
-                            val take = minOf(2 - headLen, n)
-                            System.arraycopy(buf, 0, head, headLen, take)
-                            headLen += take
-                        }
-                        sink.write(buf, 0, n)
-                        md.update(buf, 0, n)
-                        count += n
-                        if (total > 0 && onProgress != null) {
-                            val pct = (count * 100 / total).toInt().coerceIn(0, 100)
-                            if (pct != lastPct) {
-                                lastPct = pct
-                                onProgress(pct)
-                            }
-                        }
-                    }
-                }
-            }
-            val sha = md.digest().joinToString("") { "%02x".format(it) }
-            UpdateSources.verifyDownload(count, head.copyOf(headLen), sha, expectedSize, expectedSha256)
-                ?.let { error(it) }
+    /** 1.4.108: null when [apk] can replace this app; otherwise a plain reason (e.g. uninstall first). */
+    fun installProblem(context: Context, apk: File): String? {
+        val pm = context.packageManager
+        @Suppress("DEPRECATION")
+        val flags = if (Build.VERSION.SDK_INT >= 28) {
+            android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            android.content.pm.PackageManager.GET_SIGNATURES
         }
+        val archive = runCatching { pm.getPackageArchiveInfo(apk.absolutePath, flags) }.getOrNull()
+        val installed = runCatching { pm.getPackageInfo(context.packageName, flags) }.getOrNull()
+        return UpdateSources.installMismatch(
+            installedPackage = context.packageName,
+            archivePackage = archive?.packageName,
+            installedCerts = certs(installed),
+            archiveCerts = certs(archive),
+            installedVersionCode = installed?.let { versionCodeOf(it) } ?: 0L,
+            archiveVersionCode = archive?.let { versionCodeOf(it) } ?: 0L
+        )
+    }
+
+    @Suppress("DEPRECATION")
+    private fun versionCodeOf(info: android.content.pm.PackageInfo): Long =
+        if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+
+    @Suppress("DEPRECATION")
+    private fun certs(info: android.content.pm.PackageInfo?): Set<String> {
+        if (info == null) return emptySet()
+        val sigs = runCatching {
+            if (Build.VERSION.SDK_INT >= 28) {
+                val si = info.signingInfo ?: return@runCatching null
+                if (si.hasMultipleSigners()) si.apkContentsSigners else si.signingCertificateHistory?.takeLast(1)?.toTypedArray()
+            } else {
+                info.signatures
+            }
+        }.getOrNull() ?: return emptySet()
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        return sigs.filterNotNull().map { sig ->
+            md.digest(sig.toByteArray()).joinToString("") { "%02x".format(it) }
+        }.toSet()
     }
 
     fun canInstallPackages(context: Context): Boolean {

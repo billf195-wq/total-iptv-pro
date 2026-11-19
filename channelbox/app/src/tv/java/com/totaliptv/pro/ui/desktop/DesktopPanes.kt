@@ -833,6 +833,9 @@ fun DesktopSettingsPane(
         runCatching { updateFocus.requestFocus() }
     }
     var pendingInstall by remember { mutableStateOf<UpdateCheckResult.Available?>(null) }
+    // 1.4.108: an update that carried on after "Install unknown apps", and the last problem kept for Settings.
+    val updateBgStatus by com.totaliptv.pro.data.update.UpdateInstaller.status.collectAsState()
+    val updateLastProblem = remember(updateStatus, updateBgStatus) { com.totaliptv.pro.data.update.UpdateInstaller.lastProblemLine(context) }
     val shelfField = remember { mutableStateOf<android.widget.EditText?>(null) }
     val sources by repository.sources.collectAsState(initial = emptyList())
 
@@ -1204,7 +1207,7 @@ fun DesktopSettingsPane(
         )
         if (BuildConfig.SELF_UPDATER_ENABLED) {
         Text(
-            if (updateBaseUrl.isBlank()) "Checks Google Drive" else "Checks Google Drive, then your shelf",
+            if (updateBaseUrl.isBlank()) "Checks Google Drive, then GitHub" else "Checks Google Drive, then GitHub, then your shelf",
             color = TipGoldMuted,
             fontSize = TipDimens.sp(12)
         )
@@ -1260,6 +1263,7 @@ fun DesktopSettingsPane(
                         try {
                             if (activity != null && !AppUpdateChecker.canInstallPackages(context)) {
                                 updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.UNKNOWN_APPS_HINT
+                                com.totaliptv.pro.data.update.UpdateInstaller.awaitPermission(context, ready)
                                 AppUpdateChecker.openUnknownSourcesSettings(activity)
                                 return@launch
                             }
@@ -1282,7 +1286,7 @@ fun DesktopSettingsPane(
                     updateBusy = true
                     updateStatus = "Checking…"
                     pendingInstall = null
-                    when (val result = AppUpdateChecker.check(updateBaseUrl)) {
+                    when (val result = com.totaliptv.pro.data.update.UpdateInstaller.check(context, updateBaseUrl)) {
                         is UpdateCheckResult.UpToDate -> {
                             updateStatus = "Up to date (${BuildConfig.VERSION_NAME})"
                             Toast.makeText(context, "Up to date", Toast.LENGTH_SHORT).show()
@@ -1297,7 +1301,7 @@ fun DesktopSettingsPane(
                             ).show()
                         }
                         is UpdateCheckResult.Failed -> {
-                            updateStatus = "Check failed: ${SensitiveText.forUser(result.message)}"
+                            updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.checkFailedLabel(result.message)
                             Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                         }
                     }
@@ -1306,7 +1310,7 @@ fun DesktopSettingsPane(
                 }
             }
         )
-        updateStatus?.let {
+        (updateStatus ?: updateBgStatus ?: updateLastProblem)?.let {
             Spacer(Modifier.height(TipDimens.dp(10)))
             Text(it, color = TipAccent, fontSize = TipDimens.BodyMediumSp)
         }

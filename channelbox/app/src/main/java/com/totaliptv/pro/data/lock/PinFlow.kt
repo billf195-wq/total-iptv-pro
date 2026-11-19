@@ -109,10 +109,28 @@ class PinFlow(val mode: PinMode, private val gate: ParentalGate = ParentalGate) 
 
     /** Short line for the Settings section. */
     companion object {
-        fun statusLine(gate: ParentalGate = ParentalGate): String = when {
-            !gate.isEnabled -> "Off. Set a PIN to hide adult categories and any categories you choose."
-            gate.isActive -> "On — locked. Adult and chosen categories are hidden."
-            else -> "On — unlocked for this session. Locks again when the app closes or after 5 minutes in the background."
+        fun statusLine(gate: ParentalGate = ParentalGate): String =
+            statusLine(gate.isEnabled, gate.isActive, gate.lockedCategoryCount)
+
+        /** 1.4.108: says how many categories are locked, and warns when none match. */
+        fun statusLine(enabled: Boolean, active: Boolean, lockedCategories: Int): String {
+            if (!enabled) return "Off. Set a PIN to hide adult categories and any categories you choose."
+            val none = lockedCategories == 0
+            val count = when {
+                lockedCategories < 0 -> null
+                lockedCategories == 1 -> "1 category"
+                else -> "$lockedCategories categories"
+            }
+            return if (active) {
+                when {
+                    none -> "On — locked, but no categories are locked yet. Use Choose locked categories to pick what to hide."
+                    count != null -> "On — locked. $count hidden (adult and chosen categories)."
+                    else -> "On — locked. Adult and chosen categories are hidden."
+                }
+            } else {
+                val tail = if (none) " No categories are locked yet; use Choose locked categories." else ""
+                "On — unlocked. Locked categories show until you choose Lock now or leave the app for 5 minutes.$tail"
+            }
         }
     }
 }

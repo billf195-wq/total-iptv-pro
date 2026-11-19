@@ -122,6 +122,9 @@ fun SettingsScreen(
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var updateBusy by remember { mutableStateOf(false) }
     var pendingInstall by remember { mutableStateOf<UpdateCheckResult.Available?>(null) }
+    // 1.4.108: an update that carried on after "Install unknown apps", and the last problem kept for Settings.
+    val updateBgStatus by com.totaliptv.pro.data.update.UpdateInstaller.status.collectAsState()
+    val updateLastProblem = remember(updateStatus, updateBgStatus) { com.totaliptv.pro.data.update.UpdateInstaller.lastProblemLine(context) }
     val tmdbKey by app.preferences.tmdbApiKey.collectAsState(initial = "")
     val serviceStatus by repository.serviceLookupStatus.collectAsState()
     var editingTmdbKey by remember { mutableStateOf(false) }
@@ -326,8 +329,8 @@ fun SettingsScreen(
                             "Install update ${pendingInstall!!.manifest.versionName}"
                         else -> "Check for update"
                     },
-                    subtitle = updateStatus
-                        ?: "Checks Google Drive first, then version.json on the PC shelf",
+                    subtitle = updateStatus ?: updateBgStatus ?: updateLastProblem
+                        ?: "Checks Google Drive first, then GitHub, then version.json on the PC shelf",
                     onClick = {
                         if (updateBusy) return@FocusableCard
                         val activity = context as? Activity
@@ -344,7 +347,8 @@ fun SettingsScreen(
                                             "Enable install unknown apps for Total IPTV Pro",
                                             Toast.LENGTH_LONG
                                         ).show()
-                                        AppUpdateChecker.openUnknownSourcesSettings(activity)
+                                        com.totaliptv.pro.data.update.UpdateInstaller.awaitPermission(context, ready)
+                                AppUpdateChecker.openUnknownSourcesSettings(activity)
                                         return@launch
                                     }
                                     com.totaliptv.pro.data.update.UpdateInstaller.downloadAndInstall(context, ready) { pct ->
@@ -366,7 +370,7 @@ fun SettingsScreen(
                             updateBusy = true
                             updateStatus = "Checking…"
                             pendingInstall = null
-                            when (val result = AppUpdateChecker.check(updateBaseUrl)) {
+                            when (val result = com.totaliptv.pro.data.update.UpdateInstaller.check(context, updateBaseUrl)) {
                                 is UpdateCheckResult.UpToDate -> {
                                     updateStatus = "Up to date (${BuildConfig.VERSION_NAME})"
                                     Toast.makeText(context, "Up to date", Toast.LENGTH_SHORT).show()
@@ -381,7 +385,7 @@ fun SettingsScreen(
                                     ).show()
                                 }
                                 is UpdateCheckResult.Failed -> {
-                                    updateStatus = "Check failed: ${SensitiveText.forUser(result.message)}"
+                                    updateStatus = com.totaliptv.pro.data.update.UpdateInstaller.checkFailedLabel(result.message)
                                     Toast.makeText(context, updateStatus, Toast.LENGTH_LONG).show()
                                 }
                             }

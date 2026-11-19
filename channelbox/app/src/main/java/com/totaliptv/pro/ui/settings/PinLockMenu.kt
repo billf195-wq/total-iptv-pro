@@ -6,7 +6,7 @@ import com.totaliptv.pro.data.lock.PinMode
 /** Buttons in the Settings "PIN lock" section, shared by TV Classic, TV Desktop and phone. */
 enum class PinLockEntry(val label: String, val subtitle: String) {
     SET("Set PIN", "Choose a 4-digit PIN. Adult categories are locked automatically."),
-    UNLOCK("Unlock with PIN", "Show locked categories until the app closes"),
+    UNLOCK("Unlock with PIN", "Show locked categories until Lock now, or 5 minutes away from the app"),
     LOCK_NOW("Lock now", "Hide locked categories again"),
     CATEGORIES("Choose locked categories", "Tick Live, Movies or Series categories to lock"),
     CHANGE("Change PIN", "Needs the current PIN"),
@@ -35,7 +35,7 @@ enum class PinLockEntry(val label: String, val subtitle: String) {
 
         fun doneMessage(mode: PinMode): String? = when (mode) {
             PinMode.SET -> "PIN lock on. Adult categories are hidden."
-            PinMode.UNLOCK -> "Unlocked for this session"
+            PinMode.UNLOCK -> "Unlocked. Locks again after 5 minutes away from the app, or choose Lock now."
             PinMode.CHANGE -> "PIN changed"
             PinMode.TURN_OFF -> "PIN lock off"
             PinMode.RESET -> "New PIN set. Your locked list was cleared."

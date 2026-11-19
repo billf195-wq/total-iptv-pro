@@ -34,7 +34,7 @@ class PlayBuildUpdaterTest {
         for (src in listOf(tv, phone, desktop)) {
             assertTrue(src.contains("BuildConfig.SELF_UPDATER_ENABLED"))
             assertTrue(src.contains("Check for update"))
-            assertTrue(src.contains("AppUpdateChecker.check"))
+            assertTrue(src.contains("UpdateInstaller.check(context, updateBaseUrl)"))
         }
         // Catalog reload is not the self-updater and must stay on Play builds,
         // before the Play-gated updater block.

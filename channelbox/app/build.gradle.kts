@@ -51,8 +51,8 @@ android {
         applicationId = "com.totaliptv.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 119
-        versionName = "1.4.107"
+        versionCode = 120
+        versionName = "1.4.108"
         buildConfigField(
             "String",
             "DEFAULT_UPDATE_BASE_URL",
@@ -68,6 +68,17 @@ android {
             "String",
             "OWNER_UPDATE_BASE_URL",
             "\"$ownerUpdate\""
+        )
+        // 1.4.108: local test servers for the update source chain (emulator tests only).
+        // Blank in every shipped build. Format: drive=<url>;github=<url>;vfile=<url>
+        val testUpdateEndpoints = (System.getenv("TIP_TEST_UPDATE_ENDPOINTS") ?: "")
+            .replace("\"", "")
+            .replace("\n", "")
+            .replace("\r", "")
+        buildConfigField(
+            "String",
+            "TEST_UPDATE_ENDPOINTS",
+            "\"$testUpdateEndpoints\""
         )
         // Optional TMDB key for service groups in local test builds. Read from a file named by
         // -PtipTmdbKeyFile=... or env TIP_TMDB_KEY_FILE; the key itself is never in git.
@@ -94,8 +105,8 @@ android {
         create("tv") {
             dimension = "device"
             // Keep Shield / Leanback applicationId unchanged.
-            versionCode = 119
-            versionName = "1.4.107"
+            versionCode = 120
+            versionName = "1.4.108"
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",
@@ -106,8 +117,8 @@ android {
             dimension = "device"
             applicationIdSuffix = ".phone"
             // Phone-only bump so Shield is not forced to update.
-            versionCode = 96
-            versionName = "1.4.84-phone"
+            versionCode = 97
+            versionName = "1.4.85-phone"
             resValue("string", "app_name", "Total IPTV Pro Phone")
             buildConfigField(
                 "String",

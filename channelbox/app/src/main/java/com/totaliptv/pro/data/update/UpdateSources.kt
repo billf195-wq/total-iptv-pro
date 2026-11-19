@@ -78,6 +78,73 @@ object UpdateSources {
 
     const val MIN_APK_BYTES = 100_000L
 
+    /** 1.4.108: per-release version file, attached to each GitHub release as an asset. */
+    fun versionFileUrl(flavor: String): String = when (flavor.trim().lowercase()) {
+        "phone" -> "https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/version-phone.json"
+        "tv" -> "https://github.com/billf195-wq/total-iptv-pro/releases/latest/download/version-tv.json"
+        else -> ""
+    }
+
+    /** An HTML page (sign-in, quota, filter or virus-scan page) instead of JSON. */
+    fun looksLikeWebPage(body: String): Boolean {
+        val t = body.trimStart().take(512).lowercase()
+        return t.startsWith("<") || t.contains("<html") || t.contains("<!doctype")
+    }
+
+    fun isZipHead(head: ByteArray): Boolean =
+        head.size >= 2 && head[0] == 'P'.code.toByte() && head[1] == 'K'.code.toByte()
+
+    /** GitHub asset digest "sha256:<hex>" -> "<hex>"; anything else -> "". */
+    fun shaFromDigest(digest: String?): String {
+        val d = digest?.trim().orEmpty()
+        return if (d.startsWith("sha256:", ignoreCase = true)) d.substring(7).lowercase() else ""
+    }
+
+    /**
+     * 1.4.108: a saved shelf on a private address (for example the old home shelf
+     * address) is only tried when this device is on that same /24 network. Public names and
+     * addresses are always tried. Unknown local addresses (offline) -> tried, and fail normally.
+     */
+    fun shelfUsableHere(base: String, localIpv4: List<String>): Boolean {
+        val host = base.trim().substringAfter("://").substringBefore('/').substringBefore(':')
+        val parts = host.split('.')
+        if (parts.size != 4 || parts.any { it.toIntOrNull() == null }) return true
+        val o = parts.map { it.toInt() }
+        val private = o[0] == 10 || (o[0] == 172 && o[1] in 16..31) || (o[0] == 192 && o[1] == 168)
+        if (!private) return true
+        val mine = localIpv4.filter { it.count { c -> c == '.' } == 3 && !it.startsWith("127.") }
+        if (mine.isEmpty()) return true
+        val prefix = o.take(3).joinToString(".") + "."
+        return mine.any { it.startsWith(prefix) }
+    }
+
+    const val UNINSTALL_FIRST =
+        "This update is signed differently from the app on this device, so Android would refuse it. " +
+            "Uninstall Total IPTV Pro first (this signs you out), then install the new version from Downloader."
+
+    /**
+     * 1.4.108: null when the downloaded APK can replace the installed app. Empty cert sets mean
+     * "could not read", which is not treated as a mismatch (Android still checks).
+     */
+    fun installMismatch(
+        installedPackage: String,
+        archivePackage: String?,
+        installedCerts: Set<String>,
+        archiveCerts: Set<String>,
+        installedVersionCode: Long,
+        archiveVersionCode: Long
+    ): String? {
+        if (archivePackage == null) return "The download is not a valid app file."
+        if (archivePackage != installedPackage) return "This file is a different app, so it was not installed."
+        if (installedCerts.isNotEmpty() && archiveCerts.isNotEmpty() && installedCerts != archiveCerts) {
+            return UNINSTALL_FIRST
+        }
+        if (archiveVersionCode in 1..installedVersionCode) {
+            return "This file is not newer than the installed version, so it was not installed."
+        }
+        return null
+    }
+
     data class Asset(val name: String, val url: String)
 
     data class ReleaseListing(

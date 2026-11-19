@@ -65,6 +65,7 @@ object ParentalGate {
         config = runCatching { store.readConfig() }.getOrDefault(LockConfig())
         remembered = runCatching { store.readRemembered() }.getOrDefault(emptySet())
         computedHidden = emptySet()
+        lockedCategoryCount = -1
         changed()
     }
 
@@ -106,10 +107,22 @@ object ParentalGate {
 
     fun isCategoryLocked(category: Category): Boolean = config.isLocked(category)
 
+    /**
+     * 1.4.108: how many provider categories the lock covers in the loaded catalog, for the
+     * Settings status line. -1 until the catalog has been filtered once.
+     */
+    @Volatile
+    var lockedCategoryCount: Int = -1
+        private set
+
     /** Repository callback after each filter pass. [complete] = every list (live, movies, series) loaded. */
-    fun onCatalogFiltered(hidden: Set<String>, complete: Boolean) {
+    fun onCatalogFiltered(hidden: Set<String>, complete: Boolean, lockedCategories: Int = -1) {
         val before = computedHidden
         computedHidden = hidden
+        if (lockedCategories != lockedCategoryCount && (lockedCategories >= 0 || lockedCategoryCount >= 0)) {
+            lockedCategoryCount = lockedCategories
+            _revision.value = _revision.value + 1
+        }
         if (complete && config.enabled && hidden != remembered) {
             remembered = hidden
             runCatching { store.writeRemembered(hidden) }

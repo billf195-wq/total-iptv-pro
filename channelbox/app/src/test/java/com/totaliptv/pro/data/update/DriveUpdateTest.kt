@@ -44,10 +44,15 @@ class DriveUpdateTest {
     }
 
     @Test
-    fun updaterNoLongerContactsGitHub() {
+    fun updaterChecksDriveThenGithubThenReleaseFileThenShelf() {
+        // 1.4.108: GitHub came back as the second source (Bill approved the fallback order).
+        val engine = java.io.File("src/main/java/com/totaliptv/pro/data/update/UpdateEngine.kt").readText()
+        val d = engine.indexOf("SITE_DRIVE to {")
+        val g = engine.indexOf("SITE_GITHUB to {")
+        val v = engine.indexOf("SITE_RELEASE_FILE to {")
+        val s = engine.indexOf("checkShelf(shelfBase)")
+        assertTrue(d in 0 until g && g < v && v < s)
         val checker = java.io.File("src/main/java/com/totaliptv/pro/data/update/AppUpdateChecker.kt").readText()
-        assertTrue(!checker.lowercase().contains("github"))
-        assertTrue(checker.contains("checkDrive()"))
-        assertTrue(checker.contains("checkShelf(baseUrl)"))
+        assertTrue(checker.contains("engine().check(baseUrl)"))
     }
 }

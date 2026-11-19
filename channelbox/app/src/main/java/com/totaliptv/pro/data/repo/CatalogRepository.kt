@@ -522,16 +522,16 @@ class CatalogRepository(
             val r = CatalogLockFilter.apply(cats, items, ParentalGate.config)
             cachedCategories = r.categories
             cachedItems = r.items
-            ParentalGate.onCatalogFiltered(r.hiddenItemIds, complete && items.isNotEmpty())
+            ParentalGate.onCatalogFiltered(r.hiddenItemIds, complete && items.isNotEmpty(), lockedCountOrUnknown(r, items))
         } else {
             cachedCategories = cats
             cachedItems = items
             if (ParentalGate.isEnabled) {
                 // Unlocked: keep the remembered ids current without hiding anything.
                 val r = CatalogLockFilter.apply(cats, items, ParentalGate.config)
-                ParentalGate.onCatalogFiltered(r.hiddenItemIds, complete && items.isNotEmpty())
+                ParentalGate.onCatalogFiltered(r.hiddenItemIds, complete && items.isNotEmpty(), lockedCountOrUnknown(r, items))
             } else {
-                ParentalGate.onCatalogFiltered(emptySet(), false)
+                ParentalGate.onCatalogFiltered(emptySet(), false, 0)
             }
         }
         if (refresh) {
@@ -539,6 +539,10 @@ class CatalogRepository(
             bumpRevision()
         }
     }
+
+    /** 1.4.108: locked category count for the PIN status line; unknown (-1) before any list loads. */
+    private fun lockedCountOrUnknown(r: CatalogLockFilter.Result, items: List<MediaItem>): Int =
+        if (items.isEmpty() && rawCategories.isEmpty()) -1 else r.lockedCategoryIds.size
 
     /** Every provider category (locked ones included) for the PIN lock picker. */
     fun allCategoriesForLock(kind: ContentKind): List<Category> = rawCategories.filter { it.kind == kind }
