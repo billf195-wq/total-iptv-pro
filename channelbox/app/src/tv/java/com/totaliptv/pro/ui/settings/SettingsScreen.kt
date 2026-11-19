@@ -331,6 +331,8 @@ fun SettingsScreen(
                     },
                     subtitle = updateStatus ?: updateBgStatus ?: updateLastProblem
                         ?: "Checks Google Drive first, then GitHub, then version.json on the PC shelf",
+                    // Failure reasons can name several sources; let them wrap instead of cutting off.
+                    subtitleMaxLines = 6,
                     onClick = {
                         if (updateBusy) return@FocusableCard
                         val activity = context as? Activity

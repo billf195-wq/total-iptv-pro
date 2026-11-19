@@ -103,18 +103,22 @@ object UpdateErrors {
 
     fun checkFailed(failures: List<Pair<String, String>>): String {
         if (failures.isEmpty()) return UpdateSources.UPDATE_UNAVAILABLE
-        val real = failures.filter { it.second != SHELF_SKIPPED }.ifEmpty { failures }
+        val skipped = failures.any { it.second == SHELF_SKIPPED }
+        val real = failures.filter { it.second != SHELF_SKIPPED }
+        if (real.isEmpty()) return "Home shelf $SHELF_SKIPPED"
+        val skipNote = if (skipped) " Home shelf skipped (not on that network)." else ""
         val reasons = real.map { it.second }.distinct()
-        val names = failures.map { it.first }
-        return if (reasons.size == 1) {
-            val skipped = failures.any { it.second == SHELF_SKIPPED }
-            reasons[0] + " Tried " + joinNames(real.map { it.first }) + "." +
-                (if (skipped) " Home shelf skipped (not on that network)." else "")
-        } else {
-            failures.joinToString(" ") { (name, why) ->
-                sentence(if (why.startsWith(name, ignoreCase = true)) why else "$name: $why")
-            }
-        }.also { if (names.isEmpty()) return UpdateSources.UPDATE_UNAVAILABLE }
+        if (reasons.size == 1) {
+            return reasons[0] + " Tried " + joinNames(real.map { it.first }) + "." + skipNote
+        }
+        // Same reason from several sources is said once: "Google Drive and GitHub: <why>."
+        return reasons.joinToString(" ") { why ->
+            val names = real.filter { it.second == why }.map { it.first }
+            sentence(
+                if (names.size == 1 && why.startsWith(names[0], ignoreCase = true)) why
+                else joinNames(names) + ": " + why
+            )
+        } + skipNote
     }
 
     fun joinNames(names: List<String>): String = when (names.size) {

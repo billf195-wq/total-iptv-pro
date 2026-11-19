@@ -316,7 +316,8 @@ fun FocusableCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    subtitleMaxLines: Int = 2
 ) {
     var focused by remember { mutableStateOf(false) }
     val latestClick = rememberUpdatedState(onClick)
@@ -368,7 +369,7 @@ fun FocusableCard(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
+                    maxLines = subtitleMaxLines,
                     overflow = TextOverflow.Ellipsis,
                     color = OnCinemaMuted
                 )

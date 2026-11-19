@@ -185,7 +185,7 @@ class UpdateEngineTest {
         assertTrue(r.message.contains("Google Drive: " + UpdateErrors.WEB_PAGE), r.message)
         assertTrue(r.message.contains("GitHub had a problem (HTTP 500)"), r.message)
         assertFalse(r.message.contains("GitHub: GitHub"), r.message)
-        assertTrue(r.message.contains("The home shelf: skipped"), r.message)
+        assertTrue(r.message.endsWith("Home shelf skipped (not on that network)."), r.message)
         assertFalse(r.message.contains("192.168"), r.message)
         assertFalse(r.message.contains("http"), r.message)
     }
@@ -362,5 +362,17 @@ class UpdateFlavorTest {
             listOf("Google Drive" to "Google Drive is not set up for this build", "GitHub" to "x failed")
         )
         assertEquals("Google Drive is not set up for this build. GitHub: x failed.", msg)
+    }
+
+    @Test
+    fun sameReasonFromSeveralSourcesIsSaidOnce() {
+        val p = UpdateErrors.PROXY_BLOCKED
+        val msg = UpdateErrors.checkFailed(
+            listOf("Google Drive" to p, "GitHub" to p, "the release file" to p, "the home shelf" to UpdateErrors.WEB_PAGE)
+        )
+        assertEquals(
+            "Google Drive, GitHub and the release file: $p The home shelf: ${UpdateErrors.WEB_PAGE}",
+            msg
+        )
     }
 }
