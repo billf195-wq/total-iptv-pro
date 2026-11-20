@@ -200,7 +200,7 @@ fun PhoneSettingsScreen(
                 singleLine = true,
                 label = { Text("PC shelf URL") },
                 supportingText = {
-                    Text("Leave blank to use Google Drive only")
+                    Text("Leave blank to use Google Drive and GitHub only")
                 }
             )
             Spacer(Modifier.height(8.dp))

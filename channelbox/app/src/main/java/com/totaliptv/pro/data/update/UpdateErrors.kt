@@ -115,7 +115,7 @@ object UpdateErrors {
         return reasons.joinToString(" ") { why ->
             val names = real.filter { it.second == why }.map { it.first }
             sentence(
-                if (names.size == 1 && why.startsWith(names[0], ignoreCase = true)) why
+                if (names.size == 1 && why.contains(names[0], ignoreCase = true)) why
                 else joinNames(names) + ": " + why
             )
         } + skipNote

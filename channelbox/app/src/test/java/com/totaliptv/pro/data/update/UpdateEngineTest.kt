@@ -365,6 +365,20 @@ class UpdateFlavorTest {
     }
 
     @Test
+    fun sourceNamedInsideTheReasonIsNotRepeated() {
+        val msg = UpdateErrors.checkFailed(
+            listOf(
+                "GitHub" to "GitHub had a problem (HTTP 500). Try again later.",
+                "the release file" to "The update file was not found on the release file (HTTP 404)."
+            )
+        )
+        assertEquals(
+            "GitHub had a problem (HTTP 500). Try again later. The update file was not found on the release file (HTTP 404).",
+            msg
+        )
+    }
+
+    @Test
     fun httpReasonStartsWithACapital() {
         assertEquals(
             "The home shelf had a problem (HTTP 502). Try again later.",
