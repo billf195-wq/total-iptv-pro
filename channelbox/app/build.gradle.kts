@@ -43,6 +43,36 @@ val releaseKeystore = tipStoreFile?.takeIf { store ->
         !tipKeyPassword.isNullOrBlank()
 }
 
+// Built-in TMDB key for the streaming service groups (Netflix, Prime Video, HBO / Max, ...).
+// Read from a file named by -PtipTmdbKeyFile=... or env TIP_TMDB_KEY_FILE; the key itself is never in git.
+val tipTmdbKeyFile = (project.findProperty("tipTmdbKeyFile") as String?)
+    ?: System.getenv("TIP_TMDB_KEY_FILE")
+val tipTmdbDefaultKey = tipTmdbKeyFile
+    ?.let { File(it) }
+    ?.takeIf { it.isFile }
+    ?.readLines()
+    ?.firstOrNull { it.isNotBlank() }
+    ?.trim()
+    ?.replace("\"", "")
+    ?.replace("\\", "")
+    .orEmpty()
+
+// 1.4.109: 1.4.107 / 1.4.108 shipped without the built-in TMDB key, so every service group
+// except the ones a provider names itself (Netflix) disappeared. Refuse to package an APK
+// without the key unless a local test build opts out with -PtipAllowNoTmdbKey=true.
+val tipAllowNoTmdbKey = (project.findProperty("tipAllowNoTmdbKey") as String?)?.trim()?.toBoolean() == true
+val tipShipTaskName = Regex("""^(assemble|bundle|package)(Tv|Phone)\w*(Debug|Release)$""")
+gradle.taskGraph.whenReady {
+    val shipping = allTasks.any { it.project == project && tipShipTaskName.matches(it.name) }
+    if (shipping && tipTmdbDefaultKey.isBlank() && !tipAllowNoTmdbKey) {
+        throw GradleException(
+            "No built-in TMDB key: pass -PtipTmdbKeyFile=<file> (or TIP_TMDB_KEY_FILE). " +
+                "Without it only provider-named service groups (e.g. Netflix) appear. " +
+                "Local test builds can opt out with -PtipAllowNoTmdbKey=true."
+        )
+    }
+}
+
 android {
     namespace = "com.totaliptv.pro"
     compileSdk = 35
@@ -51,8 +81,8 @@ android {
         applicationId = "com.totaliptv.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 120
-        versionName = "1.4.108"
+        versionCode = 121
+        versionName = "1.4.109"
         buildConfigField(
             "String",
             "DEFAULT_UPDATE_BASE_URL",
@@ -80,23 +110,10 @@ android {
             "TEST_UPDATE_ENDPOINTS",
             "\"$testUpdateEndpoints\""
         )
-        // Optional TMDB key for service groups in local test builds. Read from a file named by
-        // -PtipTmdbKeyFile=... or env TIP_TMDB_KEY_FILE; the key itself is never in git.
-        val tmdbKeyFile = (project.findProperty("tipTmdbKeyFile") as String?)
-            ?: System.getenv("TIP_TMDB_KEY_FILE")
-        val tmdbDefaultKey = tmdbKeyFile
-            ?.let { File(it) }
-            ?.takeIf { it.isFile }
-            ?.readLines()
-            ?.firstOrNull { it.isNotBlank() }
-            ?.trim()
-            ?.replace("\"", "")
-            ?.replace("\\", "")
-            .orEmpty()
         buildConfigField(
             "String",
             "TMDB_DEFAULT_KEY",
-            "\"$tmdbDefaultKey\""
+            "\"$tipTmdbDefaultKey\""
         )
     }
 
@@ -105,8 +122,8 @@ android {
         create("tv") {
             dimension = "device"
             // Keep Shield / Leanback applicationId unchanged.
-            versionCode = 120
-            versionName = "1.4.108"
+            versionCode = 121
+            versionName = "1.4.109"
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",
@@ -117,8 +134,8 @@ android {
             dimension = "device"
             applicationIdSuffix = ".phone"
             // Phone-only bump so Shield is not forced to update.
-            versionCode = 97
-            versionName = "1.4.85-phone"
+            versionCode = 98
+            versionName = "1.4.86-phone"
             resValue("string", "app_name", "Total IPTV Pro Phone")
             buildConfigField(
                 "String",
