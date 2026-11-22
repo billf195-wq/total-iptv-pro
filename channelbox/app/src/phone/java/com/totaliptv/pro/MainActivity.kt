@@ -383,8 +383,8 @@ private fun PhoneAppRoot(
                                 softWrap = false,
                                 overflow = TextOverflow.Clip,
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 11.sp,
-                                    lineHeight = 13.sp,
+                                    fontSize = 10.sp,
+                                    lineHeight = 12.sp,
                                     letterSpacing = 0.sp
                                 )
                             )
