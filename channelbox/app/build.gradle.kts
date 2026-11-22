@@ -81,8 +81,8 @@ android {
         applicationId = "com.totaliptv.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 124
-        versionName = "1.4.112"
+        versionCode = 125
+        versionName = "1.4.113"
         buildConfigField(
             "String",
             "DEFAULT_UPDATE_BASE_URL",
@@ -122,8 +122,8 @@ android {
         create("tv") {
             dimension = "device"
             // Keep Shield / Leanback applicationId unchanged.
-            versionCode = 124
-            versionName = "1.4.112"
+            versionCode = 125
+            versionName = "1.4.113"
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",

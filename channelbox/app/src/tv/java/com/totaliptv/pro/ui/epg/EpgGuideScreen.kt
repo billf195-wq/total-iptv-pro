@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import com.totaliptv.pro.ui.home.ChipRowBringIntoView
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -409,13 +410,16 @@ fun EpgGuideScreen(
             )
         }
 
-        // Live category picker (same categories as Live TV hub)
+        // Live category picker (same categories as Live TV hub).
+        // Same bring-into-view + edge padding as the Desktop Live FilterBar so a
+        // focused chip is fully visible and D-pad Left can reach the first chip.
+        ChipRowBringIntoView {
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = if (applyPageInset) 16.dp else 0.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
         ) {
             item(key = GUIDE_ALL_ID) {
                 SortChip(
@@ -438,6 +442,7 @@ fun EpgGuideScreen(
                     }
                 )
             }
+        }
         }
 
         when {

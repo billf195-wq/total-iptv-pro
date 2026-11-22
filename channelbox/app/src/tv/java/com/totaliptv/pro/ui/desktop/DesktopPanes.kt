@@ -100,6 +100,7 @@ import com.totaliptv.pro.dvr.DvrRecordUi
 import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.home.NoVerticalHomeScroll
 import com.totaliptv.pro.ui.home.PosterRowBringIntoView
+import com.totaliptv.pro.ui.home.ChipRowBringIntoView
 import com.totaliptv.pro.ui.components.DpadSearchField
 import com.totaliptv.pro.ui.components.SearchTyping
 import com.totaliptv.pro.ui.player.GameDayPicker
@@ -1602,39 +1603,61 @@ fun FilterBar(
         // then provider groups. Live keeps "All" first.
         val leading = categories.takeWhile { CatalogCategories.isVirtual(it.id) }
         val trailing = categories.drop(leading.size)
-        val firstChipModifier = Modifier
-            .focusRequester(chips)
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (event.key) {
-                    // Geometric search is the fallback. Never point focusProperties
-                    // at these requesters: the search field is swapped while editing,
-                    // and a lazy row below may not be composed yet.
-                    Key.DirectionUp -> showSearch && SafeFocus.request(searchFocus)
-                    Key.DirectionDown -> SafeFocus.request(belowFocus) ||
-                        (sort == null && onDownToResults?.invoke() == true)
-                    else -> false
+        val chipItems = remember(leading, trailing) {
+            buildList {
+                leading.forEach { add(it.id to it.name) }
+                add(null to "All")
+                trailing.forEach { add(it.id to it.name) }
+            }
+        }
+        val chipRequesters = remember(chipItems.map { it.first }) {
+            List(chipItems.size) { FocusRequester() }
+        }
+        fun chipRequester(index: Int): FocusRequester =
+            if (index == 0) chips else chipRequesters[index]
+        // Geometric search is the fallback. Never point focusProperties
+        // at these requesters: the search field is swapped while editing,
+        // and a lazy row below may not be composed yet.
+        val firstChipKeys = Modifier.onPreviewKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            when (event.key) {
+                Key.DirectionUp -> showSearch && SafeFocus.request(searchFocus)
+                Key.DirectionDown -> SafeFocus.request(belowFocus) ||
+                    (sort == null && onDownToResults?.invoke() == true)
+                else -> false
+            }
+        }
+        val chipListState = rememberLazyListState()
+        ChipRowBringIntoView {
+            LazyRow(
+                state = chipListState,
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap),
+                contentPadding = PaddingValues(horizontal = TipDimens.NavGap)
+            ) {
+                itemsIndexed(chipItems, key = { _, item -> item.first ?: "__all__" }) { index, item ->
+                    val (id, name) = item
+                    Chip(
+                        name,
+                        selected = categoryId == id,
+                        onClick = { onCategory(id) },
+                        modifier = Modifier
+                            .then(if (index == 0) firstChipKeys else Modifier)
+                            .focusRequester(chipRequester(index))
+                            .focusProperties {
+                                left = if (index > 0) {
+                                    chipRequester(index - 1)
+                                } else {
+                                    FocusRequester.Default
+                                }
+                                right = if (index < chipItems.lastIndex) {
+                                    chipRequester(index + 1)
+                                } else {
+                                    FocusRequester.Default
+                                }
+                            }
+                    )
                 }
-            }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
-            items(leading, key = { it.id }) { cat ->
-                Chip(
-                    cat.name,
-                    selected = categoryId == cat.id,
-                    onClick = { onCategory(cat.id) },
-                    modifier = if (cat === leading.first()) firstChipModifier else Modifier
-                )
-            }
-            item(key = "__all__") {
-                Chip(
-                    "All",
-                    selected = categoryId == null,
-                    onClick = { onCategory(null) },
-                    modifier = if (leading.isEmpty()) firstChipModifier else Modifier
-                )
-            }
-            items(trailing, key = { it.id }) { cat ->
-                Chip(cat.name, selected = categoryId == cat.id, onClick = { onCategory(cat.id) })
             }
         }
         if (sort != null && onSort != null) {
