@@ -50,7 +50,15 @@ data class TmdbServiceCache(
      */
     val queriedServices: List<String> = emptyList(),
     /** App versionName that wrote this cache. Empty before 1.4.111. */
-    val appVersion: String = ""
+    val appVersion: String = "",
+    /**
+     * Service keys whose discover queries have fully finished in this file.
+     * Empty in caches written before 1.4.112; those infer completion from entry hits
+     * (not from queriedServices, which 1.4.111 wrote before the new queries ran).
+     */
+    val completedServices: List<String> = emptyList(),
+    /** True while a 7-day or forced full re-check is in progress and not yet complete. */
+    val fullRecheck: Boolean = false
 ) {
     companion object {
         /** Bumped when Peacock / Starz / MGM+ / AMC+ / Discovery+ / Crunchyroll queries were added so 1.4.109 caches refetch. */

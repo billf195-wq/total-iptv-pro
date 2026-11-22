@@ -68,11 +68,6 @@ class TmdbServiceLookup(
 
     class LookupFailed(message: String) : Exception(message)
 
-    /**
-     * Fetch all queries with limited concurrency. Entries are merged as pages arrive
-     * so [onBatch] can show Netflix (and the rest) before the full download finishes.
-     * [onProgress] gets (done queries, total queries). Throws [LookupFailed] on auth errors.
-     */
     data class FetchResult(
         val entries: List<TmdbServiceEntry>,
         val complete: Boolean,
@@ -81,27 +76,49 @@ class TmdbServiceLookup(
     )
 
     /**
-     * Fetch all queries with limited concurrency. Entries are merged as pages arrive
-     * so [onBatch] can show Netflix (and the rest) before the full download finishes.
-     * [onProgress] gets (done queries, total queries). Throws [LookupFailed] on auth errors.
-     * Pass [seed] / [progress] to resume an interrupted run instead of starting over.
-     * [shouldPause] (e.g. while a video is playing) stops after the current page and
-     * returns an incomplete result so the caller can persist and continue later.
+     * Which work a cache needs. [queries] is already ordered (missing / new services first).
+     * [progress] covers every discover query: skipped services are marked done so a restart
+     * never walks them again. [fetchedAtMs] is the value to persist (kept on an incremental
+     * fill so the 7-day clock is not reset).
+     */
+    data class FetchPlan(
+        val kind: Kind,
+        val queries: List<Query>,
+        val progress: List<TmdbQueryCursor>,
+        val fetchedAtMs: Long,
+        val fullRecheck: Boolean,
+        val completedServices: Set<String>,
+        val reason: String
+    ) {
+        enum class Kind { None, FillMissing, FullRecheck }
+        val isNoop: Boolean get() = kind == Kind.None
+    }
+
+    /**
+     * Fetch the planned queries with limited concurrency. Entries are merged as pages
+     * arrive. Pass [seed] / [progress] from [FetchPlan] so a restart continues the same
+     * page instead of starting over. [onQueryStart] is called with the user-facing status
+     * line (e.g. "Updating service groups: Peacock…"). [onServiceComplete] fires when
+     * every query for a service (or the ratings pass) has finished, so the caller can
+     * rebuild the in-memory index without copying the full list after every page.
+     * [shouldPause] stops after the current page and returns an incomplete result.
      */
     fun fetch(
         apiKey: String,
         onProgress: (Int, Int) -> Unit = { _, _ -> },
-        onBatch: (List<TmdbServiceEntry>) -> Unit = {},
+        onQueryStart: (String) -> Unit = {},
+        onServiceComplete: (String?) -> Unit = {},
         onPersist: (List<TmdbServiceEntry>, List<TmdbQueryCursor>, Boolean) -> Unit = { _, _, _ -> },
         isActive: () -> Boolean = { true },
         shouldPause: () -> Boolean = { false },
         seed: List<TmdbServiceEntry> = emptyList(),
         progress: List<TmdbQueryCursor> = emptyList(),
+        queries: List<Query> = ALL_QUERIES,
         concurrency: Int = DEFAULT_CONCURRENCY
     ): FetchResult {
         val key = normalizeKey(apiKey)
         if (key.isEmpty()) throw LookupFailed("No TMDB API key")
-        val merged = LinkedHashMap<String, TmdbServiceEntry>()
+        val merged = LinkedHashMap<String, TmdbServiceEntry>(seed.size + 64)
         for (e in seed) {
             merged["${e.type}:${e.id}"] = e
         }
@@ -109,17 +126,29 @@ class TmdbServiceLookup(
         val doneCount = AtomicInteger(progress.count { it.done })
         val failed = AtomicReference<LookupFailed>(null)
         val paused = java.util.concurrent.atomic.AtomicBoolean(false)
-        val queries = ALL_QUERIES
         val cursors = LinkedHashMap<String, TmdbQueryCursor>()
         for (c in progress) cursors[c.key] = c
-        fun snapshotProgress(): List<TmdbQueryCursor> = queries.map { q ->
+        fun snapshotProgress(): List<TmdbQueryCursor> = ALL_QUERIES.map { q ->
             cursors[q.cursorKey()] ?: TmdbQueryCursor(q.cursorKey())
         }
         fun persist(done: Boolean) {
             val (entries, prog) = synchronized(lock) {
-                merged.values.toList() to snapshotProgress()
+                // One copy, only when writing the checkpoint.
+                ArrayList(merged.values) to snapshotProgress()
             }
             onPersist(entries, prog, done)
+        }
+        fun maybeServiceComplete(q: Query) {
+            val keyOrNull = q.service?.key
+            val group = if (keyOrNull != null) {
+                ALL_QUERIES.filter { it.service?.key == keyOrNull }
+            } else {
+                ALL_QUERIES.filter { it.service == null }
+            }
+            val allDone = synchronized(lock) {
+                group.all { cursors[it.cursorKey()]?.done == true }
+            }
+            if (allDone) onServiceComplete(keyOrNull)
         }
         val workers = concurrency.coerceIn(1, MAX_CONCURRENCY)
         val pool = Executors.newFixedThreadPool(workers)
@@ -137,15 +166,18 @@ class TmdbServiceLookup(
                         paused.set(true)
                         return@Callable
                     }
+                    onQueryStart(updatingStatus(q))
                     var page = (start?.nextPage ?: 1).coerceAtLeast(1)
-                    var totalPages = 1
                     val pageLimit = q.pages ?: pagesPerQuery
+                    // Do not seed totalPages at 1: a resume at page 4 would otherwise skip the rest.
+                    var totalPages = pageLimit
                     while (page <= minOf(totalPages, pageLimit) && isActive() && failed.get() == null) {
                         if (shouldPause()) {
                             paused.set(true)
                             synchronized(lock) {
                                 cursors[qKey] = TmdbQueryCursor(qKey, nextPage = page, done = false)
                             }
+                            persist(false)
                             return@Callable
                         }
                         val body = try {
@@ -155,16 +187,14 @@ class TmdbServiceLookup(
                             return@Callable
                         } ?: break
                         val parsed = parseDiscover(body, q.type, q.service)
-                        val snapshot = synchronized(lock) {
+                        synchronized(lock) {
                             for (e in parsed.entries) {
                                 val k = "${e.type}:${e.id}"
                                 val prev = merged[k]
                                 merged[k] = if (prev == null) e else ServiceIndex.mergeEntries(prev, e)
                             }
                             cursors[qKey] = TmdbQueryCursor(qKey, nextPage = page + 1, done = false)
-                            merged.values.toList()
                         }
-                        onBatch(snapshot)
                         if (page == 1 || page % PERSIST_EVERY_PAGES == 0) persist(false)
                         totalPages = parsed.totalPages
                         page++
@@ -176,6 +206,7 @@ class TmdbServiceLookup(
                                 synchronized(lock) {
                                     cursors[qKey] = TmdbQueryCursor(qKey, nextPage = page, done = false)
                                 }
+                                persist(false)
                                 return@Callable
                             }
                         }
@@ -185,6 +216,7 @@ class TmdbServiceLookup(
                         synchronized(lock) { cursors[qKey] = TmdbQueryCursor(qKey, nextPage = page, done = true) }
                         onProgress(doneCount.incrementAndGet(), queries.size)
                         persist(false)
+                        maybeServiceComplete(q)
                     }
                 }
             }
@@ -193,10 +225,8 @@ class TmdbServiceLookup(
         } finally {
             pool.shutdownNow()
         }
-        val complete = !paused.get() && isActive() &&
-            synchronized(lock) { snapshotProgress().all { it.done } || queries.all { (cursors[it.cursorKey()]?.done == true) } }
-        val (entries, prog) = synchronized(lock) { merged.values.toList() to snapshotProgress() }
-        val reallyComplete = complete && prog.all { it.done } && failed.get() == null
+        val (entries, prog) = synchronized(lock) { ArrayList(merged.values) to snapshotProgress() }
+        val reallyComplete = !paused.get() && isActive() && failed.get() == null && prog.all { it.done }
         persist(reallyComplete)
         return FetchResult(entries, reallyComplete, prog, paused = paused.get())
     }
@@ -249,10 +279,11 @@ class TmdbServiceLookup(
         /** Extra pages of globally top-rated titles (not limited to the service groups). */
         const val RATING_PAGES = 40
         const val TTL_MS = 7L * 24 * 60 * 60 * 1000
-        /** Parallel TMDB discover queries. Kept small so we do not trip rate limits or OOM a TV box. */
-        const val DEFAULT_CONCURRENCY = 2
-        const val MAX_CONCURRENCY = 3
-        const val PERSIST_EVERY_PAGES = 8
+        /** One query at a time on TV boxes so a large catalog does not pin several page lists plus a full snapshot. */
+        const val DEFAULT_CONCURRENCY = 1
+        const val MAX_CONCURRENCY = 2
+        /** Checkpoint after every page so a kill / relaunch never restarts a service from page 1. */
+        const val PERSIST_EVERY_PAGES = 1
 
         /**
          * Verified against TMDB /watch/providers (US) and /network on 2026-11-12:
@@ -410,15 +441,166 @@ class TmdbServiceLookup(
         fun serviceKeys(queries: List<Query> = QUERIES): Set<String> =
             queries.mapNotNull { it.service?.key }.toSet()
 
-        /**
-         * Services this cache already queried. Prefer the stored list; older files
-         * only recorded hits, so we fall back to services seen on entries.
-         */
-        fun fetchedServiceKeys(cache: TmdbServiceCache): Set<String> =
-            if (cache.queriedServices.isNotEmpty()) cache.queriedServices.toSet()
-            else cache.entries.flatMap { it.services }.toSet()
+        fun serviceLabel(key: String?): String? =
+            StreamingService.entries.firstOrNull { it.key == key }?.label
 
-        /** Why a cache cannot be reused as-is. Never includes the key or fingerprint. */
+        fun updatingStatus(query: Query): String =
+            query.service?.let { "Updating service groups: ${it.label}…" }
+                ?: "Updating service groups: ratings…"
+
+        /**
+         * Services we will not refetch on an incremental fill.
+         *
+         * Prefer [TmdbServiceCache.completedServices] when present (written from 1.4.112).
+         * For 1.4.111 files that list every service in [TmdbServiceCache.queriedServices]
+         * before those queries actually ran, infer from entry hits only.
+         */
+        fun inferredCompleted(
+            cache: TmdbServiceCache,
+            expected: Set<String> = serviceKeys()
+        ): Set<String> {
+            if (cache.completedServices.isNotEmpty()) {
+                return cache.completedServices.filter { it in expected || expected.isEmpty() }.toSet()
+                    .ifEmpty { cache.completedServices.toSet() }
+            }
+            if (cache.complete && cache.queriedServices.isNotEmpty()) {
+                return cache.queriedServices.toSet()
+            }
+            return cache.entries.flatMap { it.services }.toSet()
+        }
+
+        /**
+         * Services present on a finished cache, or inferred from hits / completedServices
+         * on a partial file. Does not trust an incomplete file's queriedServices list.
+         */
+        fun fetchedServiceKeys(cache: TmdbServiceCache): Set<String> = inferredCompleted(cache)
+
+        fun missingServices(
+            cache: TmdbServiceCache?,
+            expected: Set<String> = serviceKeys()
+        ): Set<String> {
+            if (expected.isEmpty()) return emptySet()
+            if (cache == null) return expected
+            return expected - inferredCompleted(cache, expected)
+        }
+
+        private fun cursorMap(cache: TmdbServiceCache): Map<String, TmdbQueryCursor> =
+            cache.progress.associateBy { it.key }
+
+        /** Existing cursor if this query should resume; otherwise start at page 1. */
+        private fun resumeCursor(cache: TmdbServiceCache?, query: Query): TmdbQueryCursor {
+            val existing = cache?.let { cursorMap(it)[query.cursorKey()] }
+            return if (existing != null && !existing.done && existing.nextPage > 1) existing
+            else TmdbQueryCursor(query.cursorKey(), nextPage = 1, done = false)
+        }
+
+        /**
+         * Build the work list for this launch. Never drops existing entries.
+         * Incremental fills only the services missing from the saved file, new ones first.
+         * A 7-day or forced re-check walks every service but is still resumable.
+         */
+        fun planFetch(
+            cache: TmdbServiceCache?,
+            keyFingerprint: String,
+            nowMs: Long,
+            force: Boolean = false,
+            expectedServices: Set<String> = serviceKeys(),
+            allQueries: List<Query> = ALL_QUERIES
+        ): FetchPlan {
+            val completed = cache?.let { inferredCompleted(it, expectedServices) } ?: emptySet()
+            val missing = if (expectedServices.isEmpty()) emptySet() else expectedServices - completed
+            val aged = cache == null || cache.entries.isEmpty() ||
+                (nowMs - cache.fetchedAtMs) !in 0 until TTL_MS
+            val midRecheck = cache?.fullRecheck == true && !cache.complete
+            val fingerprintChanged = cache != null && cache.keyFingerprint.isNotEmpty() &&
+                cache.keyFingerprint != keyFingerprint
+
+            val kind = when {
+                force || midRecheck || fingerprintChanged || cache == null || cache.entries.isEmpty() || aged ->
+                    FetchPlan.Kind.FullRecheck
+                missing.isNotEmpty() -> FetchPlan.Kind.FillMissing
+                else -> FetchPlan.Kind.None
+            }
+            if (kind == FetchPlan.Kind.None) {
+                return FetchPlan(
+                    kind = kind,
+                    queries = emptyList(),
+                    progress = emptyList(),
+                    fetchedAtMs = cache?.fetchedAtMs ?: nowMs,
+                    fullRecheck = false,
+                    completedServices = completed,
+                    reason = "fresh"
+                )
+            }
+
+            val prefer = when {
+                kind == FetchPlan.Kind.FillMissing -> missing
+                midRecheck -> {
+                    // Still mid a 7-day / forced pass: finish already-started work, then the rest.
+                    val pending = expectedServices.filter { key ->
+                        allQueries.filter { it.service?.key == key }.any { q ->
+                            cursorMap(cache!!)[q.cursorKey()]?.done != true
+                        }
+                    }.toSet()
+                    (missing + pending)
+                }
+                else -> missing
+            }
+            val ordered = orderedQueries(prefer, allQueries)
+
+            val progress = if (kind == FetchPlan.Kind.FillMissing) {
+                allQueries.map { q ->
+                    val key = q.service?.key
+                    if (key != null && key in completed) TmdbQueryCursor(q.cursorKey(), done = true)
+                    else if (q.service == null) TmdbQueryCursor(q.cursorKey(), done = true) // ratings wait for the 7-day pass
+                    else resumeCursor(cache, q)
+                }
+            } else if (midRecheck && cache != null) {
+                allQueries.map { q ->
+                    cursorMap(cache)[q.cursorKey()] ?: TmdbQueryCursor(q.cursorKey())
+                }
+            } else {
+                allQueries.map { q -> TmdbQueryCursor(q.cursorKey(), nextPage = 1, done = false) }
+            }
+            val toRun = ordered.filter { q -> progress.none { it.key == q.cursorKey() && it.done } }
+            val reason = when {
+                force -> "forced"
+                midRecheck -> "incomplete"
+                fingerprintChanged -> "fingerprint"
+                cache == null || cache.entries.isEmpty() -> "missing"
+                aged -> "age"
+                else -> "providers"
+            }
+            val keptCompleted = if (kind == FetchPlan.Kind.FillMissing) completed else {
+                if (midRecheck) completed else emptySet()
+            }
+            val fetchedAt = if (kind == FetchPlan.Kind.FillMissing) {
+                cache?.fetchedAtMs?.takeIf { it > 0L } ?: nowMs
+            } else if (midRecheck) {
+                cache?.fetchedAtMs?.takeIf { it > 0L } ?: nowMs
+            } else {
+                nowMs
+            }
+            return FetchPlan(
+                kind = kind,
+                queries = toRun,
+                progress = progress,
+                fetchedAtMs = fetchedAt,
+                fullRecheck = kind == FetchPlan.Kind.FullRecheck,
+                completedServices = keptCompleted,
+                reason = reason
+            )
+        }
+
+        /** Missing / preferred services first (their movie + tv queries), then the others, then ratings. */
+        fun orderedQueries(prefer: Set<String>, allQueries: List<Query> = ALL_QUERIES): List<Query> {
+            val missingQs = allQueries.filter { it.service?.key in prefer }
+            val otherQs = allQueries.filter { it.service != null && it.service.key !in prefer }
+            val ratingQs = allQueries.filter { it.service == null }
+            return missingQs + otherQs + ratingQs
+        }
+
+        /** Why a cache cannot be reused as-is. Never includes the key or fingerprint value. */
         fun staleReason(
             cache: TmdbServiceCache?,
             keyFingerprint: String,
@@ -428,13 +610,26 @@ class TmdbServiceLookup(
         ): String? {
             if (cache == null) return "missing"
             if (cache.entries.isEmpty()) return "empty"
-            if (cache.version != TmdbServiceCache.CACHE_VERSION) return "version ${cache.version}"
-            if (cache.keyFingerprint != keyFingerprint) return "fingerprint"
-            if (!cache.complete) return "incomplete"
-            if (expectedServices.isNotEmpty() && (expectedServices - fetchedServiceKeys(cache)).isNotEmpty()) {
-                return "providers"
+            if (cache.version != TmdbServiceCache.CACHE_VERSION && cache.version != 0) {
+                // Older files are still a usable seed; if they lack current providers say so.
+                if (missingServices(cache, expectedServices).isNotEmpty()) return "providers"
+                if (cache.version != TmdbServiceCache.CACHE_VERSION) return "version ${cache.version}"
             }
-            if (currentAppVersion.isNotBlank() && cache.appVersion != currentAppVersion) return "app-update"
+            if (cache.keyFingerprint != keyFingerprint) return "fingerprint"
+            val missing = missingServices(cache, expectedServices)
+            if (missing.isNotEmpty()) return "providers"
+            if (cache.fullRecheck && !cache.complete) return "incomplete"
+            if (!cache.complete) {
+                // Incremental fill of a 1.4.111 file that already has every current service:
+                // treat it as finished so we do not walk the original lists again.
+                return null
+            }
+            // An app update alone does not refetch when every current service is already on file.
+            if (currentAppVersion.isNotBlank() && cache.appVersion.isNotBlank() &&
+                cache.appVersion != currentAppVersion && missing.isNotEmpty()
+            ) {
+                return "app-update"
+            }
             val age = nowMs - cache.fetchedAtMs
             if (age !in 0 until TTL_MS) return "age"
             return null
@@ -447,5 +642,6 @@ class TmdbServiceLookup(
             expectedServices: Set<String> = serviceKeys(),
             currentAppVersion: String = ""
         ): Boolean = staleReason(cache, keyFingerprint, nowMs, expectedServices, currentAppVersion) == null
+
     }
 }

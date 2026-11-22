@@ -13,7 +13,7 @@ object HowToGuide {
         val hold = if (tv) "hold OK on" else "press and hold"
         val out = mutableListOf<Section>()
         out += Section(
-            "What's new in 1.4.110",
+            "What's new in 1.4.112",
             if (tv) {
                 "You can favorite Live channels: hold OK on a channel (or press Menu) to add or remove it. " +
                     "Those channels show in a Favorites category at the top of the Live list, and in the " +
@@ -25,7 +25,7 @@ object HowToGuide {
                     "that switch asks for the PIN. Movies and Series can show rows for streaming services " +
                     "you have titles for, including Peacock, Starz, MGM+, AMC+, Discovery+, BET+ and " +
                     "Crunchyroll, along with the service rows already there. Empty rows stay hidden. " +
-                    "The first time, the rows can take a few minutes to fill in."
+                    "After an app update, new service rows fill in first and the ones you already have stay on screen. The lookup saves its place after each page, so if you leave the app it continues from there instead of starting over. Settings shows which service is being updated. Older lists are re-checked about once a week. The first time, the rows can take a few minutes to fill in."
             } else {
                 "You can favorite Live channels: press and hold a channel to add or remove it in the " +
                     "Favorites category at the top of the Live list. When you open a series you can read " +
@@ -34,7 +34,7 @@ object HowToGuide {
                     "that switch asks for the PIN. Movies and Series can show rows for streaming services " +
                     "you have titles for, including Peacock, Starz, MGM+, AMC+, Discovery+, BET+ and " +
                     "Crunchyroll, along with the service rows already there. Empty rows stay hidden. " +
-                    "The first time, the rows can take a few minutes to fill in."
+                    "After an app update, new service rows fill in first and the ones you already have stay on screen. The lookup saves its place after each page, so if you leave the app it continues from there instead of starting over. Settings shows which service is being updated. Older lists are re-checked about once a week. The first time, the rows can take a few minutes to fill in."
             }
         )
         out += Section(

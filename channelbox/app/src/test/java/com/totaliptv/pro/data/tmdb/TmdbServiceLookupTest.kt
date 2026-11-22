@@ -3,6 +3,8 @@ package com.totaliptv.pro.data.tmdb
 import com.totaliptv.pro.data.Ratings
 import com.totaliptv.pro.data.StreamingService
 import java.io.File
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -166,8 +168,8 @@ class TmdbServiceLookupTest {
 
     @Test
     fun defaultConcurrencyIsLimited() {
-        assertEquals(2, TmdbServiceLookup.DEFAULT_CONCURRENCY)
-        assertEquals(3, TmdbServiceLookup.MAX_CONCURRENCY)
+        assertEquals(1, TmdbServiceLookup.DEFAULT_CONCURRENCY)
+        assertEquals(2, TmdbServiceLookup.MAX_CONCURRENCY)
         assertTrue(TmdbServiceLookup.DEFAULT_CONCURRENCY <= TmdbServiceLookup.MAX_CONCURRENCY)
     }
 
@@ -182,7 +184,8 @@ class TmdbServiceLookupTest {
             complete = false,
             progress = listOf(TmdbQueryCursor(key = "tv|with_networks|453|popularity.desc|US|hulu", nextPage = 3, done = false))
         )
-        assertEquals("incomplete", TmdbServiceLookup.staleReason(partial, "abcd1234", now + 1000))
+        // Only Hulu is on the file, so the missing new/other services are the reason.
+        assertEquals("providers", TmdbServiceLookup.staleReason(partial, "abcd1234", now + 1000))
         assertFalse(TmdbServiceLookup.isFresh(partial, "abcd1234", now + 1000))
 
         val dir = createTempDir("tmdbcache-partial")
@@ -278,7 +281,8 @@ class TmdbServiceLookupTest {
             },
             complete = true
         )
-        assertEquals("version 3", TmdbServiceLookup.staleReason(v3, "abcd1234", now + 1000))
+        // v3 is still a usable seed; the actionable reason is the missing new providers.
+        assertEquals("providers", TmdbServiceLookup.staleReason(v3, "abcd1234", now + 1000))
         assertFalse(TmdbServiceLookup.isFresh(v3, "abcd1234", now + 1000))
         // Still shown immediately while a refresh runs.
         val dir = createTempDir("tmdbcache-v3")
@@ -336,8 +340,252 @@ class TmdbServiceLookupTest {
         )
         assertEquals(null, TmdbServiceLookup.staleReason(done, "abcd1234", now + 1000, currentAppVersion = "1.4.111"))
         assertTrue(TmdbServiceLookup.isFresh(done, "abcd1234", now + 1000, currentAppVersion = "1.4.111"))
-        assertEquals("app-update", TmdbServiceLookup.staleReason(done, "abcd1234", now + 1000, currentAppVersion = "1.4.112"))
-        assertFalse(TmdbServiceLookup.isFresh(done, "abcd1234", now + 1000, currentAppVersion = "1.4.112"))
+        assertEquals(null, TmdbServiceLookup.staleReason(done, "abcd1234", now + 1000, currentAppVersion = "1.4.112"))
+        assertTrue(TmdbServiceLookup.isFresh(done, "abcd1234", now + 1000, currentAppVersion = "1.4.112"))
+    }
+
+
+
+    private val originalSeven = listOf("netflix", "prime", "hbo", "apple", "hulu", "disney", "paramount")
+
+    private fun entry(id: Int, service: String, type: String = "movie") =
+        TmdbServiceEntry(type, id, service, year = 2020, services = listOf(service))
+
+    private fun partialV4From111(): TmdbServiceCache {
+        val now = 1_000_000_000_000L
+        val progress = TmdbServiceLookup.ALL_QUERIES.map { q ->
+            val key = q.service?.key
+            when {
+                key in originalSeven && key == "netflix" && q.type == "movie" ->
+                    TmdbQueryCursor(q.cursorKey(), nextPage = 9, done = false)
+                key in originalSeven ->
+                    TmdbQueryCursor(q.cursorKey(), nextPage = 2, done = false)
+                else ->
+                    TmdbQueryCursor(q.cursorKey(), nextPage = 1, done = false)
+            }
+        }
+        return TmdbServiceCache(
+            version = 4,
+            fetchedAtMs = now,
+            keyFingerprint = "abcd1234",
+            entries = originalSeven.mapIndexed { i, key -> entry(i + 1, key) },
+            complete = false,
+            progress = progress,
+            // 1.4.111 wrote the full list before the new queries actually ran.
+            queriedServices = TmdbServiceLookup.serviceKeys().sorted(),
+            appVersion = "1.4.111"
+        )
+    }
+
+    @Test
+    fun planFillMissingFromPartialV4SkipsOriginalSevenAndStartsNewServices() {
+        val cache = partialV4From111()
+        val now = cache.fetchedAtMs + 60_000L
+        val plan = TmdbServiceLookup.planFetch(cache, "abcd1234", now, force = false)
+        assertEquals(TmdbServiceLookup.FetchPlan.Kind.FillMissing, plan.kind)
+        assertEquals("providers", plan.reason)
+        assertEquals(cache.fetchedAtMs, plan.fetchedAtMs)
+        assertFalse(plan.fullRecheck)
+        assertEquals(originalSeven.toSet(), plan.completedServices)
+        val runServices = plan.queries.mapNotNull { it.service?.key }.distinct()
+        assertTrue("peacock" in runServices)
+        assertEquals("peacock", runServices.first())
+        assertTrue("starz" in runServices && "crunchyroll" in runServices)
+        assertTrue(runServices.none { it in originalSeven })
+        assertTrue(plan.queries.none { it.service == null }) // ratings wait for the 7-day pass
+        // Original-seven cursors are marked done so a restart will not walk Netflix again.
+        val netflixCursors = plan.progress.filter { it.key.endsWith("|netflix") }
+        assertTrue(netflixCursors.isNotEmpty() && netflixCursors.all { it.done })
+        val peacockCursors = plan.progress.filter { it.key.endsWith("|peacock") }
+        assertTrue(peacockCursors.isNotEmpty() && peacockCursors.all { !it.done && it.nextPage == 1 })
+    }
+
+    @Test
+    fun planResumesIncompleteNewServiceAfterRestart() {
+        val base = partialV4From111()
+        val peacockQs = TmdbServiceLookup.QUERIES.filter { it.service?.key == "peacock" }
+        val progress = base.progress.map { c ->
+            if (c.key == peacockQs.first().cursorKey()) c.copy(nextPage = 5, done = false) else c
+        }
+        val cache = base.copy(
+            entries = base.entries + entry(100, "peacock"),
+            progress = progress,
+            completedServices = originalSeven
+        )
+        val plan = TmdbServiceLookup.planFetch(cache, "abcd1234", cache.fetchedAtMs + 1000)
+        assertEquals(TmdbServiceLookup.FetchPlan.Kind.FillMissing, plan.kind)
+        assertFalse("peacock" in plan.completedServices)
+        val resume = plan.progress.first { it.key == peacockQs.first().cursorKey() }
+        assertEquals(5, resume.nextPage)
+        assertFalse(resume.done)
+        assertTrue(plan.queries.any { it.cursorKey() == peacockQs.first().cursorKey() })
+        assertTrue(plan.queries.none { it.service?.key in originalSeven })
+    }
+
+    @Test
+    fun planDoesNotStartFromZeroWhenUsableCacheExists() {
+        val cache = partialV4From111()
+        val plan = TmdbServiceLookup.planFetch(cache, "abcd1234", cache.fetchedAtMs + 1000)
+        assertTrue(plan.queries.isNotEmpty())
+        assertEquals(originalSeven.toSet(), plan.completedServices)
+        // A missing file still plans a full recheck, but a usable cache never drops completed services.
+        val missing = TmdbServiceLookup.planFetch(null, "abcd1234", cache.fetchedAtMs + 1000)
+        assertEquals(TmdbServiceLookup.FetchPlan.Kind.FullRecheck, missing.kind)
+        assertEquals("missing", missing.reason)
+        assertTrue(missing.completedServices.isEmpty())
+    }
+
+    @Test
+    fun planFullRecheckOnAgeIsResumable() {
+        val now = 1_000_000_000_000L
+        val done = TmdbServiceCache(
+            fetchedAtMs = now,
+            keyFingerprint = "abcd1234",
+            entries = originalSeven.mapIndexed { i, key -> entry(i + 1, key) } + entry(100, "peacock"),
+            complete = true,
+            queriedServices = TmdbServiceLookup.serviceKeys().sorted(),
+            completedServices = TmdbServiceLookup.serviceKeys().toList(),
+            appVersion = "1.4.112"
+        )
+        val agedAt = now + TmdbServiceLookup.TTL_MS + 1
+        val plan = TmdbServiceLookup.planFetch(done, "abcd1234", agedAt)
+        assertEquals(TmdbServiceLookup.FetchPlan.Kind.FullRecheck, plan.kind)
+        assertEquals("age", plan.reason)
+        assertTrue(plan.fullRecheck)
+        assertTrue(plan.progress.all { !it.done && it.nextPage == 1 })
+        // Mid-recheck resume keeps the in-flight page.
+        val mid = done.copy(
+            complete = false,
+            fullRecheck = true,
+            completedServices = emptyList(),
+            progress = TmdbServiceLookup.ALL_QUERIES.map { q ->
+                if (q.service?.key == "peacock" && q.type == "movie") TmdbQueryCursor(q.cursorKey(), nextPage = 4, done = false)
+                else TmdbQueryCursor(q.cursorKey(), nextPage = 1, done = false)
+            }
+        )
+        val resume = TmdbServiceLookup.planFetch(mid, "abcd1234", agedAt)
+        assertEquals(TmdbServiceLookup.FetchPlan.Kind.FullRecheck, resume.kind)
+        assertEquals("incomplete", resume.reason)
+        val pc = resume.progress.first { it.key.contains("|peacock") && it.key.startsWith("movie|") }
+        assertEquals(4, pc.nextPage)
+    }
+
+    @Test
+    fun planForceIsFullRecheck() {
+        val cache = partialV4From111()
+        val plan = TmdbServiceLookup.planFetch(cache, "abcd1234", cache.fetchedAtMs + 1000, force = true)
+        assertEquals(TmdbServiceLookup.FetchPlan.Kind.FullRecheck, plan.kind)
+        assertEquals("forced", plan.reason)
+        assertTrue(plan.fullRecheck)
+        assertTrue(plan.queries.isNotEmpty())
+    }
+
+    @Test
+    fun fetchedServiceKeysIgnoresEarlyQueriedServicesWhenIncomplete() {
+        val cache = partialV4From111()
+        val fetched = TmdbServiceLookup.fetchedServiceKeys(cache)
+        assertEquals(originalSeven.toSet(), fetched)
+        assertFalse("peacock" in fetched)
+        val missing = TmdbServiceLookup.missingServices(cache)
+        assertTrue("peacock" in missing && "starz" in missing)
+    }
+
+    @Test
+    fun updatingStatusLineNamesTheService() {
+        val q = TmdbServiceLookup.QUERIES.first { it.service?.key == "peacock" }
+        assertEquals("Updating service groups: Peacock…", TmdbServiceLookup.updatingStatus(q))
+        val ratings = TmdbServiceLookup.RATING_QUERIES.first()
+        assertEquals("Updating service groups: ratings…", TmdbServiceLookup.updatingStatus(ratings))
+    }
+
+    @Test
+    fun fetchOnlyRequestsMissingServicesAndPersistsEachPage() {
+        val requested = mutableListOf<String>()
+        val client = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+            val url = chain.request().url
+            val svc = TmdbServiceLookup.QUERIES.firstOrNull { q ->
+                q.type == url.pathSegments.last() &&
+                    (q.value != null && url.queryParameter(q.param ?: "") == q.value ||
+                        (q.param == null && url.queryParameter("sort_by") == q.sortBy))
+            }
+            // Fall back: record provider id or sort.
+            val tag = url.queryParameter("with_watch_providers")
+                ?: url.queryParameter("with_networks")
+                ?: url.queryParameter("sort_by")
+                ?: "unknown"
+            requested.add(tag)
+            val page = (url.queryParameter("page") ?: "1")
+            val body = """{"page":$page,"total_pages":2,"results":[{"id":${page}01,"title":"T$page","name":"T$page","release_date":"2020-01-01","first_air_date":"2020-01-01"}]}"""
+            okhttp3.Response.Builder()
+                .request(chain.request())
+                .protocol(okhttp3.Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body(body.toResponseBody("application/json".toMediaType()))
+                .build()
+        }.build()
+        val lookup = TmdbServiceLookup(client, delayMs = 0L)
+        val cache = partialV4From111()
+        val plan = TmdbServiceLookup.planFetch(cache, "abcd1234", cache.fetchedAtMs + 1000)
+        val persists = mutableListOf<Int>()
+        val statuses = mutableListOf<String>()
+        val result = lookup.fetch(
+            apiKey = "0123456789abcdef0123456789abcdef",
+            seed = cache.entries,
+            progress = plan.progress,
+            queries = plan.queries,
+            onQueryStart = { statuses.add(it) },
+            onPersist = { entries, _, complete -> persists.add(entries.size) },
+        )
+        assertTrue(result.complete)
+        assertTrue(persists.isNotEmpty())
+        // Every page is checkpointed (2 pages per query).
+        assertTrue(persists.size >= plan.queries.size)
+        assertTrue(statuses.any { it.startsWith("Updating service groups: Peacock") })
+        assertTrue(statuses.none { "Netflix" in it })
+        // Provider 8 is Netflix; it must not have been requested.
+        assertFalse("8" in requested)
+        assertTrue(requested.any { it.contains("386") }) // Peacock
+        assertTrue(result.entries.any { "peacock" in it.services })
+        assertTrue(result.entries.any { "netflix" in it.services }) // seed kept
+    }
+
+    @Test
+    fun fetchResumesFromCheckpointedPage() {
+        val pages = mutableListOf<Int>()
+        val client = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+            val url = chain.request().url
+            val page = (url.queryParameter("page") ?: "1").toInt()
+            if (url.queryParameter("with_watch_providers")?.contains("386") == true && url.pathSegments.last() == "movie") {
+                pages.add(page)
+            }
+            val body = """{"page":$page,"total_pages":6,"results":[{"id":${page}09,"title":"P$page","name":"P$page","release_date":"2021-02-02","first_air_date":"2021-02-02"}]}"""
+            okhttp3.Response.Builder()
+                .request(chain.request())
+                .protocol(okhttp3.Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body(body.toResponseBody("application/json".toMediaType()))
+                .build()
+        }.build()
+        val lookup = TmdbServiceLookup(client, delayMs = 0L)
+        val base = partialV4From111()
+        val peacockMovie = TmdbServiceLookup.QUERIES.first { it.service?.key == "peacock" && it.type == "movie" }
+        val cache = base.copy(
+            completedServices = originalSeven,
+            progress = base.progress.map {
+                if (it.key == peacockMovie.cursorKey()) it.copy(nextPage = 4, done = false) else it
+            }
+        )
+        val plan = TmdbServiceLookup.planFetch(cache, "abcd1234", cache.fetchedAtMs + 1000)
+        lookup.fetch(
+            apiKey = "0123456789abcdef0123456789abcdef",
+            seed = cache.entries,
+            progress = plan.progress,
+            queries = plan.queries.filter { it.cursorKey() == peacockMovie.cursorKey() },
+        )
+        assertEquals(listOf(4, 5, 6), pages)
+        assertFalse(1 in pages)
     }
 
 

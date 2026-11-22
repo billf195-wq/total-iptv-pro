@@ -1037,9 +1037,12 @@ class CatalogRepository(
         entries: List<com.totaliptv.pro.data.tmdb.TmdbServiceEntry>,
         progress: List<com.totaliptv.pro.data.tmdb.TmdbQueryCursor>,
         complete: Boolean,
-        fetchedAtMs: Long
+        fetchedAtMs: Long,
+        completedServices: Collection<String>,
+        fullRecheck: Boolean
     ): Boolean {
         if (entries.isEmpty()) return false
+        val completed = completedServices.toList().sorted()
         val ok = TmdbServiceLookup.writeCache(
             file,
             TmdbServiceCache(
@@ -1048,8 +1051,10 @@ class CatalogRepository(
                 entries = entries,
                 complete = complete,
                 progress = if (complete) emptyList() else progress,
-                queriedServices = TmdbServiceLookup.serviceKeys().toList().sorted(),
-                appVersion = com.totaliptv.pro.BuildConfig.VERSION_NAME
+                queriedServices = if (complete) TmdbServiceLookup.serviceKeys().toList().sorted() else completed,
+                appVersion = com.totaliptv.pro.BuildConfig.VERSION_NAME,
+                completedServices = completed,
+                fullRecheck = fullRecheck && !complete
             )
         )
         if (ok) {
@@ -1059,7 +1064,6 @@ class CatalogRepository(
         }
         return ok
     }
-
     private suspend fun runServiceLookup(force: Boolean) {
         val file = serviceCacheFile() ?: return
         ensurePlaybackWatch()
@@ -1079,54 +1083,53 @@ class CatalogRepository(
                 return
             }
             val now = System.currentTimeMillis()
-            val current = TmdbServiceLookup.readCache(file)
-            val appVer = com.totaliptv.pro.BuildConfig.VERSION_NAME
-            if (!force && TmdbServiceLookup.isFresh(current, fp, now, currentAppVersion = appVer)) {
+            // Prefer the versioned read, but never start from zero if an older/usable file exists.
+            val current = TmdbServiceLookup.readCache(file) ?: usable
+            val plan = TmdbServiceLookup.planFetch(current, fp, now, force = force)
+            if (!force && plan.isNoop) {
                 Log.i(SVC_TAG, "service cache fresh entries=${current!!.entries.size} ageMs=${now - current.fetchedAtMs}")
                 _serviceLookupStatus.value = "Service groups updated " + formatShortDate(current.fetchedAtMs) +
                     " (${serviceIndex?.size ?: 0} titles)"
                 return
             }
-            val reason = TmdbServiceLookup.staleReason(current, fp, now, currentAppVersion = appVer) ?: "forced"
-            Log.i(SVC_TAG, "service cache refresh reason=$reason entries=${current?.entries?.size ?: 0}")
+            Log.i(SVC_TAG, "service cache refresh reason=${plan.reason} kind=${plan.kind} entries=${current?.entries?.size ?: 0} queries=${plan.queries.size}")
             if (!com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) {
                 serviceLookupDeferral.mark(force)
                 _serviceLookupStatus.value = serviceLookupDeferral.pausedStatus(force)
                 Log.i(SVC_TAG, "service lookup deferred; playback active force=$force")
                 return
             }
-            _serviceLookupStatus.value = "Looking up streaming services…"
+            _serviceLookupStatus.value = plan.queries.firstOrNull()?.let { TmdbServiceLookup.updatingStatus(it) }
+                ?: "Updating service groups…"
             val lookup = TmdbServiceLookup(http)
-            var lastBumpMs = 0L
-            var lastPersistMs = 0L
             val lookupJob = kotlin.coroutines.coroutineContext[Job]
-            val startedAt = now
-            val seed = usable?.entries.orEmpty()
-            val resumeProgress = if (current?.keyFingerprint == fp) current.progress else emptyList()
+            val startedAt = plan.fetchedAtMs
+            val seed = (usable ?: current)?.entries.orEmpty()
+            val completed = plan.completedServices.toMutableSet()
+            var lastSavedOk = false
             val result = try {
                 lookup.fetch(
                     apiKey = key,
                     seed = seed,
-                    progress = resumeProgress,
-                    onProgress = { done, total ->
-                        _serviceLookupStatus.value = "Looking up streaming services… $done/$total"
+                    progress = plan.progress,
+                    queries = plan.queries,
+                    onQueryStart = { status ->
+                        _serviceLookupStatus.value = status
                     },
-                    onBatch = { snapshot ->
+                    onServiceComplete = { serviceKey ->
+                        if (serviceKey != null) completed += serviceKey
                         if (com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) {
-                            val ts = System.currentTimeMillis()
-                            if (lastBumpMs == 0L || ts - lastBumpMs >= 5_000L) {
-                                lastBumpMs = ts
-                                applyServiceIndex(snapshot)
-                            }
+                            val latest = TmdbServiceLookup.readUsableCache(file)
+                            if (latest != null) applyServiceIndex(latest.entries)
                         }
                     },
                     onPersist = { entries, progress, complete ->
                         if (com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) {
-                            val ts = System.currentTimeMillis()
-                            if (complete || lastPersistMs == 0L || ts - lastPersistMs >= 8_000L) {
-                                lastPersistMs = ts
-                                persistServiceCache(file, fp, entries, progress, complete, startedAt)
-                            }
+                            lastSavedOk = persistServiceCache(
+                                file, fp, entries, progress, complete, startedAt,
+                                completedServices = completed,
+                                fullRecheck = plan.fullRecheck
+                            )
                         }
                     },
                     isActive = { lookupJob?.isActive != false },
@@ -1144,7 +1147,14 @@ class CatalogRepository(
                 }
                 return
             }
-            val saved = persistServiceCache(file, fp, result.entries, result.progress, result.complete, startedAt)
+            if (result.complete) {
+                completed += TmdbServiceLookup.serviceKeys()
+            }
+            val saved = persistServiceCache(
+                file, fp, result.entries, result.progress, result.complete, startedAt,
+                completedServices = completed,
+                fullRecheck = plan.fullRecheck
+            ) || lastSavedOk
             if (!result.complete) {
                 if (result.paused) {
                     serviceLookupDeferral.mark(force)

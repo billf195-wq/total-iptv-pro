@@ -22,7 +22,9 @@ class CatalogAnrSafetyTest {
         assertTrue(src.contains("readUsableCache"))
         assertTrue(src.contains("applyServiceIndex"))
         assertTrue(src.contains("OutOfMemoryError"))
-        assertTrue(src.contains("onBatch"))
+        assertTrue(src.contains("planFetch"))
+        assertTrue(src.contains("onServiceComplete"))
+        assertTrue(src.contains("onPersist"))
         assertTrue(src.contains("itemCountForCategory"))
         assertTrue(src.contains("refreshDerivedCatalog"))
     }

@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 
 class HowToGuideTest {
     private val required = listOf(
-        "What's new in 1.4.110",
+        "What's new in 1.4.112",
         "Getting started", "Live TV", "Movies & Series", "Continue Watching", "Favorites",
         "Search", "Recording (DVR)", "Sleep timer", "Auto-play next", "PIN lock", "Tips & troubleshooting"
     )
@@ -43,7 +43,7 @@ class HowToGuideTest {
     fun versionSectionCoversShippedFeaturesWithoutAPhoneFavoritesTab() {
         val tv = HowToGuide.sections(tv = true).joinToString(" ") { it.title + " " + it.body }
         val phone = HowToGuide.sections(tv = false).joinToString(" ") { it.title + " " + it.body }
-        listOf("What's new in 1.4.110", "Show adult in search", "Peacock", "Crunchyroll", "few minutes").forEach { n ->
+        listOf("What's new in 1.4.112", "Show adult in search", "Peacock", "Crunchyroll", "few minutes", "continues from there", "once a week").forEach { n ->
             assertTrue(tv.contains(n), "tv missing $n")
             assertTrue(phone.contains(n), "phone missing $n")
         }
