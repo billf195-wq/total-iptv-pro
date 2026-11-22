@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -23,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +59,8 @@ import com.totaliptv.pro.ui.splash.AppBrandName
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -429,5 +433,69 @@ fun SidebarBrand(modifier: Modifier = Modifier) {
             color = TipGoldText,
             modifier = Modifier.fillMaxWidth()
         )
+    }
+}
+
+
+data class DesktopActionItem(
+    val label: String,
+    val onClick: () -> Unit,
+)
+
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+/**
+ * TV D-pad action menu. Uses a real [Dialog] so the platform focus trap owns
+ * the buttons: a sibling Box overlay leaves the list behind focusable, which
+ * is why long-press on a Live channel could not reach Add / Record / Cancel.
+ */
+@Composable
+fun DesktopActionDialog(
+    title: String,
+    actions: List<DesktopActionItem>,
+    onDismiss: () -> Unit,
+) {
+    val labels = actions.map { it.label }
+    val requesters = remember(title, labels) { List(actions.size) { FocusRequester() } }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+        ),
+    ) {
+        Column(
+            Modifier
+                .widthIn(min = 400.dp)
+                .background(TipSurface, RoundedCornerShape(TipDimens.NavCorner))
+                .padding(TipDimens.dp(20)),
+            verticalArrangement = Arrangement.spacedBy(TipDimens.dp(10)),
+            horizontalAlignment = Alignment.Start,
+        ) {
+            Text(title, color = TipGoldText, fontSize = TipDimens.BodyLargeSp)
+            actions.forEachIndexed { index, action ->
+                AmberButton(
+                    action.label,
+                    onClick = action.onClick,
+                    modifier = Modifier
+                        .focusRequester(requesters[index])
+                        .focusProperties {
+                            left = FocusRequester.Cancel
+                            right = FocusRequester.Cancel
+                            up = if (index == 0) FocusRequester.Cancel else requesters[index - 1]
+                            down = if (index == actions.lastIndex) FocusRequester.Cancel else requesters[index + 1]
+                        },
+                )
+            }
+        }
+        LaunchedEffect(title, labels) {
+            val first = requesters.firstOrNull() ?: return@LaunchedEffect
+            kotlinx.coroutines.delay(60)
+            for (attempt in 0 until 8) {
+                val ok = runCatching { first.requestFocus(); true }.getOrDefault(false)
+                if (ok) break
+                kotlinx.coroutines.delay(50)
+            }
+        }
     }
 }

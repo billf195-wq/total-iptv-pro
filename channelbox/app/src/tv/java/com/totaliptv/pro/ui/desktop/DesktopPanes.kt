@@ -415,7 +415,7 @@ fun LivePane(
     Column(
         Modifier
             .fillMaxSize()
-            .focusProperties { canFocus = !showGameDay }
+            .focusProperties { canFocus = !showGameDay && menuChannel == null }
     ) {
         FilterBar(
             search = search,
@@ -470,36 +470,38 @@ fun LivePane(
             }
         }
     }
-    menuChannel?.let { ch ->
-        val already = favorites.any { it.id == ch.id }
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                Modifier
-                    .background(TipSurface, RoundedCornerShape(TipDimens.NavCorner))
-                    .padding(TipDimens.dp(20)),
-                verticalArrangement = Arrangement.spacedBy(TipDimens.dp(10)),
-                horizontalAlignment = Alignment.Start
-            ) {
-                Text(ch.name, color = TipGoldText, fontSize = TipDimens.BodyLargeSp)
-                AmberButton(
-                    if (already) "Remove from Favorites" else "Add to Favorites",
-                    onClick = {
-                        onToggleFavorite(ch)
-                        menuChannel = null
-                    }
-                )
-                AmberButton("Record", onClick = {
-                    onRecord(ch)
-                    menuChannel = null
-                })
-                AmberButton("Cancel", onClick = { menuChannel = null })
+    fun dismissChannelMenu(id: String) {
+        menuChannel = null
+        liveFocusScope.launch {
+            for (attempt in 0 until 8) {
+                kotlinx.coroutines.delay(if (attempt == 0) 40L else 50L)
+                val target = when {
+                    filtered.any { it.id == id } -> id
+                    else -> filtered.firstOrNull()?.id
+                } ?: break
+                if (SafeFocus.request(rowFocus(target))) break
             }
         }
+    }
+    menuChannel?.let { ch ->
+        val already = favorites.any { it.id == ch.id }
+        DesktopActionDialog(
+            title = ch.name,
+            actions = listOf(
+                DesktopActionItem(
+                    if (already) "Remove from Favorites" else "Add to Favorites",
+                ) {
+                    onToggleFavorite(ch)
+                    dismissChannelMenu(ch.id)
+                },
+                DesktopActionItem("Record") {
+                    onRecord(ch)
+                    dismissChannelMenu(ch.id)
+                },
+                DesktopActionItem("Cancel") { dismissChannelMenu(ch.id) },
+            ),
+            onDismiss = { dismissChannelMenu(ch.id) },
+        )
     }
     if (showGameDay) {
         GameDayPicker(
