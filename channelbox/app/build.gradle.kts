@@ -134,8 +134,8 @@ android {
             dimension = "device"
             applicationIdSuffix = ".phone"
             // Phone-only bump so Shield is not forced to update.
-            versionCode = 101
-            versionName = "1.4.89-phone"
+            versionCode = 102
+            versionName = "1.4.90-phone"
             resValue("string", "app_name", "Total IPTV Pro Phone")
             buildConfigField(
                 "String",

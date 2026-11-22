@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
@@ -220,6 +221,7 @@ private enum class PhoneTab(val label: String) {
     Live("Live"),
     Movies("Movies"),
     Series("Series"),
+    Favorites("Favorites"),
     Search("Search"),
     Recordings("Recordings"),
     Settings("Settings")
@@ -243,6 +245,7 @@ private fun PhoneAppRoot(
                 LastPlace.SCREEN_LIVE -> PhoneTab.Live
                 LastPlace.SCREEN_MOVIES -> PhoneTab.Movies
                 LastPlace.SCREEN_SERIES -> PhoneTab.Series
+                LastPlace.SCREEN_FAVORITES -> PhoneTab.Favorites
                 LastPlace.SCREEN_SEARCH -> PhoneTab.Search
                 LastPlace.SCREEN_RECORDINGS -> PhoneTab.Recordings
                 LastPlace.SCREEN_SETTINGS -> PhoneTab.Settings
@@ -319,6 +322,7 @@ private fun PhoneAppRoot(
             PhoneTab.Live -> LastPlace.SCREEN_LIVE
             PhoneTab.Movies -> LastPlace.SCREEN_MOVIES
             PhoneTab.Series -> LastPlace.SCREEN_SERIES
+            PhoneTab.Favorites -> LastPlace.SCREEN_FAVORITES
             PhoneTab.Search -> LastPlace.SCREEN_SEARCH
             PhoneTab.Recordings -> LastPlace.SCREEN_RECORDINGS
             PhoneTab.Settings -> LastPlace.SCREEN_SETTINGS
@@ -354,6 +358,7 @@ private fun PhoneAppRoot(
                     NavigationBarItem(
                         selected = tab == t,
                         onClick = { tab = t },
+                        alwaysShowLabel = false,
                         icon = {
                             Icon(
                                 imageVector = when (t) {
@@ -361,6 +366,7 @@ private fun PhoneAppRoot(
                                     PhoneTab.Live -> Icons.Default.LiveTv
                                     PhoneTab.Movies -> Icons.Default.Movie
                                     PhoneTab.Series -> Icons.Default.Tv
+                                    PhoneTab.Favorites -> Icons.Default.Favorite
                                     PhoneTab.Search -> Icons.Default.Search
                                     PhoneTab.Recordings -> Icons.Default.VideoLibrary
                                     PhoneTab.Settings -> Icons.Default.Settings
@@ -397,6 +403,13 @@ private fun PhoneAppRoot(
             )
             PhoneTab.Series -> PhoneBrowseScreen(
                 section = BrowseSection.Series,
+                repository = repository,
+                onPlay = onPlay,
+                onPlayFromStart = onPlayFromStart,
+                contentPadding = padding
+            )
+            PhoneTab.Favorites -> PhoneBrowseScreen(
+                section = BrowseSection.Favorites,
                 repository = repository,
                 onPlay = onPlay,
                 onPlayFromStart = onPlayFromStart,

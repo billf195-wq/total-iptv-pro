@@ -41,6 +41,7 @@ data class LastPlace(
         const val SCREEN_LIVE = "live"
         const val SCREEN_MOVIES = "movies"
         const val SCREEN_SERIES = "series"
+        const val SCREEN_FAVORITES = "favorites"
         const val SCREEN_SETTINGS = "settings"
         const val SCREEN_GUIDE = "guide"
         const val SCREEN_SEARCH = "search"

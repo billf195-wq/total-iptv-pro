@@ -40,19 +40,23 @@ class HowToGuideTest {
     }
 
     @Test
-    fun versionSectionCoversShippedFeaturesWithoutAPhoneFavoritesTab() {
+    fun versionSectionCoversShippedFeaturesAndThePhoneFavoritesTab() {
         val tv = HowToGuide.sections(tv = true).joinToString(" ") { it.title + " " + it.body }
         val phone = HowToGuide.sections(tv = false).joinToString(" ") { it.title + " " + it.body }
-        listOf("What's new in 1.4.112", "Show adult in search", "Peacock", "Crunchyroll", "few minutes", "continues from there", "once a week").forEach { n ->
+        listOf("Show adult in search", "Peacock", "Crunchyroll", "few minutes", "continues from there", "once a week").forEach { n ->
             assertTrue(tv.contains(n), "tv missing $n")
             assertTrue(phone.contains(n), "phone missing $n")
         }
+        assertTrue(tv.contains("What's new in 1.4.112"))
+        assertFalse(tv.contains("What's new in 1.4.90-phone"))
+        assertTrue(phone.contains("What's new in 1.4.90-phone"))
         assertTrue(tv.contains("Screen fit"))
         assertTrue(tv.contains("Use 5%"))
         assertTrue(tv.contains("Live, Movies and Series"))
         assertTrue(tv.contains("Menu"))
         assertFalse(phone.contains("Screen fit"))
-        assertFalse(phone.contains("Favorites tab"))
-        assertTrue(phone.contains("does not have a separate Favorites screen"))
+        assertTrue(phone.contains("Favorites tab"))
+        assertTrue(phone.contains("Live, Movies and Series"))
+        assertFalse(phone.contains("does not have a separate Favorites screen"))
     }
 }
