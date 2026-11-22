@@ -106,4 +106,21 @@ class VodDiskCacheTest {
         assertFalse(w.commit())
         assertEquals(3L, VodDiskCache.read(dir, "src-a")!!.savedAtMs)
     }
+
+
+    @Test
+    fun seedFromCacheCopiesOtherKindThenAddsNewMovies() {
+        val dir = Files.createTempDirectory("vod").toFile()
+        VodDiskCache.write(dir, "src-a", cats, items, nowMs = 1L)
+        val w = VodDiskCache.Writer(dir, "src-a", listOf(Category("vod-1", "Action", ContentKind.VOD)), nowMs = 9L)
+        w.seedFromCache(ContentKind.VOD)
+        w.add(listOf(item("vod-new", ContentKind.VOD)))
+        assertTrue(w.commit())
+        val snap = VodDiskCache.read(dir, "src-a")!!
+        assertEquals(9L, snap.savedAtMs)
+        assertTrue(snap.items.any { it.id == "series-1" })
+        assertTrue(snap.items.any { it.id == "vod-new" })
+        assertTrue(snap.items.none { it.id == "vod-1" || it.id == "vod-2" })
+        assertTrue(snap.items.none { it.kind == ContentKind.LIVE })
+    }
 }

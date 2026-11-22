@@ -31,6 +31,7 @@ import androidx.activity.ComponentActivity
 import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
 import com.totaliptv.pro.data.local.PreferredPlayer
+import com.totaliptv.pro.ui.nav.TvBack
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -531,12 +532,14 @@ class PlayerActivity : ComponentActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = FocusCrashGuard.guard(this, event) {
         FocusTrace.screen = "player"
-        if (event.action == KeyEvent.ACTION_DOWN) {
+        // USB / keyboard Escape is Back everywhere in the player, including the error screen.
+        val ev = TvBack.asBackKeyEvent(event)
+        if (ev.action == KeyEvent.ACTION_DOWN) {
             lastUserKeyAtMs = android.os.SystemClock.uptimeMillis()
             playerView?.showController()
             showOverlayTemporarily()
         }
-        super.dispatchKeyEvent(event)
+        super.dispatchKeyEvent(ev)
     }
 
     private var lastUserKeyAtMs = 0L

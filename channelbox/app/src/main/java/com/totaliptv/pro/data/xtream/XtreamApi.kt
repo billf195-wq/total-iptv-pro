@@ -27,6 +27,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
 import java.time.ZoneId
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -814,11 +815,20 @@ class XtreamApi(
         onBatch: (List<T>) -> Unit
     ): Int {
         val request = actionRequest(host, username, password, action)
-        client.newCall(request).execute().use { response ->
-            if (response.code == 429) throw RateLimited(action)
-            if (!response.isSuccessful) error("Xtream $action failed: HTTP ${response.code}")
-            val body = response.body ?: return 0
-            body.charStream().buffered(16 * 1024).use { raw ->
+        val tmp = File.createTempFile("tip-xtream-", ".json")
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.code == 429) throw RateLimited(action)
+                if (!response.isSuccessful) error("Xtream $action failed: HTTP ${response.code}")
+                val body = response.body ?: return 0
+                // Spill the body to disk in small chunks and close the HTTP
+                // response before parsing, so the native/socket buffer is
+                // released and never held with the catalog objects.
+                tmp.outputStream().buffered(32 * 1024).use { out ->
+                    body.byteStream().copyTo(out, 32 * 1024)
+                }
+            }
+            tmp.bufferedReader(Charsets.UTF_8).use { raw ->
                 val parsed = JsonArrayStream.consume(raw, json, deserializer, batchSize, onBatch)
                 if (parsed.kind == JsonArrayStream.Kind.Object) {
                     val prefix = parsed.prefix.orEmpty()
@@ -832,6 +842,8 @@ class XtreamApi(
                 }
                 return parsed.count
             }
+        } finally {
+            tmp.delete()
         }
     }
 

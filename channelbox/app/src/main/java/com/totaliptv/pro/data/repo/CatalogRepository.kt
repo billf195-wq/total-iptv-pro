@@ -471,6 +471,13 @@ class CatalogRepository(
         var loaded = 0
         var loadedCats: List<com.totaliptv.pro.data.model.Category> = emptyList()
         var fallbackKeep: List<MediaItem> = emptyList()
+        val seedCats = loadMutex.withLock {
+            // Drop old movies from rawItems now so download/parse never holds
+            // the previous movie list alongside the new one. cachedItems still
+            // serves the last good list to the UI until applyStreamedKind.
+            dropKindFromRaw(ContentKind.VOD)
+            rawCategories.filter { it.kind != ContentKind.LIVE }
+        }
         for (attempt in 1..VOD_ATTEMPTS) {
             val t0 = System.currentTimeMillis()
             var cats: List<com.totaliptv.pro.data.model.Category> = emptyList()
@@ -478,15 +485,12 @@ class CatalogRepository(
             var writer: VodDiskCache.Writer? = null
             val fallback = ArrayList<MediaItem>()
             val dir = vodCacheDir
-            val seed = loadMutex.withLock {
-                (rawCategories.filter { it.kind != ContentKind.VOD && it.kind != ContentKind.LIVE }) to
-                    rawItems.filter { it.kind != ContentKind.VOD && it.kind != ContentKind.LIVE }
-            }
             val result = runCatching {
                 xtreamApi.consumeVodCatalog(base, user, pass, streamBatchSize(), { cats = it }) { batch ->
                     if (batch.isEmpty()) return@consumeVodCatalog
                     if (writer == null && dir != null) {
-                        writer = VodDiskCache.Writer(dir, sourceId, seed.first + cats, seedItems = seed.second)
+                        writer = VodDiskCache.Writer(dir, sourceId, seedCats + cats)
+                        writer?.seedFromCache(ContentKind.VOD)
                     }
                     writer?.add(batch)
                     if (dir == null) fallback.addAll(batch)
@@ -525,6 +529,7 @@ class CatalogRepository(
                 lastWarning = null
                 _vodError.value = null
             } else {
+                restoreKindFromCache(sourceId, ContentKind.VOD)
                 vodSettled = true
                 publishVisible(refresh = false)
                 val have = rawItems.count { it.kind == ContentKind.VOD }
@@ -551,6 +556,10 @@ class CatalogRepository(
         var loaded = 0
         var loadedCats: List<com.totaliptv.pro.data.model.Category> = emptyList()
         var fallbackKeep: List<MediaItem> = emptyList()
+        val seedCats = loadMutex.withLock {
+            dropKindFromRaw(ContentKind.SERIES)
+            rawCategories.filter { it.kind != ContentKind.LIVE }
+        }
         for (attempt in 1..VOD_ATTEMPTS) {
             val t0 = System.currentTimeMillis()
             var cats: List<com.totaliptv.pro.data.model.Category> = emptyList()
@@ -558,15 +567,12 @@ class CatalogRepository(
             var writer: VodDiskCache.Writer? = null
             val fallback = ArrayList<MediaItem>()
             val dir = vodCacheDir
-            val seed = loadMutex.withLock {
-                (rawCategories.filter { it.kind != ContentKind.SERIES && it.kind != ContentKind.LIVE }) to
-                    rawItems.filter { it.kind != ContentKind.SERIES && it.kind != ContentKind.LIVE }
-            }
             val result = runCatching {
                 xtreamApi.consumeSeriesCatalog(base, user, pass, streamBatchSize(), { cats = it }) { batch ->
                     if (batch.isEmpty()) return@consumeSeriesCatalog
                     if (writer == null && dir != null) {
-                        writer = VodDiskCache.Writer(dir, sourceId, seed.first + cats, seedItems = seed.second)
+                        writer = VodDiskCache.Writer(dir, sourceId, seedCats + cats)
+                        writer?.seedFromCache(ContentKind.SERIES)
                     }
                     writer?.add(batch)
                     if (dir == null) fallback.addAll(batch)
@@ -603,6 +609,7 @@ class CatalogRepository(
                 publishVisible(refresh = false)
                 refreshDerivedCatalog()
             } else {
+                restoreKindFromCache(sourceId, ContentKind.SERIES)
                 Log.w(VOD_TAG, "series refresh failed; keeping cached series problem=$lastProblem")
                 seriesSettled = true
                 publishVisible(refresh = false)
@@ -620,6 +627,27 @@ class CatalogRepository(
      * already on disk as the writer seed and is re-read only for [kind].
      * When no cache dir is attached (tests), [fallback] is applied instead.
      */
+    /** Release [kind] from [rawItems] without publishing, so the UI can keep last-good [cachedItems]. */
+    private fun dropKindFromRaw(kind: ContentKind) {
+        rawCategories = rawCategories.filter { it.kind != kind }
+        val kept = ArrayList<MediaItem>(rawItems.size)
+        for (item in rawItems) {
+            if (item.kind != kind) kept.add(item)
+        }
+        rawItems = kept
+    }
+
+    /** After a failed refresh, put [kind] back from the last good disk cache. */
+    private fun restoreKindFromCache(sourceId: String, kind: ContentKind) {
+        val dir = vodCacheDir ?: return
+        if (rawItems.any { it.kind == kind }) return
+        val kept = rawItems as? ArrayList<MediaItem> ?: ArrayList(rawItems).also { rawItems = it }
+        VodDiskCache.readStreaming(dir, sourceId, {}, { batch ->
+            val add = batch.filter { it.kind == kind }
+            if (add.isNotEmpty()) kept.addAll(add)
+        })
+    }
+
     private fun applyStreamedKind(
         sourceId: String,
         kind: ContentKind,
@@ -632,6 +660,10 @@ class CatalogRepository(
             if (item.kind != kind) kept.add(item)
         }
         rawItems = kept
+        // Drop the previous UI list of this kind before reading the new one
+        // so we never hold both object graphs at once.
+        cachedItems = kept
+        cachedCategories = rawCategories
         val dir = vodCacheDir
         if (dir != null) {
             VodDiskCache.readStreaming(dir, sourceId, {}, { batch ->

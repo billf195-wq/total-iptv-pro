@@ -47,7 +47,7 @@ object VodDiskCache {
     /** Incremental writer used while streaming a network catalog. */
     class Writer(
         dir: File,
-        sourceId: String,
+        private val sourceId: String,
         categories: List<Category>,
         seedItems: List<MediaItem> = emptyList(),
         nowMs: Long = System.currentTimeMillis()
@@ -81,6 +81,18 @@ object VodDiskCache {
                 itemCount++
                 if (item.kind == ContentKind.VOD) vodCount++
             }
+        }
+
+        /**
+         * Copy the other VOD kind from the last good cache into this temp file,
+         * one batch at a time. Does not accumulate that list in memory.
+         */
+        fun seedFromCache(exclude: ContentKind) {
+            if (!open || !dest.isFile) return
+            readStreaming(dest.parentFile ?: return, sourceId, {}, { batch ->
+                val keep = batch.filter { it.kind != exclude && it.kind != ContentKind.LIVE }
+                if (keep.isNotEmpty()) add(keep)
+            })
         }
 
         /** Atomically replace the last good cache. Returns false if there were no movies. */
