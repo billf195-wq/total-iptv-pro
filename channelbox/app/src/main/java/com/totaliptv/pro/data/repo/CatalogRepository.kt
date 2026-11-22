@@ -17,6 +17,7 @@ import com.totaliptv.pro.data.tmdb.ServiceLookupDeferral
 import com.totaliptv.pro.data.tmdb.TmdbServiceLookup
 import com.totaliptv.pro.data.tmdb.TmdbPlotLookup
 import com.totaliptv.pro.data.VodDiskCache
+import com.totaliptv.pro.data.xtream.JsonArrayStream
 import com.totaliptv.pro.data.LiveEpgBinding
 import com.totaliptv.pro.data.local.AppPreferences
 import com.totaliptv.pro.data.m3u.M3uParser
@@ -372,11 +373,17 @@ class CatalogRepository(
                                 var keepCats = if (sameSource) rawCategories.filter { it.kind != ContentKind.LIVE } else emptyList()
                                 var keepItems = if (sameSource) rawItems.filter { it.kind != ContentKind.LIVE } else emptyList()
                                 if (keepItems.none { it.kind == ContentKind.VOD }) {
-                                    val snap = vodCacheDir?.let { dir -> runCatching { VodDiskCache.read(dir, source.id) }.getOrNull() }
-                                    if (snap != null) {
-                                        keepCats = snap.categories
-                                        keepItems = snap.items
-                                        Log.i(VOD_TAG, "disk cache hit movies=${snap.items.count { it.kind == ContentKind.VOD }} ageMs=${System.currentTimeMillis() - snap.savedAtMs}")
+                                    val cats = ArrayList<com.totaliptv.pro.data.model.Category>()
+                                    val items = ArrayList<MediaItem>()
+                                    val meta = vodCacheDir?.let { dir ->
+                                        runCatching {
+                                            VodDiskCache.readStreaming(dir, source.id, { cats.addAll(it) }, { items.addAll(it) })
+                                        }.getOrNull()
+                                    }
+                                    if (meta != null && items.any { it.kind == ContentKind.VOD }) {
+                                        keepCats = cats
+                                        keepItems = items
+                                        Log.i(VOD_TAG, "disk cache hit movies=${items.count { it.kind == ContentKind.VOD }} ageMs=${System.currentTimeMillis() - meta.savedAtMs}")
                                     } else {
                                         Log.i(VOD_TAG, "no movie cache yet")
                                     }
@@ -450,6 +457,9 @@ class CatalogRepository(
         return null to lastProblem
     }
 
+    private fun streamBatchSize(): Int =
+        if (memoryTight) 400 else JsonArrayStream.DEFAULT_BATCH
+
     private suspend fun mergeVodInBackground(
         sourceId: String,
         base: String,
@@ -457,20 +467,58 @@ class CatalogRepository(
         pass: String
     ) {
         Log.i(VOD_TAG, "movies load start")
-        val (vod, problem) = loadWithRetry(
-            "movies",
-            { xtreamApi.loadVodCatalog(base, user, pass) },
-            { it.items.size },
-            { it.warnings }
-        )
+        var lastProblem: String? = null
+        var loaded = 0
+        var loadedCats: List<com.totaliptv.pro.data.model.Category> = emptyList()
+        var fallbackKeep: List<MediaItem> = emptyList()
+        for (attempt in 1..VOD_ATTEMPTS) {
+            val t0 = System.currentTimeMillis()
+            var cats: List<com.totaliptv.pro.data.model.Category> = emptyList()
+            var count = 0
+            var writer: VodDiskCache.Writer? = null
+            val fallback = ArrayList<MediaItem>()
+            val dir = vodCacheDir
+            val seed = loadMutex.withLock {
+                (rawCategories.filter { it.kind != ContentKind.VOD && it.kind != ContentKind.LIVE }) to
+                    rawItems.filter { it.kind != ContentKind.VOD && it.kind != ContentKind.LIVE }
+            }
+            val result = runCatching {
+                xtreamApi.consumeVodCatalog(base, user, pass, streamBatchSize(), { cats = it }) { batch ->
+                    if (batch.isEmpty()) return@consumeVodCatalog
+                    if (writer == null && dir != null) {
+                        writer = VodDiskCache.Writer(dir, sourceId, seed.first + cats, seedItems = seed.second)
+                    }
+                    writer?.add(batch)
+                    if (dir == null) fallback.addAll(batch)
+                    count += batch.size
+                }
+            }
+            val ms = System.currentTimeMillis() - t0
+            val committed = if (result.isSuccess && count > 0) {
+                if (writer != null) writer.commit() else true
+            } else {
+                writer?.abort()
+                false
+            }
+            if (committed) {
+                Log.i(VOD_TAG, "movies ok attempt=$attempt items=$count ms=$ms committed=$committed")
+                loaded = count
+                loadedCats = cats
+                fallbackKeep = fallback
+                lastProblem = null
+                break
+            }
+            lastProblem = result.exceptionOrNull()?.let { SensitiveText.forUser(it) }
+                ?: result.getOrNull()?.warnings?.joinToString(" ")?.takeIf { it.isNotBlank() }
+                ?: "empty list"
+            Log.w(VOD_TAG, "movies miss attempt=$attempt/$VOD_ATTEMPTS ms=$ms problem=$lastProblem")
+            if (attempt < VOD_ATTEMPTS) delay(VOD_BACKOFF_MS * (1L shl (attempt - 1)))
+        }
 
         loadMutex.withLock {
             if (loadedForSourceId != sourceId) return@withLock
-            if (vod != null && VodDiskCache.shouldReplace(vod.items)) {
-                val keepCats = rawCategories.filter { it.kind != ContentKind.VOD }
-                val keepItems = rawItems.filter { it.kind != ContentKind.VOD }
-                rawCategories = keepCats + vod.categories
-                rawItems = keepItems + vod.items
+            if (loaded > 0) {
+                applyStreamedKind(sourceId, ContentKind.VOD, loadedCats, fallbackKeep)
                 vodSettled = true
                 publishVisible(refresh = false)
                 refreshDerivedCatalog()
@@ -482,8 +530,8 @@ class CatalogRepository(
                 val have = rawItems.count { it.kind == ContentKind.VOD }
                 Log.w(VOD_TAG, "movies refresh failed; keeping $have cached movies")
                 if (have == 0) {
-                    _vodError.value = "Couldn't load movies (" + (problem ?: "unknown error") + ")."
-                    lastWarning = "VOD list failed (" + (problem ?: "unknown error") + "). Live TV still available."
+                    _vodError.value = "Couldn't load movies (" + (lastProblem ?: "unknown error") + ")."
+                    lastWarning = "VOD list failed (" + (lastProblem ?: "unknown error") + "). Live TV still available."
                 } else {
                     lastWarning = "Couldn't refresh movies; showing saved list."
                 }
@@ -492,41 +540,109 @@ class CatalogRepository(
         }
     }
 
-
     private suspend fun mergeSeriesInBackground(
         sourceId: String,
         base: String,
         user: String,
         pass: String
     ) {
-        val (series, problem) = loadWithRetry(
-            "series",
-            { xtreamApi.loadSeriesCatalog(base, user, pass) },
-            { it.items.size },
-            { it.warnings }
-        )
+        Log.i(VOD_TAG, "series load start")
+        var lastProblem: String? = null
+        var loaded = 0
+        var loadedCats: List<com.totaliptv.pro.data.model.Category> = emptyList()
+        var fallbackKeep: List<MediaItem> = emptyList()
+        for (attempt in 1..VOD_ATTEMPTS) {
+            val t0 = System.currentTimeMillis()
+            var cats: List<com.totaliptv.pro.data.model.Category> = emptyList()
+            var count = 0
+            var writer: VodDiskCache.Writer? = null
+            val fallback = ArrayList<MediaItem>()
+            val dir = vodCacheDir
+            val seed = loadMutex.withLock {
+                (rawCategories.filter { it.kind != ContentKind.SERIES && it.kind != ContentKind.LIVE }) to
+                    rawItems.filter { it.kind != ContentKind.SERIES && it.kind != ContentKind.LIVE }
+            }
+            val result = runCatching {
+                xtreamApi.consumeSeriesCatalog(base, user, pass, streamBatchSize(), { cats = it }) { batch ->
+                    if (batch.isEmpty()) return@consumeSeriesCatalog
+                    if (writer == null && dir != null) {
+                        writer = VodDiskCache.Writer(dir, sourceId, seed.first + cats, seedItems = seed.second)
+                    }
+                    writer?.add(batch)
+                    if (dir == null) fallback.addAll(batch)
+                    count += batch.size
+                }
+            }
+            val ms = System.currentTimeMillis() - t0
+            val committed = if (result.isSuccess && count > 0) {
+                if (writer != null) writer.commit() else true
+            } else {
+                writer?.abort()
+                false
+            }
+            if (committed) {
+                Log.i(VOD_TAG, "series ok attempt=$attempt items=$count ms=$ms committed=$committed")
+                loaded = count
+                loadedCats = cats
+                fallbackKeep = fallback
+                lastProblem = null
+                break
+            }
+            lastProblem = result.exceptionOrNull()?.let { SensitiveText.forUser(it) }
+                ?: result.getOrNull()?.warnings?.joinToString(" ")?.takeIf { it.isNotBlank() }
+                ?: "empty list"
+            Log.w(VOD_TAG, "series miss attempt=$attempt/$VOD_ATTEMPTS ms=$ms problem=$lastProblem")
+            if (attempt < VOD_ATTEMPTS) delay(VOD_BACKOFF_MS * (1L shl (attempt - 1)))
+        }
 
         loadMutex.withLock {
             if (loadedForSourceId != sourceId) return@withLock
-            if (series != null && series.items.isNotEmpty()) {
-                val keepCats = rawCategories.filter { it.kind != ContentKind.SERIES }
-                val keepItems = rawItems.filter { it.kind != ContentKind.SERIES }
-                rawCategories = keepCats + series.categories
-                rawItems = keepItems + series.items
+            if (loaded > 0) {
+                applyStreamedKind(sourceId, ContentKind.SERIES, loadedCats, fallbackKeep)
                 seriesSettled = true
                 publishVisible(refresh = false)
                 refreshDerivedCatalog()
             } else {
-                Log.w(VOD_TAG, "series refresh failed; keeping cached series problem=$problem")
+                Log.w(VOD_TAG, "series refresh failed; keeping cached series problem=$lastProblem")
                 seriesSettled = true
                 publishVisible(refresh = false)
                 if (rawItems.none { it.kind == ContentKind.SERIES }) {
-                    lastWarning = listOfNotNull(lastWarning, "Series list failed (" + (problem ?: "unknown error") + ").").joinToString(" ")
+                    lastWarning = listOfNotNull(lastWarning, "Series list failed (" + (lastProblem ?: "unknown error") + ").").joinToString(" ")
                 }
             }
             bumpRevision()
         }
     }
+
+    /**
+     * Drop the previous list of [kind] and stream the new titles from the disk
+     * cache just written. Live items stay in memory; the other VOD kind is
+     * already on disk as the writer seed and is re-read only for [kind].
+     * When no cache dir is attached (tests), [fallback] is applied instead.
+     */
+    private fun applyStreamedKind(
+        sourceId: String,
+        kind: ContentKind,
+        newCats: List<com.totaliptv.pro.data.model.Category>,
+        fallback: List<MediaItem> = emptyList()
+    ) {
+        rawCategories = rawCategories.filter { it.kind != kind } + newCats
+        val kept = ArrayList<MediaItem>(rawItems.size)
+        for (item in rawItems) {
+            if (item.kind != kind) kept.add(item)
+        }
+        rawItems = kept
+        val dir = vodCacheDir
+        if (dir != null) {
+            VodDiskCache.readStreaming(dir, sourceId, {}, { batch ->
+                val add = batch.filter { it.kind == kind }
+                if (add.isNotEmpty()) kept.addAll(add)
+            })
+        } else if (fallback.isNotEmpty()) {
+            kept.addAll(fallback)
+        }
+    }
+
     /**
      * Rebuild the visible lists from the raw catalog with the PIN lock applied. With the lock off
      * or unlocked the raw lists are published as-is (same instances), so nothing else changes.

@@ -290,16 +290,37 @@ class XtreamApi(
         )
     }
 
+    data class ConsumeResult(val itemCount: Int, val warnings: List<String> = emptyList())
+
     /**
      * VOD categories/streams. Never throws for parse/network of VOD alone —
      * returns empty lists + warnings so live home stays usable.
      */
     fun loadVodCatalog(baseUrl: String, username: String, password: String): VodCatalog {
+        val categories = mutableListOf<Category>()
+        val items = ArrayList<MediaItem>()
+        val result = consumeVodCatalog(baseUrl, username, password, onCategories = { categories += it }) { batch ->
+            items.addAll(batch)
+        }
+        return VodCatalog(categories, items, result.warnings)
+    }
+
+    /**
+     * Stream get_vod_streams one title at a time. Never holds the JSON body or a
+     * full VodStream list. [onBatch] receives bounded MediaItem batches.
+     */
+    fun consumeVodCatalog(
+        baseUrl: String,
+        username: String,
+        password: String,
+        batchSize: Int = JsonArrayStream.DEFAULT_BATCH,
+        onCategories: (List<Category>) -> Unit = {},
+        onBatch: (List<MediaItem>) -> Unit
+    ): ConsumeResult {
         val host = normalizeBase(baseUrl)
         val warnings = mutableListOf<String>()
         return try {
             val vodCatsRaw = getListFlexible<XtreamCategory>(host, username, password, "get_vod_categories")
-            val vodStreams = getListFlexible<VodStream>(host, username, password, "get_vod_streams")
             val vodCategories = vodCatsRaw.map {
                 Category(
                     id = "vod-${it.categoryId}",
@@ -307,42 +328,26 @@ class XtreamApi(
                     kind = ContentKind.VOD
                 )
             }
-            val vodItems = vodStreams.map { s ->
-                val ext = s.containerExtension?.trim()?.removePrefix(".")?.takeIf { it.isNotBlank() } ?: "mp4"
-                val poster = listOf(s.coverBig, s.cover, s.streamIcon)
-                    .map { LogoUrls.absolute(host, it) }
-                    .firstOrNull { !it.isNullOrBlank() }
-                MediaItem(
-                    id = "vod-${s.streamId}",
-                    name = s.name.ifBlank { "Title ${s.streamId}" },
-                    streamUrl = "$host/movie/$username/$password/${s.streamId}.$ext",
-                    categoryId = s.categoryId?.let { "vod-$it" },
-                    kind = ContentKind.VOD,
-                    logoUrl = LogoUrls.absolute(host, s.streamIcon),
-                    posterUrl = poster,
-                    groupTitle = vodCategories.find { it.id == "vod-${s.categoryId}" }?.name,
-                    xtreamStreamId = s.streamId,
-                    addedMs = parseXtreamAdded(s.added),
-                    rating = normalizeRating(s.rating, s.rating5based),
-                    youtubeTrailer = s.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() },
-                    year = flexibleYear(s.yearRaw),
-                    tmdbId = flexibleInt(s.tmdbRaw).takeIf { it > 0 } ?: flexibleInt(s.tmdbIdRaw).takeIf { it > 0 }
-                )
+            onCategories(vodCategories)
+            val catNames = HashMap<String, String>(vodCategories.size * 2)
+            for (c in vodCategories) catNames[c.id] = c.name
+            val count = consumeActionArray(host, username, password, "get_vod_streams", VodStream.serializer(), batchSize) { raw ->
+                val mapped = ArrayList<MediaItem>(raw.size)
+                for (s in raw) mapped.add(mapVodItem(host, username, password, s, catNames))
+                onBatch(mapped)
             }
-            if (vodItems.isEmpty() && vodCategories.isEmpty()) {
+            if (count == 0 && vodCategories.isEmpty()) {
                 warnings += "VOD list empty or unreadable. Live TV still available."
             }
-            VodCatalog(vodCategories, vodItems, warnings)
+            ConsumeResult(count, warnings)
         } catch (t: Throwable) {
             Log.w(TAG, "VOD load failed; keeping live catalog: ${SensitiveText.safeLog(t)}")
-            VodCatalog(
-                emptyList(),
-                emptyList(),
+            ConsumeResult(
+                0,
                 listOf("VOD list failed (${SensitiveText.forUser(t)}). Live TV still available.")
             )
         }
     }
-
 
     /**
      * Series categories + series list via get_series_categories / get_series.
@@ -350,11 +355,30 @@ class XtreamApi(
      * Never throws — empty + warnings on failure so Movies/Live stay usable.
      */
     fun loadSeriesCatalog(baseUrl: String, username: String, password: String): SeriesCatalog {
+        val categories = mutableListOf<Category>()
+        val items = ArrayList<MediaItem>()
+        val result = consumeSeriesCatalog(baseUrl, username, password, onCategories = { categories += it }) { batch ->
+            items.addAll(batch)
+        }
+        return SeriesCatalog(categories, items, result.warnings)
+    }
+
+    /**
+     * Stream get_series one title at a time. Never holds the JSON body or a
+     * full SeriesStream list.
+     */
+    fun consumeSeriesCatalog(
+        baseUrl: String,
+        username: String,
+        password: String,
+        batchSize: Int = JsonArrayStream.DEFAULT_BATCH,
+        onCategories: (List<Category>) -> Unit = {},
+        onBatch: (List<MediaItem>) -> Unit
+    ): ConsumeResult {
         val host = normalizeBase(baseUrl)
         val warnings = mutableListOf<String>()
         return try {
             val catsRaw = getListFlexible<XtreamCategory>(host, username, password, "get_series_categories")
-            val seriesRaw = getListFlexible<SeriesStream>(host, username, password, "get_series")
             val categories = catsRaw.map {
                 Category(
                     id = "series-${it.categoryId}",
@@ -362,42 +386,21 @@ class XtreamApi(
                     kind = ContentKind.SERIES
                 )
             }
-            val items = seriesRaw.map { s ->
-                val sid = s.seriesId
-                val poster = listOf(s.coverBig, s.cover, s.streamIcon)
-                    .map { LogoUrls.absolute(host, it) }
-                    .firstOrNull { !it.isNullOrBlank() }
-                MediaItem(
-                    id = "series-$sid",
-                    name = s.name.ifBlank { "Series $sid" },
-                    // Placeholder — resolve first episode on play via get_series_info
-                    streamUrl = "$host/series/$username/$password/$sid",
-                    categoryId = s.categoryId?.let { "series-$it" },
-                    kind = ContentKind.SERIES,
-                    logoUrl = LogoUrls.absolute(host, s.streamIcon),
-                    posterUrl = poster,
-                    groupTitle = categories.find { it.id == "series-${s.categoryId}" }?.name,
-                    xtreamStreamId = sid,
-                    addedMs = parseXtreamAdded(s.added) ?: parseXtreamAdded(s.lastModified),
-                    rating = normalizeRating(s.rating, s.rating5based),
-                    youtubeTrailer = s.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() },
-                    year = flexibleYear(s.yearRaw)
-                        ?: com.totaliptv.pro.data.tmdb.TitleMatch.yearFromDate(s.releaseDate)
-                        ?: com.totaliptv.pro.data.tmdb.TitleMatch.yearFromDate((s.releaseDate2 as? kotlinx.serialization.json.JsonPrimitive)?.content),
-                    tmdbId = flexibleInt(s.tmdbRaw).takeIf { it > 0 } ?: flexibleInt(s.tmdbIdRaw).takeIf { it > 0 }
-                )
+            onCategories(categories)
+            val catNames = HashMap<String, String>(categories.size * 2)
+            for (c in categories) catNames[c.id] = c.name
+            val count = consumeActionArray(host, username, password, "get_series", SeriesStream.serializer(), batchSize) { raw ->
+                val mapped = ArrayList<MediaItem>(raw.size)
+                for (s in raw) mapped.add(mapSeriesItem(host, username, password, s, catNames))
+                onBatch(mapped)
             }
-            if (items.isEmpty() && categories.isEmpty()) {
+            if (count == 0 && categories.isEmpty()) {
                 warnings += "Series list empty or unreadable."
             }
-            SeriesCatalog(categories, items, warnings)
+            ConsumeResult(count, warnings)
         } catch (t: Throwable) {
             Log.w(TAG, "Series load failed: ${SensitiveText.safeLog(t)}")
-            SeriesCatalog(
-                emptyList(),
-                emptyList(),
-                listOf("Series list failed (${SensitiveText.forUser(t)}).")
-            )
+            ConsumeResult(0, listOf("Series list failed (${SensitiveText.forUser(t)})."))
         }
     }
 
@@ -736,6 +739,123 @@ class XtreamApi(
     private fun JsonElement.asString(): String? = when (this) {
         is JsonPrimitive -> contentOrNull
         else -> null
+    }
+
+    private fun mapVodItem(
+        host: String,
+        username: String,
+        password: String,
+        s: VodStream,
+        catNames: Map<String, String>
+    ): MediaItem {
+        val ext = s.containerExtension?.trim()?.removePrefix(".")?.takeIf { it.isNotBlank() } ?: "mp4"
+        val poster = listOf(s.coverBig, s.cover, s.streamIcon)
+            .map { LogoUrls.absolute(host, it) }
+            .firstOrNull { !it.isNullOrBlank() }
+        val catId = s.categoryId?.let { "vod-$it" }
+        return MediaItem(
+            id = "vod-${s.streamId}",
+            name = s.name.ifBlank { "Title ${s.streamId}" },
+            streamUrl = "$host/movie/$username/$password/${s.streamId}.$ext",
+            categoryId = catId,
+            kind = ContentKind.VOD,
+            logoUrl = LogoUrls.absolute(host, s.streamIcon),
+            posterUrl = poster,
+            groupTitle = catId?.let { catNames[it] },
+            xtreamStreamId = s.streamId,
+            addedMs = parseXtreamAdded(s.added),
+            rating = normalizeRating(s.rating, s.rating5based),
+            youtubeTrailer = s.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() },
+            year = flexibleYear(s.yearRaw),
+            tmdbId = flexibleInt(s.tmdbRaw).takeIf { it > 0 } ?: flexibleInt(s.tmdbIdRaw).takeIf { it > 0 }
+        )
+    }
+
+    private fun mapSeriesItem(
+        host: String,
+        username: String,
+        password: String,
+        s: SeriesStream,
+        catNames: Map<String, String>
+    ): MediaItem {
+        val sid = s.seriesId
+        val poster = listOf(s.coverBig, s.cover, s.streamIcon)
+            .map { LogoUrls.absolute(host, it) }
+            .firstOrNull { !it.isNullOrBlank() }
+        val catId = s.categoryId?.let { "series-$it" }
+        return MediaItem(
+            id = "series-$sid",
+            name = s.name.ifBlank { "Series $sid" },
+            // Placeholder — resolve first episode on play via get_series_info
+            streamUrl = "$host/series/$username/$password/$sid",
+            categoryId = catId,
+            kind = ContentKind.SERIES,
+            logoUrl = LogoUrls.absolute(host, s.streamIcon),
+            posterUrl = poster,
+            groupTitle = catId?.let { catNames[it] },
+            xtreamStreamId = sid,
+            addedMs = parseXtreamAdded(s.added) ?: parseXtreamAdded(s.lastModified),
+            rating = normalizeRating(s.rating, s.rating5based),
+            youtubeTrailer = s.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() },
+            year = flexibleYear(s.yearRaw)
+                ?: com.totaliptv.pro.data.tmdb.TitleMatch.yearFromDate(s.releaseDate)
+                ?: com.totaliptv.pro.data.tmdb.TitleMatch.yearFromDate((s.releaseDate2 as? kotlinx.serialization.json.JsonPrimitive)?.content),
+            tmdbId = flexibleInt(s.tmdbRaw).takeIf { it > 0 } ?: flexibleInt(s.tmdbIdRaw).takeIf { it > 0 }
+        )
+    }
+
+    private fun <T> consumeActionArray(
+        host: String,
+        username: String,
+        password: String,
+        action: String,
+        deserializer: kotlinx.serialization.DeserializationStrategy<T>,
+        batchSize: Int,
+        onBatch: (List<T>) -> Unit
+    ): Int {
+        val request = actionRequest(host, username, password, action)
+        client.newCall(request).execute().use { response ->
+            if (response.code == 429) throw RateLimited(action)
+            if (!response.isSuccessful) error("Xtream $action failed: HTTP ${response.code}")
+            val body = response.body ?: return 0
+            body.charStream().buffered(16 * 1024).use { raw ->
+                val parsed = JsonArrayStream.consume(raw, json, deserializer, batchSize, onBatch)
+                if (parsed.kind == JsonArrayStream.Kind.Object) {
+                    val prefix = parsed.prefix.orEmpty()
+                    if (prefix.contains("\"auth\":0") || prefix.contains("\"auth\": 0")) {
+                        error("Xtream login rejected (auth=0). Check URL/user/pass.")
+                    }
+                    return 0
+                }
+                if (parsed.kind == JsonArrayStream.Kind.Array && parsed.count > 0) {
+                    Log.i(TAG, "streamed $action items=${parsed.count}")
+                }
+                return parsed.count
+            }
+        }
+    }
+
+    private fun actionRequest(
+        host: String,
+        username: String,
+        password: String,
+        action: String?,
+        extra: Map<String, String> = emptyMap()
+    ): Request {
+        val httpUrl = host.toHttpUrlOrNull()
+            ?: error("Server address is not a valid http or https URL")
+        val builder = httpUrl.newBuilder()
+            .addPathSegment("player_api.php")
+            .addQueryParameter("username", username)
+            .addQueryParameter("password", password)
+        if (action != null) builder.addQueryParameter("action", action)
+        extra.forEach { (k, v) -> builder.addQueryParameter(k, v) }
+        return Request.Builder()
+            .url(builder.build())
+            .get()
+            .header("User-Agent", "TotalIPTVPro/1.1")
+            .header("Accept", "application/json")
+            .build()
     }
 
     private inline fun <reified T> getListFlexible(

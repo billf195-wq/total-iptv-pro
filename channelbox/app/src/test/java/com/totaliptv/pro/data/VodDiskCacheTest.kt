@@ -66,4 +66,44 @@ class VodDiskCacheTest {
         assertFalse(VodDiskCache.shouldReplace(emptyList()))
         assertTrue(VodDiskCache.shouldReplace(listOf(item("vod-1", ContentKind.VOD))))
     }
+
+
+    @Test
+    fun writerCommitsInBatchesAndAbortsLeaveLastGood() {
+        val dir = Files.createTempDirectory("vod").toFile()
+        VodDiskCache.write(dir, "src-a", cats, items, nowMs = 1L)
+        val writer = VodDiskCache.Writer(dir, "src-a", cats.filter { it.kind != ContentKind.LIVE }, nowMs = 99L)
+        writer.add(listOf(item("vod-new-1", ContentKind.VOD)))
+        writer.add(listOf(item("vod-new-2", ContentKind.VOD), item("series-new", ContentKind.SERIES)))
+        writer.abort()
+        val kept = VodDiskCache.read(dir, "src-a")
+        assertNotNull(kept)
+        assertEquals(1L, kept!!.savedAtMs)
+        assertEquals(2, kept.items.count { it.kind == ContentKind.VOD })
+        assertTrue(kept.items.any { it.id == "vod-1" })
+
+        val ok = VodDiskCache.Writer(dir, "src-a", listOf(Category("vod-1", "Action", ContentKind.VOD)), nowMs = 7L)
+        val many = (1..1200).map { item("vod-n-$it", ContentKind.VOD) }
+        many.chunked(400).forEach { ok.add(it) }
+        assertTrue(ok.commit())
+        val catsOut = ArrayList<Category>()
+        val itemsOut = ArrayList<MediaItem>()
+        val meta = VodDiskCache.readStreaming(dir, "src-a", { catsOut.addAll(it) }, { itemsOut.addAll(it) })
+        assertNotNull(meta)
+        assertEquals(7L, meta!!.savedAtMs)
+        assertEquals(1200, itemsOut.size)
+        assertEquals("vod-n-1", itemsOut.first().id)
+        assertEquals("vod-n-1200", itemsOut.last().id)
+        assertEquals(1, catsOut.size)
+    }
+
+    @Test
+    fun writerWithoutMoviesDoesNotReplace() {
+        val dir = Files.createTempDirectory("vod").toFile()
+        VodDiskCache.write(dir, "src-a", cats, items, nowMs = 3L)
+        val w = VodDiskCache.Writer(dir, "src-a", listOf(Category("series-1", "Drama", ContentKind.SERIES)), nowMs = 8L)
+        w.add(listOf(item("series-only", ContentKind.SERIES)))
+        assertFalse(w.commit())
+        assertEquals(3L, VodDiskCache.read(dir, "src-a")!!.savedAtMs)
+    }
 }
