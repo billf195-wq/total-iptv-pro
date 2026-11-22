@@ -660,9 +660,10 @@ class CatalogRepository(
             if (item.kind != kind) kept.add(item)
         }
         rawItems = kept
-        // Drop the previous UI list of this kind before reading the new one
-        // so we never hold both object graphs at once.
-        cachedItems = kept
+        // Point the UI at a series-only snapshot (not [kept] itself) so
+        // readStreaming can grow [kept] without a ConcurrentModificationException
+        // and without holding the old and new movie graphs together.
+        cachedItems = ArrayList(kept)
         cachedCategories = rawCategories
         val dir = vodCacheDir
         if (dir != null) {
@@ -979,8 +980,8 @@ class CatalogRepository(
      * just published [cachedItems] (IO). The UI must not scan the full catalog.
      */
     private fun refreshDerivedCatalog() {
-        val items = cachedItems
-        val cats = cachedCategories
+        val items = cachedItems.toList()
+        val cats = cachedCategories.toList()
         newlyAddedMoviesSnap = sortByRecentlyAdded(
             items.filter { item ->
                 item.kind == ContentKind.VOD && item.categoryId != NEWLY_ADDED_VOD_CATEGORY_ID
