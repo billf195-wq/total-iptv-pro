@@ -12,6 +12,7 @@ import com.totaliptv.pro.data.StreamingServices
 import com.totaliptv.pro.data.CatalogCategories
 import com.totaliptv.pro.data.tmdb.ServiceIndex
 import com.totaliptv.pro.data.tmdb.TmdbServiceCache
+import com.totaliptv.pro.data.tmdb.ServiceLookupDeferral
 import com.totaliptv.pro.data.tmdb.TmdbServiceLookup
 import com.totaliptv.pro.data.tmdb.TmdbPlotLookup
 import com.totaliptv.pro.data.VodDiskCache
@@ -992,7 +993,7 @@ class CatalogRepository(
 
     @Volatile
     private var serviceLookupJob: Job? = null
-    private val serviceLookupDeferredForPlayback = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val serviceLookupDeferral = ServiceLookupDeferral()
     private val catalogWorkDeferredForPlayback = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private fun deferCatalogWorkForPlayback(): Boolean {
@@ -1037,8 +1038,8 @@ class CatalogRepository(
         progress: List<com.totaliptv.pro.data.tmdb.TmdbQueryCursor>,
         complete: Boolean,
         fetchedAtMs: Long
-    ) {
-        if (entries.isEmpty()) return
+    ): Boolean {
+        if (entries.isEmpty()) return false
         val ok = TmdbServiceLookup.writeCache(
             file,
             TmdbServiceCache(
@@ -1046,7 +1047,9 @@ class CatalogRepository(
                 keyFingerprint = fp,
                 entries = entries,
                 complete = complete,
-                progress = if (complete) emptyList() else progress
+                progress = if (complete) emptyList() else progress,
+                queriedServices = TmdbServiceLookup.serviceKeys().toList().sorted(),
+                appVersion = com.totaliptv.pro.BuildConfig.VERSION_NAME
             )
         )
         if (ok) {
@@ -1054,6 +1057,7 @@ class CatalogRepository(
         } else {
             Log.w(SVC_TAG, "service cache write failed complete=$complete entries=${entries.size}")
         }
+        return ok
     }
 
     private suspend fun runServiceLookup(force: Boolean) {
@@ -1076,23 +1080,19 @@ class CatalogRepository(
             }
             val now = System.currentTimeMillis()
             val current = TmdbServiceLookup.readCache(file)
-            if (!force && TmdbServiceLookup.isFresh(current, fp, now)) {
+            val appVer = com.totaliptv.pro.BuildConfig.VERSION_NAME
+            if (!force && TmdbServiceLookup.isFresh(current, fp, now, currentAppVersion = appVer)) {
                 Log.i(SVC_TAG, "service cache fresh entries=${current!!.entries.size} ageMs=${now - current.fetchedAtMs}")
                 _serviceLookupStatus.value = "Service groups updated " + formatShortDate(current.fetchedAtMs) +
                     " (${serviceIndex?.size ?: 0} titles)"
                 return
             }
-            val reason = TmdbServiceLookup.staleReason(current, fp, now) ?: "forced"
+            val reason = TmdbServiceLookup.staleReason(current, fp, now, currentAppVersion = appVer) ?: "forced"
             Log.i(SVC_TAG, "service cache refresh reason=$reason entries=${current?.entries?.size ?: 0}")
             if (!com.totaliptv.pro.data.PlaybackGate.refreshAllowed()) {
-                serviceLookupDeferredForPlayback.set(true)
-                _serviceLookupStatus.value = if (serviceIndex != null) {
-                    "Service groups updated " + formatShortDate(usable?.fetchedAtMs ?: now) +
-                        " (${serviceIndex?.size ?: 0} titles)"
-                } else {
-                    "Looking up streaming services… (paused during playback)"
-                }
-                Log.i(SVC_TAG, "service lookup deferred; playback active")
+                serviceLookupDeferral.mark(force)
+                _serviceLookupStatus.value = serviceLookupDeferral.pausedStatus(force)
+                Log.i(SVC_TAG, "service lookup deferred; playback active force=$force")
                 return
             }
             _serviceLookupStatus.value = "Looking up streaming services…"
@@ -1144,12 +1144,12 @@ class CatalogRepository(
                 }
                 return
             }
-            persistServiceCache(file, fp, result.entries, result.progress, result.complete, startedAt)
+            val saved = persistServiceCache(file, fp, result.entries, result.progress, result.complete, startedAt)
             if (!result.complete) {
                 if (result.paused) {
-                    serviceLookupDeferredForPlayback.set(true)
-                    Log.i(SVC_TAG, "service lookup paused for playback entries=${result.entries.size}")
-                    _serviceLookupStatus.value = "Looking up streaming services… (paused during playback)"
+                    serviceLookupDeferral.mark(force)
+                    Log.i(SVC_TAG, "service lookup paused for playback entries=${result.entries.size} force=$force")
+                    _serviceLookupStatus.value = serviceLookupDeferral.pausedStatus(force)
                 } else {
                     Log.i(SVC_TAG, "service lookup incomplete entries=${result.entries.size}")
                     _serviceLookupStatus.value = "Service lookup paused; saved progress " +
@@ -1161,8 +1161,12 @@ class CatalogRepository(
                 return
             }
             applyServiceIndex(result.entries)
-            _serviceLookupStatus.value = "Service groups updated " + formatShortDate(startedAt) +
-                " (${serviceIndex?.size ?: 0} titles)"
+            _serviceLookupStatus.value = if (saved) {
+                "Service groups updated " + formatShortDate(startedAt) +
+                    " (${serviceIndex?.size ?: 0} titles)"
+            } else {
+                ServiceLookupDeferral.SAVE_FAILED
+            }
         } catch (oom: OutOfMemoryError) {
             runCatching { System.gc() }
             Log.w(SVC_TAG, "service lookup ran out of memory; keeping saved lists")
@@ -1632,7 +1636,8 @@ class CatalogRepository(
                         Log.i("TotalIPTV.Guide", "bulkDownload paused for playback")
                     }
                     if (serviceLookupJob?.isActive == true) {
-                        serviceLookupDeferredForPlayback.set(true)
+                        // Keep a forced refresh forced when the player interrupts it.
+                        serviceLookupDeferral.mark(forceRequested = serviceLookupDeferral.forcePending())
                     }
                 } else {
                     if (bulkDeferredForPlayback.getAndSet(false)) {
@@ -1645,9 +1650,10 @@ class CatalogRepository(
                             startBulkDownload(c, f)
                         }
                     }
-                    if (serviceLookupDeferredForPlayback.getAndSet(false)) {
-                        Log.i(SVC_TAG, "service lookup resumed after playback")
-                        startServiceLookup(force = false)
+                    val resumeForce = serviceLookupDeferral.consume()
+                    if (resumeForce != null) {
+                        Log.i(SVC_TAG, "service lookup resumed after playback force=$resumeForce")
+                        startServiceLookup(force = resumeForce)
                     }
                     if (catalogWorkDeferredForPlayback.getAndSet(false)) {
                         Log.i(VOD_TAG, "catalog work resumed after playback")

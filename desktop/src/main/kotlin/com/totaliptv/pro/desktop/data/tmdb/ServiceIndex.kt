@@ -43,11 +43,18 @@ data class TmdbServiceCache(
      */
     val complete: Boolean = true,
     /** Per-query page cursors; empty on a finished cache. */
-    val progress: List<TmdbQueryCursor> = emptyList()
+    val progress: List<TmdbQueryCursor> = emptyList(),
+    /**
+     * Service keys this fetch actually queried (not inferred from hits).
+     * Empty in caches written before 1.4.111; those fall back to services seen on entries.
+     */
+    val queriedServices: List<String> = emptyList(),
+    /** App versionName that wrote this cache. Empty before 1.4.111. */
+    val appVersion: String = ""
 ) {
     companion object {
-        /** Bumped when Hulu / Disney+ / Paramount+ queries were added so old caches refetch. */
-        const val CACHE_VERSION = 3
+        /** Bumped when Peacock / Starz / MGM+ / AMC+ / Discovery+ / Crunchyroll queries were added so 1.4.109 caches refetch. */
+        const val CACHE_VERSION = 4
     }
 }
 

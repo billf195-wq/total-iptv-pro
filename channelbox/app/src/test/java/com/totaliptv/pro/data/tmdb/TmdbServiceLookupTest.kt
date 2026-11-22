@@ -97,7 +97,8 @@ class TmdbServiceLookupTest {
             val file = File(dir, "tmdb-services.json")
             val now = 1_000_000_000_000L
             val cache = TmdbServiceCache(fetchedAtMs = now, keyFingerprint = "abcd1234",
-                entries = listOf(TmdbServiceEntry("movie", 1, "X", year = 2020, services = listOf("netflix"))))
+                entries = listOf(TmdbServiceEntry("movie", 1, "X", year = 2020, services = listOf("netflix"))),
+                queriedServices = TmdbServiceLookup.serviceKeys().sorted())
             TmdbServiceLookup.writeCache(file, cache)
             val back = TmdbServiceLookup.readCache(file)
             assertEquals(cache, back)
@@ -157,7 +158,7 @@ class TmdbServiceLookupTest {
             assertEquals(1, usable?.entries?.size)
             assertEquals("X", usable?.entries?.single()?.title)
             assertFalse(TmdbServiceLookup.isFresh(usable, "abcd1234", 1_000L + 1000))
-            assertEquals(3, TmdbServiceCache.CACHE_VERSION)
+            assertEquals(4, TmdbServiceCache.CACHE_VERSION)
         } finally {
             dir.deleteRecursively()
         }
@@ -206,7 +207,8 @@ class TmdbServiceLookupTest {
         val done = TmdbServiceCache(
             fetchedAtMs = now,
             keyFingerprint = "abcd1234",
-            entries = listOf(TmdbServiceEntry("tv", 2, "Y", year = 2021, services = listOf("disney")))
+            entries = listOf(TmdbServiceEntry("tv", 2, "Y", year = 2021, services = listOf("disney"))),
+            queriedServices = TmdbServiceLookup.serviceKeys().sorted()
         )
         assertEquals(true, done.complete)
         assertEquals(null, TmdbServiceLookup.staleReason(done, "abcd1234", now + 1000))
@@ -262,5 +264,81 @@ class TmdbServiceLookupTest {
         val lastMovie = q.indexOfLast { it.type == "movie" }
         assertTrue(huluTv < lastMovie)
     }
+
+    @Test
+    fun v3CacheWithOnlyOriginalServicesIsStaleAfterVersionBump() {
+        val now = 1_000_000_000_000L
+        val originalSeven = listOf("netflix", "prime", "hbo", "apple", "hulu", "disney", "paramount")
+        val v3 = TmdbServiceCache(
+            version = 3,
+            fetchedAtMs = now,
+            keyFingerprint = "abcd1234",
+            entries = originalSeven.mapIndexed { i, key ->
+                TmdbServiceEntry("movie", i + 1, key, year = 2020, services = listOf(key))
+            },
+            complete = true
+        )
+        assertEquals("version 3", TmdbServiceLookup.staleReason(v3, "abcd1234", now + 1000))
+        assertFalse(TmdbServiceLookup.isFresh(v3, "abcd1234", now + 1000))
+        // Still shown immediately while a refresh runs.
+        val dir = createTempDir("tmdbcache-v3")
+        try {
+            val file = File(dir, "tmdb-services.json")
+            TmdbServiceLookup.writeCache(file, v3)
+            assertEquals(null, TmdbServiceLookup.readCache(file))
+            val usable = TmdbServiceLookup.readUsableCache(file)
+            assertEquals(3, usable?.version)
+            assertEquals(7, usable?.entries?.size)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun cacheMissingNewProviderQueriesIsStaleEvenAtCurrentVersion() {
+        val now = 1_000_000_000_000L
+        val originalSeven = listOf("netflix", "prime", "hbo", "apple", "hulu", "disney", "paramount")
+        val partial = TmdbServiceCache(
+            version = TmdbServiceCache.CACHE_VERSION,
+            fetchedAtMs = now,
+            keyFingerprint = "abcd1234",
+            entries = listOf(TmdbServiceEntry("movie", 1, "X", year = 2020, services = listOf("netflix"))),
+            complete = true,
+            queriedServices = originalSeven
+        )
+        val expected = originalSeven.toSet() + "peacock"
+        assertEquals("providers", TmdbServiceLookup.staleReason(partial, "abcd1234", now + 1000, expectedServices = expected))
+        assertFalse(TmdbServiceLookup.isFresh(partial, "abcd1234", now + 1000, expectedServices = expected))
+
+        // Legacy file with no queriedServices list: infer from entry hits only.
+        val inferred = TmdbServiceCache(
+            version = TmdbServiceCache.CACHE_VERSION,
+            fetchedAtMs = now,
+            keyFingerprint = "abcd1234",
+            entries = originalSeven.mapIndexed { i, key ->
+                TmdbServiceEntry("tv", i + 1, key, year = 2021, services = listOf(key))
+            },
+            complete = true
+        )
+        assertEquals("providers", TmdbServiceLookup.staleReason(inferred, "abcd1234", now + 1000, expectedServices = expected))
+        assertFalse("peacock" in TmdbServiceLookup.fetchedServiceKeys(inferred))
+    }
+
+    @Test
+    fun cacheThatQueriedEveryCurrentServiceStaysFresh() {
+        val now = 1_000_000_000_000L
+        val done = TmdbServiceCache(
+            fetchedAtMs = now,
+            keyFingerprint = "abcd1234",
+            entries = listOf(TmdbServiceEntry("movie", 1, "X", year = 2020, services = listOf("peacock"))),
+            queriedServices = TmdbServiceLookup.serviceKeys().sorted(),
+            appVersion = "1.4.111"
+        )
+        assertEquals(null, TmdbServiceLookup.staleReason(done, "abcd1234", now + 1000, currentAppVersion = "1.4.111"))
+        assertTrue(TmdbServiceLookup.isFresh(done, "abcd1234", now + 1000, currentAppVersion = "1.4.111"))
+        assertEquals("app-update", TmdbServiceLookup.staleReason(done, "abcd1234", now + 1000, currentAppVersion = "1.4.112"))
+        assertFalse(TmdbServiceLookup.isFresh(done, "abcd1234", now + 1000, currentAppVersion = "1.4.112"))
+    }
+
 
 }

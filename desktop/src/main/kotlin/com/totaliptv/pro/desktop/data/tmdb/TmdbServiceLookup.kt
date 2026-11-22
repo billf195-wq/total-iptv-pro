@@ -389,19 +389,46 @@ class TmdbServiceLookup(
                 file.isFile && file.length() > 0L
             }.getOrDefault(false)
 
+        /** Service keys the current discover query list will fetch (BET+ is keyword-only and omitted). */
+        fun serviceKeys(queries: List<Query> = QUERIES): Set<String> =
+            queries.mapNotNull { it.service?.key }.toSet()
+
+        /**
+         * Services this cache already queried. Prefer the stored list; older files
+         * only recorded hits, so we fall back to services seen on entries.
+         */
+        fun fetchedServiceKeys(cache: TmdbServiceCache): Set<String> =
+            if (cache.queriedServices.isNotEmpty()) cache.queriedServices.toSet()
+            else cache.entries.flatMap { it.services }.toSet()
+
         /** Why a cache cannot be reused as-is. Never includes the key or fingerprint. */
-        fun staleReason(cache: TmdbServiceCache?, keyFingerprint: String, nowMs: Long): String? {
+        fun staleReason(
+            cache: TmdbServiceCache?,
+            keyFingerprint: String,
+            nowMs: Long,
+            expectedServices: Set<String> = serviceKeys(),
+            currentAppVersion: String = ""
+        ): String? {
             if (cache == null) return "missing"
             if (cache.entries.isEmpty()) return "empty"
             if (cache.version != TmdbServiceCache.CACHE_VERSION) return "version ${cache.version}"
             if (cache.keyFingerprint != keyFingerprint) return "fingerprint"
             if (!cache.complete) return "incomplete"
+            if (expectedServices.isNotEmpty() && (expectedServices - fetchedServiceKeys(cache)).isNotEmpty()) {
+                return "providers"
+            }
+            if (currentAppVersion.isNotBlank() && cache.appVersion != currentAppVersion) return "app-update"
             val age = nowMs - cache.fetchedAtMs
             if (age !in 0 until TTL_MS) return "age"
             return null
         }
 
-        fun isFresh(cache: TmdbServiceCache?, keyFingerprint: String, nowMs: Long): Boolean =
-            staleReason(cache, keyFingerprint, nowMs) == null
+        fun isFresh(
+            cache: TmdbServiceCache?,
+            keyFingerprint: String,
+            nowMs: Long,
+            expectedServices: Set<String> = serviceKeys(),
+            currentAppVersion: String = ""
+        ): Boolean = staleReason(cache, keyFingerprint, nowMs, expectedServices, currentAppVersion) == null
     }
 }
