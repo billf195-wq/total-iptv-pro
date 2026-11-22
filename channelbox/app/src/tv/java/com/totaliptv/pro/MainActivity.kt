@@ -66,19 +66,22 @@ import com.totaliptv.pro.data.model.ContentKind
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 class MainActivity : ComponentActivity() {
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // USB / keyboard Escape is BACK on TV (Generic.kl maps Esc to KEYCODE_ESCAPE).
+        val ev = TvBack.asBackKeyEvent(event)
         // While the playlist-refresh splash is up, keys must not move hidden focus.
-        if (com.totaliptv.pro.data.repo.ManualRefresh.overlayVisible) true
-        else if (dpadGate.shouldDrop(event, android.os.SystemClock.uptimeMillis())) true
+        return if (com.totaliptv.pro.data.repo.ManualRefresh.overlayVisible) true
+        else if (dpadGate.shouldDrop(ev, android.os.SystemClock.uptimeMillis())) true
         else {
             val started = android.os.SystemClock.uptimeMillis()
-            val handled = FocusCrashGuard.guard(this, event) { super.dispatchKeyEvent(event) }
-            if (event.action == KeyEvent.ACTION_DOWN) {
+            val handled = FocusCrashGuard.guard(this, ev) { super.dispatchKeyEvent(ev) }
+            if (ev.action == KeyEvent.ACTION_DOWN) {
                 val done = android.os.SystemClock.uptimeMillis()
-                dpadGate.onDispatched(event.keyCode, event.repeatCount, done, done - started)
+                dpadGate.onDispatched(ev.keyCode, ev.repeatCount, done, done - started)
             }
             handled
         }
+    }
 
     /** Drops piled-up D-pad repeats so a held key cannot freeze the app (ANR). */
     private val dpadGate = com.totaliptv.pro.ui.focus.DpadRepeatGate()
@@ -444,9 +447,12 @@ private fun AppRoot(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        BackHandler(enabled = route !is Screen.Onboarding) {
-            val atHome = route is Screen.Home
-            when (TvBack.action(atHome, exitArmedAt, System.currentTimeMillis())) {
+        BackHandler {
+            val activity = backContext as? android.app.Activity
+            // Onboarding is treated like home: dismiss IME first, then arm/exit.
+            val atHome = route is Screen.Home || route is Screen.Onboarding
+            when (TvBack.onBack(activity, atHome, exitArmedAt, System.currentTimeMillis())) {
+                null -> Unit
                 TvBack.Action.GO_HOME -> {
                     exitArmedAt = 0L
                     screen = Screen.Home
@@ -455,7 +461,7 @@ private fun AppRoot(
                     exitArmedAt = System.currentTimeMillis()
                     Toast.makeText(backContext, "Press Back again to exit", Toast.LENGTH_SHORT).show()
                 }
-                TvBack.Action.EXIT -> (backContext as? android.app.Activity)?.finish()
+                TvBack.Action.EXIT -> activity?.finish()
             }
         }
         LaunchedEffect(route) {

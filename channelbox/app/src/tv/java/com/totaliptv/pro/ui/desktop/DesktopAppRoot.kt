@@ -271,6 +271,18 @@ fun DesktopAppRoot(
             showOnboarding -> {
                 // Reuse classic onboarding (TV material) inside desktop shell background
                 Box(Modifier.fillMaxSize().background(TipBg)) {
+                    BackHandler {
+                        val activity = context as? android.app.Activity
+                        when (TvBack.onBack(activity, atHome = true, exitArmedAt, System.currentTimeMillis())) {
+                            null -> Unit
+                            TvBack.Action.GO_HOME -> Unit
+                            TvBack.Action.ARM_EXIT -> {
+                                exitArmedAt = System.currentTimeMillis()
+                                Toast.makeText(context, "Press Back again to exit", Toast.LENGTH_SHORT).show()
+                            }
+                            TvBack.Action.EXIT -> activity?.finish()
+                        }
+                    }
                     OnboardingScreen(
                         repository = repository,
                         onDone = {
@@ -333,8 +345,10 @@ fun DesktopAppRoot(
 
                 Box(Modifier.fillMaxSize().background(TipBg)) {
                 BackHandler(enabled = detailItem == null) {
+                    val activity = context as? android.app.Activity
                     val atHome = section == DesktopNavSection.HOME
-                    when (TvBack.action(atHome, exitArmedAt, System.currentTimeMillis())) {
+                    when (TvBack.onBack(activity, atHome, exitArmedAt, System.currentTimeMillis())) {
+                        null -> Unit
                         TvBack.Action.GO_HOME -> {
                             exitArmedAt = 0L
                             section = DesktopNavSection.HOME
@@ -343,7 +357,7 @@ fun DesktopAppRoot(
                             exitArmedAt = System.currentTimeMillis()
                             Toast.makeText(context, "Press Back again to exit", Toast.LENGTH_SHORT).show()
                         }
-                        TvBack.Action.EXIT -> (context as? android.app.Activity)?.finish()
+                        TvBack.Action.EXIT -> activity?.finish()
                     }
                 }
                 Column(Modifier.fillMaxSize()) {

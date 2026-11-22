@@ -1,6 +1,8 @@
 package com.totaliptv.pro.data
 
+import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem
+import java.util.PriorityQueue
 import java.util.Locale
 
 /** Provider rating parsing / ordering shared by Xtream, M3U and the "Top rated" sort. */
@@ -123,15 +125,61 @@ object Ratings {
         items: List<MediaItem>,
         limit: Int,
         tmdbScore: ((MediaItem) -> Double?)? = null
-    ): List<MediaItem> {
+    ): List<MediaItem> = collectTopRated(items, kind = null, limit, tmdbScore)
+
+    /**
+     * One pass over [items] building bounded Top rated lists for movies and series
+     * without allocating two full-catalog copies.
+     */
+    fun topRatedBoth(
+        items: List<MediaItem>,
+        limit: Int,
+        tmdbScore: ((MediaItem) -> Double?)? = null
+    ): Pair<List<MediaItem>, List<MediaItem>> {
+        if (limit <= 0) return emptyList<MediaItem>() to emptyList()
         val tmdbOnly = tmdbScore != null
-        return items.mapNotNull { item ->
-            score(item, tmdbScore?.invoke(item), tmdbOnly = tmdbOnly)?.let { item to it }
+        val vod = PriorityQueue(limit + 1, heapOrder)
+        val series = PriorityQueue(limit + 1, heapOrder)
+        for (item in items) {
+            val target = when (item.kind) {
+                ContentKind.VOD -> vod
+                ContentKind.SERIES -> series
+                else -> continue
+            }
+            val sc = score(item, tmdbScore?.invoke(item), tmdbOnly = tmdbOnly) ?: continue
+            target.add(Rated(item, sc))
+            if (target.size > limit) target.poll()
         }
-            .sortedWith(compareByDescending<Pair<MediaItem, Double>> { it.second }.thenBy { it.first.name.lowercase() })
-            .take(limit)
-            .map { withMergedRating(it.first, it.second, overwriteProvider = tmdbOnly) }
+        return finishHeap(vod, tmdbOnly) to finishHeap(series, tmdbOnly)
     }
+
+    private data class Rated(val item: MediaItem, val score: Double)
+
+    /** Worst (lowest score, then Z–A) at the head so it is evicted first. */
+    private val heapOrder = compareBy<Rated> { it.score }
+        .thenByDescending { it.item.name.lowercase() }
+
+    private fun collectTopRated(
+        items: List<MediaItem>,
+        kind: ContentKind?,
+        limit: Int,
+        tmdbScore: ((MediaItem) -> Double?)?
+    ): List<MediaItem> {
+        if (limit <= 0) return emptyList()
+        val tmdbOnly = tmdbScore != null
+        val heap = PriorityQueue(limit + 1, heapOrder)
+        for (item in items) {
+            if (kind != null && item.kind != kind) continue
+            val sc = score(item, tmdbScore?.invoke(item), tmdbOnly = tmdbOnly) ?: continue
+            heap.add(Rated(item, sc))
+            if (heap.size > limit) heap.poll()
+        }
+        return finishHeap(heap, tmdbOnly)
+    }
+
+    private fun finishHeap(heap: PriorityQueue<Rated>, tmdbOnly: Boolean): List<MediaItem> =
+        heap.sortedWith(compareByDescending<Rated> { it.score }.thenBy { it.item.name.lowercase() })
+            .map { withMergedRating(it.item, it.score, overwriteProvider = tmdbOnly) }
 
     /** Highest rating first, unrated at the bottom, ties A–Z. */
     fun sortTopRated(

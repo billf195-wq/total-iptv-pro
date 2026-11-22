@@ -114,8 +114,10 @@ class TmdbServiceLookup(
         seed: List<TmdbServiceEntry> = emptyList(),
         progress: List<TmdbQueryCursor> = emptyList(),
         queries: List<Query> = ALL_QUERIES,
-        concurrency: Int = DEFAULT_CONCURRENCY
+        concurrency: Int = DEFAULT_CONCURRENCY,
+        persistEveryPages: Int = PERSIST_EVERY_PAGES
     ): FetchResult {
+        val persistEvery = persistEveryPages.coerceAtLeast(1)
         val key = normalizeKey(apiKey)
         if (key.isEmpty()) throw LookupFailed("No TMDB API key")
         val merged = LinkedHashMap<String, TmdbServiceEntry>(seed.size + 64)
@@ -195,7 +197,7 @@ class TmdbServiceLookup(
                             }
                             cursors[qKey] = TmdbQueryCursor(qKey, nextPage = page + 1, done = false)
                         }
-                        if (page == 1 || page % PERSIST_EVERY_PAGES == 0) persist(false)
+                        if (page == 1 || page % persistEvery == 0) persist(false)
                         totalPages = parsed.totalPages
                         page++
                         if (delayMs > 0 && page <= minOf(totalPages, pageLimit)) {
@@ -282,8 +284,8 @@ class TmdbServiceLookup(
         /** One query at a time on TV boxes so a large catalog does not pin several page lists plus a full snapshot. */
         const val DEFAULT_CONCURRENCY = 1
         const val MAX_CONCURRENCY = 2
-        /** Checkpoint after every page so a kill / relaunch never restarts a service from page 1. */
-        const val PERSIST_EVERY_PAGES = 1
+        /** Mid-query JSON checkpoint cadence. Query completion still always persists. */
+        const val PERSIST_EVERY_PAGES = 5
 
         /**
          * Verified against TMDB /watch/providers (US) and /network on 2026-11-12:

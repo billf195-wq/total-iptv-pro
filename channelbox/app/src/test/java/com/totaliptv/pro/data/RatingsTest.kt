@@ -165,4 +165,23 @@ class RatingsTest {
         assertEquals(listOf("Gamma", "Alpha"), Ratings.topRatedOnly(items, 500).map { it.name })
         assertEquals(listOf("Gamma", "Alpha", "Zed"), Ratings.sortTopRated(items).map { it.name })
     }
+    @Test
+    fun topRatedBothMatchesSeparatePassesAndCaps() {
+        fun series(name: String, rating: String?) =
+            MediaItem(id = name, name = name, streamUrl = "u", categoryId = "c", kind = ContentKind.SERIES, rating = rating)
+        val items = listOf(
+            m("M9", "9.0"),
+            series("S8", "8.0"),
+            m("M7", "7.0"),
+            series("S9", "9.1"),
+            m("M8", "8.2"),
+            series("S7", "7.5"),
+            m("Unrated", null),
+        )
+        val (vod, shows) = Ratings.topRatedBoth(items, 2)
+        assertEquals(Ratings.topRatedOnly(items.filter { it.kind == ContentKind.VOD }, 2).map { it.name }, vod.map { it.name })
+        assertEquals(Ratings.topRatedOnly(items.filter { it.kind == ContentKind.SERIES }, 2).map { it.name }, shows.map { it.name })
+        assertEquals(listOf("M9", "M8"), vod.map { it.name })
+        assertEquals(listOf("S9", "S8"), shows.map { it.name })
+    }
 }

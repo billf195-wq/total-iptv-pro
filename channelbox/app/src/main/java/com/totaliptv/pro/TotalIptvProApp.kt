@@ -20,6 +20,7 @@ import com.totaliptv.pro.data.model.SourceType
 import com.totaliptv.pro.data.local.WatchProgressStore
 import java.io.File
 import com.totaliptv.pro.data.repo.CatalogRepository
+import com.totaliptv.pro.util.MemoryBudget
 import com.totaliptv.pro.dvr.DvrRecorder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,11 +61,14 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         license.start()
         repository = CatalogRepository(preferences)
         repository.attachVodCacheDir(filesDir)
+        val memory = MemoryBudget.snapshot(this)
+        repository.attachMemoryBudget(memory.tight)
         lastPlace = LastPlaceStore(File(filesDir, "last-place.json"))
         // Load off the main thread so a crash-restore is ready after the splash.
         lastPlace.preload()
-        // Streaming service groups: cached TMDB lists, refreshed in background.
-        repository.startServiceLookup()
+        // Apply a saved service index only. FullRecheck starts after the catalog
+        // is ready so first launch does not spike RAM before sign-in.
+        repository.preloadServiceIndexFromCache()
         watchProgress = WatchProgressStore(this)
         watched = com.totaliptv.pro.data.local.WatchedStore(this)
         dvr = DvrRecorder(this)
@@ -101,14 +105,16 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .memoryCache {
+                val tight = MemoryBudget.snapshot(this@TotalIptvProApp).tight
                 MemoryCache.Builder(this)
-                    .maxSizeBytes(32 * 1024 * 1024)
+                    .maxSizeBytes(MemoryBudget.coilMemoryCacheBytes(tight))
                     .build()
             }
             .diskCache {
+                val tight = MemoryBudget.snapshot(this@TotalIptvProApp).tight
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(64L * 1024 * 1024)
+                    .maxSizeBytes(MemoryBudget.coilDiskCacheBytes(tight))
                     .build()
             }
             .respectCacheHeaders(false)
