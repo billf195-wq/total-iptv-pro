@@ -2,8 +2,8 @@ package com.totaliptv.pro.ui.help
 
 /**
  * Settings → How to Use. Plain text, bundled in the app (no files, no network).
- * TV wording uses remote buttons; phone wording uses taps. Game Day and the TV Guide
- * screen exist only on the TV app, so the phone guide leaves them out.
+ * TV wording uses remote buttons; phone wording uses taps. Game Day, the TV Guide
+ * screen, and Screen fit exist only on the TV app, so the phone guide leaves them out.
  */
 object HowToGuide {
     data class Section(val title: String, val body: String)
@@ -12,6 +12,31 @@ object HowToGuide {
         val press = if (tv) "press OK on" else "tap"
         val hold = if (tv) "hold OK on" else "press and hold"
         val out = mutableListOf<Section>()
+        out += Section(
+            "What's new in 1.4.110",
+            if (tv) {
+                "You can favorite Live channels: hold OK on a channel (or press Menu) to add or remove it. " +
+                    "Those channels show in a Favorites category at the top of the Live list, and in the " +
+                    "Favorites list with your movies and series, grouped into Live, Movies and Series. " +
+                    "When you open a series you can read its plot, and a short summary for each episode. " +
+                    "Screen fit in Settings moves menus in from the edges of your TV (5% is the usual " +
+                    "amount). Live playback stays full screen. Search hides adult titles and adult " +
+                    "categories unless you turn on Show adult in search in Settings. If a PIN is set, " +
+                    "that switch asks for the PIN. Movies and Series can show rows for streaming services " +
+                    "you have titles for, including Peacock, Starz, MGM+, AMC+, Discovery+, BET+ and " +
+                    "Crunchyroll, along with the service rows already there. Empty rows stay hidden. " +
+                    "The first time, the rows can take a few minutes to fill in."
+            } else {
+                "You can favorite Live channels: press and hold a channel to add or remove it in the " +
+                    "Favorites category at the top of the Live list. When you open a series you can read " +
+                    "its plot, and a short summary for each episode. Search hides adult titles and adult " +
+                    "categories unless you turn on Show adult in search in Settings. If a PIN is set, " +
+                    "that switch asks for the PIN. Movies and Series can show rows for streaming services " +
+                    "you have titles for, including Peacock, Starz, MGM+, AMC+, Discovery+, BET+ and " +
+                    "Crunchyroll, along with the service rows already there. Empty rows stay hidden. " +
+                    "The first time, the rows can take a few minutes to fill in."
+            }
+        )
         out += Section(
             "Getting started (adding your login)",
             "The first time you open the app, enter the login your TV service gave you: the server " +
@@ -44,6 +69,10 @@ object HowToGuide {
             "Open Movies or Series, pick a category, then $press a poster to see its details. " +
                 "A series shows its plot, year and rating when we have them, and a short summary for " +
                 "the episode you pick. " +
+                "Movies and Series can also show rows for streaming services you have titles for, " +
+                "including Peacock, Starz, MGM+, AMC+, Discovery+, BET+ and Crunchyroll, along with " +
+                "the service rows already there. Empty rows stay hidden. The first time, the rows can " +
+                "take a few minutes to fill in. " +
                 "Choose Play to start, or Resume to pick up where you left off. For a series, choose a " +
                 "season and an episode first. Use Mark watched to put a check mark on a movie or episode; " +
                 "choose it again to mark it unwatched. Titles you finish are checked automatically."
@@ -63,11 +92,12 @@ object HowToGuide {
                     "Favorites row on Home. In the Desktop layout they are under Favorites in the side " +
                     "menu. On a Continue watching title, Favorite is in the hold-OK menu. Live channels " +
                     "you favorite also appear in the Favorites category at the top of the Live list. " +
-                    "The Favorites tab is grouped into Live, Movies and Series, and keeps titles you already saved."
+                    "The Favorites list is grouped into Live, Movies and Series, and keeps titles you already saved."
             } else {
                 "Open a title and tap Favorite. Tap it again to remove it. Press and hold a Live " +
                     "channel to add or remove it in the Favorites category at the top of the Live list. " +
-                    "The Favorites tab is grouped into Live, Movies and Series, and keeps titles you already saved."
+                    "The phone does not have a separate Favorites screen; Live favorites stay in that " +
+                    "Favorites category on the Live list."
             }
         )
         out += Section(
@@ -120,7 +150,9 @@ object HowToGuide {
                 "Live, Movies or Series categories. Unlock with PIN shows everything until you choose " +
                 "Lock now or leave the app for 5 minutes (restarting the app also locks it). The status line shows " +
                 "how many categories are locked. The lock hides categories; it does not ask for a PIN to open the app. Change PIN and Turn off " +
-                "PIN lock ask for the current PIN. Forgot PIN sets a new PIN and clears your chosen categories."
+                "PIN lock ask for the current PIN. Forgot PIN sets a new PIN and clears your chosen categories. " +
+                "Show adult in search is a separate Settings switch, off by default. Turning it on asks for " +
+                "the PIN when one is set."
         )
         out += Section(
             "Tips & troubleshooting",
@@ -128,7 +160,7 @@ object HowToGuide {
                 append("If a channel or movie will not play, choose Retry in the player. ")
                 if (tv) {
                     append("If lists look out of date, use Refresh data in Settings (Classic layout) or Update in the side menu (Desktop layout). ")
-                    append("If menus are cut off at the edges of your TV, open Settings and raise Screen fit (5% is the usual amount). Live playback stays full screen. ")
+                    append("If menus are cut off at the edges of your TV, open Settings and raise Screen fit (5% is the usual amount), or choose Use 5% to return to the usual amount. Live playback stays full screen. ")
                 } else {
                     append("If lists look out of date, use Refresh data in Settings. ")
                 }

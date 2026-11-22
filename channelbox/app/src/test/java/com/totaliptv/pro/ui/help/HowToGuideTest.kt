@@ -7,6 +7,7 @@ import kotlin.test.assertTrue
 
 class HowToGuideTest {
     private val required = listOf(
+        "What's new in 1.4.110",
         "Getting started", "Live TV", "Movies & Series", "Continue Watching", "Favorites",
         "Search", "Recording (DVR)", "Sleep timer", "Auto-play next", "PIN lock", "Tips & troubleshooting"
     )
@@ -16,7 +17,7 @@ class HowToGuideTest {
         val titles = HowToGuide.sections(tv = true).map { it.title }
         required.forEach { r -> assertTrue(titles.any { it.startsWith(r) }, "missing $r") }
         assertTrue(titles.any { it.startsWith("Game Day") })
-        assertEquals(12, titles.size)
+        assertEquals(13, titles.size)
     }
 
     @Test
@@ -26,8 +27,9 @@ class HowToGuideTest {
         assertFalse(all.contains("Game Day"))
         assertFalse(all.contains("remote", ignoreCase = true))
         assertFalse(all.contains("Guide"))
+        assertFalse(all.contains("Screen fit"))
         assertTrue(all.contains("tap", ignoreCase = true))
-        assertEquals(11, sections.size)
+        assertEquals(12, sections.size)
     }
 
     @Test
@@ -35,5 +37,22 @@ class HowToGuideTest {
         val all = (HowToGuide.sections(true) + HowToGuide.sections(false)).joinToString(" ") { it.title + " " + it.body }
         listOf("$", "price", "buy", "VLC", "Google", "Android", "Netflix", "TMDB", "Shield", "Amazon")
             .forEach { assertFalse(all.contains(it, ignoreCase = true), "guide mentions $it") }
+    }
+
+    @Test
+    fun versionSectionCoversShippedFeaturesWithoutAPhoneFavoritesTab() {
+        val tv = HowToGuide.sections(tv = true).joinToString(" ") { it.title + " " + it.body }
+        val phone = HowToGuide.sections(tv = false).joinToString(" ") { it.title + " " + it.body }
+        listOf("What's new in 1.4.110", "Show adult in search", "Peacock", "Crunchyroll", "few minutes").forEach { n ->
+            assertTrue(tv.contains(n), "tv missing $n")
+            assertTrue(phone.contains(n), "phone missing $n")
+        }
+        assertTrue(tv.contains("Screen fit"))
+        assertTrue(tv.contains("Use 5%"))
+        assertTrue(tv.contains("Live, Movies and Series"))
+        assertTrue(tv.contains("Menu"))
+        assertFalse(phone.contains("Screen fit"))
+        assertFalse(phone.contains("Favorites tab"))
+        assertTrue(phone.contains("does not have a separate Favorites screen"))
     }
 }
