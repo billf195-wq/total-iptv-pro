@@ -72,4 +72,15 @@ class LongPressReleaseGateTest {
         val desktop = File("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopAppRoot.kt").readText()
         assertTrue(desktop.contains("ContinueWatchingMenuDialog("))
     }
+
+    @Test
+    fun liveChannelMenuUsesTheGateAndDoesNotFocusAButtonOnOpen() {
+        val desktop = File("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopComponents.kt").readText()
+        assertTrue(desktop.contains("fun DesktopActionDialog("))
+        assertTrue(desktop.contains(".longPressReleaseGate(gate)"))
+        assertTrue(desktop.contains("gate.allowsClick()"))
+        assertTrue(desktop.contains("titleFocus.requestFocus()"))
+        assertFalse(desktop.contains("first.requestFocus()"))
+        assertTrue(desktop.contains("val titleFocus = remember"))
+    }
 }

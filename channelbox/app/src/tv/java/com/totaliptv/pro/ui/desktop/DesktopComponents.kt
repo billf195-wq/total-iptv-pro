@@ -1,5 +1,6 @@
 package com.totaliptv.pro.ui.desktop
 
+import android.view.ViewConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +25,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,6 +57,8 @@ import com.totaliptv.pro.ui.theme.LiveMarker
 import com.totaliptv.pro.ui.focus.FocusTrace
 import com.totaliptv.pro.ui.focus.SafeFocus
 import com.totaliptv.pro.ui.home.HomeShelfFit
+import com.totaliptv.pro.ui.home.LongPressReleaseGate
+import com.totaliptv.pro.ui.home.longPressReleaseGate
 import com.totaliptv.pro.ui.mergedDisplayRating
 import com.totaliptv.pro.ui.splash.AppBrandName
 import androidx.compose.ui.unit.Dp
@@ -61,6 +66,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -258,6 +266,18 @@ fun LiveRowItem(
     val rowFocus = focusRequester ?: remember(item.id) { FocusRequester() }
     val recFocus = remember(item.id) { FocusRequester() }
     var longFired by remember(item.id) { mutableStateOf(false) }
+    val liveScope = rememberCoroutineScope()
+    var holdJob by remember(item.id) { mutableStateOf<Job?>(null) }
+    val latestMenu = rememberUpdatedState(onMenu)
+    val latestRecord = rememberUpdatedState(onRecord)
+    fun openRowMenu() {
+        longFired = true
+        holdJob?.cancel()
+        holdJob = null
+        val menu = latestMenu.value
+        val record = latestRecord.value
+        if (menu != null) menu() else record?.invoke()
+    }
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -284,6 +304,18 @@ fun LiveRowItem(
                     val down = e.type == KeyEventType.KeyDown
                     if (isOk && down && e.nativeKeyEvent.repeatCount == 0 && !e.nativeKeyEvent.isLongPress) {
                         longFired = false
+                        holdJob?.cancel()
+                        // Some devices (and adb keycombination) hold OK without key
+                        // repeats or FLAG_LONG_PRESS. Open the menu on a real timer
+                        // so a long hold never falls through as a short-press play.
+                        holdJob = liveScope.launch {
+                            delay(ViewConfiguration.getLongPressTimeout().toLong())
+                            if (!longFired) openRowMenu()
+                        }
+                    }
+                    if (isOk && !down) {
+                        holdJob?.cancel()
+                        holdJob = null
                     }
                     when (
                         LiveRowKeys.decide(
@@ -296,8 +328,7 @@ fun LiveRowItem(
                         )
                     ) {
                         LiveRowKeys.Action.MENU, LiveRowKeys.Action.RECORD -> {
-                            longFired = true
-                            if (onMenu != null) onMenu() else record()
+                            openRowMenu()
                             true
                         }
                         LiveRowKeys.Action.CONSUME -> true
@@ -447,6 +478,11 @@ data class DesktopActionItem(
  * TV D-pad action menu. Uses a real [Dialog] so the platform focus trap owns
  * the buttons: a sibling Box overlay leaves the list behind focusable, which
  * is why long-press on a Live channel could not reach Add / Record / Cancel.
+ *
+ * The long press that opened the menu must not activate an item. Focus lands
+ * on the non-actionable title (no button is selected). Leftover OK repeats
+ * and the matching key-up are swallowed by [LongPressReleaseGate]. Only a
+ * fresh OK down+up after the user moves onto a button may run an action.
  */
 @Composable
 fun DesktopActionDialog(
@@ -455,7 +491,9 @@ fun DesktopActionDialog(
     onDismiss: () -> Unit,
 ) {
     val labels = actions.map { it.label }
+    val titleFocus = remember(title, labels) { FocusRequester() }
     val requesters = remember(title, labels) { List(actions.size) { FocusRequester() } }
+    val gate = remember(title, labels) { LongPressReleaseGate() }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -468,31 +506,44 @@ fun DesktopActionDialog(
             Modifier
                 .widthIn(min = 400.dp)
                 .background(TipSurface, RoundedCornerShape(TipDimens.NavCorner))
-                .padding(TipDimens.dp(20)),
+                .padding(TipDimens.dp(20))
+                .longPressReleaseGate(gate),
             verticalArrangement = Arrangement.spacedBy(TipDimens.dp(10)),
             horizontalAlignment = Alignment.Start,
         ) {
-            Text(title, color = TipGoldText, fontSize = TipDimens.BodyLargeSp)
+            Text(
+                title,
+                color = TipGoldText,
+                fontSize = TipDimens.BodyLargeSp,
+                modifier = Modifier
+                    .focusRequester(titleFocus)
+                    .focusProperties {
+                        left = FocusRequester.Cancel
+                        right = FocusRequester.Cancel
+                        up = FocusRequester.Cancel
+                        down = requesters.firstOrNull() ?: FocusRequester.Cancel
+                    }
+                    .focusable(),
+            )
             actions.forEachIndexed { index, action ->
                 AmberButton(
                     action.label,
-                    onClick = action.onClick,
+                    onClick = { if (gate.allowsClick()) action.onClick() },
                     modifier = Modifier
                         .focusRequester(requesters[index])
                         .focusProperties {
                             left = FocusRequester.Cancel
                             right = FocusRequester.Cancel
-                            up = if (index == 0) FocusRequester.Cancel else requesters[index - 1]
+                            up = if (index == 0) titleFocus else requesters[index - 1]
                             down = if (index == actions.lastIndex) FocusRequester.Cancel else requesters[index + 1]
                         },
                 )
             }
         }
         LaunchedEffect(title, labels) {
-            val first = requesters.firstOrNull() ?: return@LaunchedEffect
             kotlinx.coroutines.delay(60)
             for (attempt in 0 until 8) {
-                val ok = runCatching { first.requestFocus(); true }.getOrDefault(false)
+                val ok = runCatching { titleFocus.requestFocus(); true }.getOrDefault(false)
                 if (ok) break
                 kotlinx.coroutines.delay(50)
             }
