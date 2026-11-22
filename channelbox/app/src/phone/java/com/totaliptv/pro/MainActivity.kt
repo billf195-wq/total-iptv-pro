@@ -29,6 +29,8 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import com.totaliptv.pro.ui.theme.LocalTipColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -216,14 +218,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class PhoneTab(val label: String) {
+private enum class PhoneTab(val label: String, val navLabel: String = label) {
     Home("Home"),
     Live("Live"),
     Movies("Movies"),
     Series("Series"),
-    Favorites("Favorites"),
+    Favorites("Favorites", "Favs"),
     Search("Search"),
-    Recordings("Recordings"),
+    Recordings("Recordings", "Record"),
     Settings("Settings")
 }
 
@@ -374,7 +376,19 @@ private fun PhoneAppRoot(
                                 contentDescription = t.label
                             )
                         },
-                        label = { Text(t.label) }
+                        label = {
+                            Text(
+                                text = t.navLabel,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 11.sp,
+                                    lineHeight = 13.sp,
+                                    letterSpacing = 0.sp
+                                )
+                            )
+                        }
                     )
                 }
             }
