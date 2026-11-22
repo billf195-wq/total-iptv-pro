@@ -74,4 +74,39 @@ class JsonArrayStreamTest {
         assertEquals(2, res.count)
         assertEquals(listOf(1, 3), batches.flatten().map { it.id })
     }
+
+    /** 1.4.114 returned 0 for these; 1.4.113 (body.string() + indexOf('[')) read them. */
+    @Test
+    fun utf8BomBeforeArrayIsSkipped() {
+        val (res, batches) = collect("\uFEFF[{\"id\":1,\"name\":\"a\"}]")
+        assertEquals(JsonArrayStream.Kind.Array, res.kind)
+        assertEquals(1, res.count)
+        assertEquals(1, res.skipped)
+        assertEquals(listOf(1), batches.flatten().map { it.id })
+    }
+
+    @Test
+    fun phpNoticeBeforeArrayIsSkipped() {
+        val raw = "<br />\n<b>Notice</b>:  Undefined index: tmdb in <b>/x/player_api.php</b> on line <b>1203</b><br />\n" +
+            """[{"id":1,"name":"a"},{"id":2,"name":"b"}]"""
+        val (res, batches) = collect(raw)
+        assertEquals(JsonArrayStream.Kind.Array, res.kind)
+        assertEquals(2, res.count)
+        assertTrue(res.skipped > 0)
+        assertEquals(listOf(1, 2), batches.flatten().map { it.id })
+    }
+
+    @Test
+    fun plainTextBodyIsOtherNotArray() {
+        val (res, _) = collect("Access denied")
+        assertEquals(JsonArrayStream.Kind.Other, res.kind)
+        assertEquals(0, res.count)
+    }
+
+    @Test
+    fun rejectedObjectsAreCounted() {
+        val (res, _) = collect("""[{"id":"x"},{"id":2,"name":"b"}]""")
+        assertEquals(1, res.count)
+        assertEquals(1, res.rejected)
+    }
 }

@@ -20,8 +20,14 @@ import java.io.Writer
  * as a stream: one item at a time, never as one giant String.
  */
 object VodDiskCache {
+    /** 1.4.91-1.4.114 combined movies + series file. Read and migrated, never written. */
     const val FILE_NAME = "vod-catalog-cache.json"
+    /** 1.4.115: one last-good file per kind, so a failed or empty load of one kind never touches the other. */
+    const val MOVIES_FILE = "vod-movies-cache.json"
+    const val SERIES_FILE = "vod-series-cache.json"
     const val ITEM_BATCH = 500
+    private const val TMP_PREFIX = "vodcache-"
+    private const val TMP_SUFFIX = ".tmp"
 
     @Serializable
     data class Snapshot(
@@ -34,68 +40,92 @@ object VodDiskCache {
     data class Meta(val sourceId: String, val savedAtMs: Long)
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
+    private val commitLock = Any()
 
+    fun fileFor(dir: File, kind: ContentKind): File = File(
+        dir,
+        when (kind) {
+            ContentKind.SERIES -> SERIES_FILE
+            ContentKind.VOD -> MOVIES_FILE
+            ContentKind.LIVE -> error("Live is never cached here")
+        }
+    )
+
+    /**
+     * Save each VOD kind found in [items] to its own file. A kind with no items is skipped,
+     * so an empty list can never overwrite a good one.
+     */
     fun write(dir: File, sourceId: String, categories: List<Category>, items: List<MediaItem>, nowMs: Long = System.currentTimeMillis()) {
-        val cats = categories.filter { it.kind != ContentKind.LIVE }
-        val its = items.filter { it.kind != ContentKind.LIVE }
-        if (its.none { it.kind == ContentKind.VOD }) return
-        val writer = Writer(dir, sourceId, cats, seedItems = emptyList(), nowMs = nowMs)
-        writer.add(its)
-        writer.commit()
+        for (kind in VOD_KINDS) writeKind(dir, sourceId, kind, categories, items, nowMs)
     }
 
-    /** Incremental writer used while streaming a network catalog. */
+    /** Returns true when a non-empty [kind] list was committed. */
+    fun writeKind(
+        dir: File,
+        sourceId: String,
+        kind: ContentKind,
+        categories: List<Category>,
+        items: List<MediaItem>,
+        nowMs: Long = System.currentTimeMillis()
+    ): Boolean {
+        if (items.none { it.kind == kind }) return false
+        val w = Writer(dir, sourceId, kind, categories, nowMs)
+        return try {
+            w.add(items)
+            w.commit()
+        } catch (t: Throwable) {
+            w.abort()
+            throw t
+        }
+    }
+
+    val VOD_KINDS = listOf(ContentKind.VOD, ContentKind.SERIES)
+
+    /**
+     * Incremental writer for one [kind] while streaming a network catalog. Each writer has its
+     * own temp file, so two loads (a refresh while one is still downloading) never share or
+     * truncate each other's file. [commit] replaces the last good file only when at least one
+     * title of [kind] was written.
+     */
     class Writer(
         dir: File,
         private val sourceId: String,
+        val kind: ContentKind,
         categories: List<Category>,
-        seedItems: List<MediaItem> = emptyList(),
         nowMs: Long = System.currentTimeMillis()
     ) {
-        private val tmp = File(dir, "$FILE_NAME.tmp")
-        private val dest = File(dir, FILE_NAME)
+        private val dest = fileFor(dir, kind)
+        private val tmp: File
         private val out: OutputStreamWriter
-        private var itemCount = 0
-        private var vodCount = 0
+        var count = 0
+            private set
         private var open = true
 
         init {
+            require(kind != ContentKind.LIVE)
             dir.mkdirs()
+            tmp = File.createTempFile(TMP_PREFIX + kind.name.lowercase() + "-", TMP_SUFFIX, dir)
             out = tmp.outputStream().buffered(16 * 1024).writer(Charsets.UTF_8)
             out.write("{\"sourceId\":")
             out.write(json.encodeToString(sourceId))
             out.write(",\"savedAtMs\":")
             out.write(nowMs.toString())
             out.write(",\"categories\":")
-            out.write(json.encodeToString(categories.filter { it.kind != ContentKind.LIVE }))
+            out.write(json.encodeToString(categories.filter { it.kind == kind }))
             out.write(",\"items\":[")
-            add(seedItems.filter { it.kind != ContentKind.LIVE })
         }
 
         fun add(items: List<MediaItem>) {
             if (!open) return
             for (item in items) {
-                if (item.kind == ContentKind.LIVE) continue
-                if (itemCount > 0) out.write(",")
+                if (item.kind != kind) continue
+                if (count > 0) out.write(",")
                 out.write(json.encodeToString(MediaItem.serializer(), item))
-                itemCount++
-                if (item.kind == ContentKind.VOD) vodCount++
+                count++
             }
         }
 
-        /**
-         * Copy the other VOD kind from the last good cache into this temp file,
-         * one batch at a time. Does not accumulate that list in memory.
-         */
-        fun seedFromCache(exclude: ContentKind) {
-            if (!open || !dest.isFile) return
-            readStreaming(dest.parentFile ?: return, sourceId, {}, { batch ->
-                val keep = batch.filter { it.kind != exclude && it.kind != ContentKind.LIVE }
-                if (keep.isNotEmpty()) add(keep)
-            })
-        }
-
-        /** Atomically replace the last good cache. Returns false if there were no movies. */
+        /** Atomically replace the last good [kind] file. Returns false (and keeps the old file) when empty. */
         fun commit(): Boolean {
             if (!open) return false
             open = false
@@ -103,13 +133,14 @@ object VodDiskCache {
                 out.write("]}")
                 out.flush()
                 out.close()
-                if (vodCount == 0) {
+                if (count == 0) {
                     tmp.delete()
                     false
-                } else {
+                } else synchronized(commitLock) {
                     if (!tmp.renameTo(dest)) {
-                        dest.delete()
-                        tmp.renameTo(dest)
+                        // Windows-style rename-over failure: copy then swap; never leave dest missing.
+                        tmp.copyTo(dest, overwrite = true)
+                        tmp.delete()
                     }
                     true
                 }
@@ -128,26 +159,134 @@ object VodDiskCache {
         }
     }
 
-    /** Returns null if missing, unreadable, for another source, or holds no movies. */
+    /**
+     * Split a 1.4.91-1.4.114 combined cache into the per-kind files (streamed, one batch at a
+     * time). A kind that already has its own file is left alone. The old file is removed only
+     * after every kind it held is safely in its own file. Also removes temp files left by a
+     * crash. Call once at startup, before any load starts.
+     */
+    fun migrateLegacy(dir: File): Boolean {
+        dir.listFiles()?.forEach { f ->
+            if (f.name.startsWith(TMP_PREFIX) && f.name.endsWith(TMP_SUFFIX)) f.delete()
+        }
+        File(dir, "$FILE_NAME.tmp").delete()
+        val legacy = File(dir, FILE_NAME)
+        if (!legacy.isFile) return false
+        val legacySource = peekSourceId(legacy) ?: run {
+            // Unreadable: keep it untouched for readKind's fallback rather than lose data.
+            return false
+        }
+        var ok = true
+        for (kind in VOD_KINDS) {
+            if (readKindFile(fileFor(dir, kind), legacySource, kind, {}, {}) != null) continue
+            val cats = ArrayList<Category>()
+            var writer: Writer? = null
+            // categories come before items in the file, so [cats] is filled when the writer opens.
+            val meta = readFile(legacy, legacySource, { c -> cats.addAll(c.filter { it.kind == kind }) }) { batch ->
+                val keep = batch.filter { it.kind == kind }
+                if (keep.isEmpty()) return@readFile
+                if (writer == null) writer = Writer(dir, legacySource, kind, cats)
+                writer?.add(keep)
+            }
+            if (meta == null) { writer?.abort(); ok = false; continue }
+            val w = writer ?: continue // legacy had none of this kind
+            if (!w.commit()) ok = false
+        }
+        if (ok) legacy.delete()
+        return ok
+    }
+
+    private fun peekSourceId(f: File): String? = runCatching {
+        f.reader(Charsets.UTF_8).buffered(4096).use { raw ->
+            val reader = PushbackReader(raw, 1)
+            val first = JsonArrayStream.skipWs(reader)
+            if (first < 0 || first.toChar() != '{') return@use null
+            // sourceId is always the first key written.
+            val q = JsonArrayStream.skipWs(reader)
+            if (q < 0 || q.toChar() != '"') return@use null
+            val key = readJsonString(reader, alreadyOpened = true)
+            if (key != "sourceId") return@use null
+            val colon = JsonArrayStream.skipWs(reader)
+            if (colon < 0 || colon.toChar() != ':') return@use null
+            readJsonString(reader, alreadyOpened = false)
+        }
+    }.getOrNull()
+
+    /**
+     * Stream the last good [kind] list: its own file first, else the pre-1.4.115 combined
+     * file. Returns null when neither has a valid list for [sourceId].
+     */
+    fun readKind(
+        dir: File,
+        sourceId: String,
+        kind: ContentKind,
+        onCategories: (List<Category>) -> Unit,
+        onItems: (List<MediaItem>) -> Unit,
+    ): Meta? {
+        readKindFile(fileFor(dir, kind), sourceId, kind, onCategories, onItems)?.let { return it }
+        var n = 0
+        val cats = ArrayList<Category>()
+        val meta = readFile(File(dir, FILE_NAME), sourceId, { c -> cats.addAll(c.filter { it.kind == kind }) }) { batch ->
+            val keep = batch.filter { it.kind == kind }
+            if (keep.isNotEmpty()) {
+                n += keep.size
+                onItems(keep)
+            }
+        } ?: return null
+        if (n == 0) return null
+        onCategories(cats)
+        return meta
+    }
+
+    private fun readKindFile(
+        f: File,
+        sourceId: String,
+        kind: ContentKind,
+        onCategories: (List<Category>) -> Unit,
+        onItems: (List<MediaItem>) -> Unit,
+    ): Meta? {
+        if (!f.isFile) return null
+        // Items are delivered as they stream. If the file breaks after some were delivered,
+        // still report success so the caller never also reads the old file (duplicates).
+        var n = 0
+        val cats = ArrayList<Category>()
+        val meta = readFile(f, sourceId, { c -> cats.addAll(c.filter { it.kind == kind }) }) { batch ->
+            val keep = batch.filter { it.kind == kind }
+            if (keep.isNotEmpty()) {
+                n += keep.size
+                onItems(keep)
+            }
+        }
+        if (n == 0) return null
+        onCategories(cats)
+        return meta ?: Meta(sourceId, 0L)
+    }
+
+    /** Both kinds' last good lists (tests / tools). Null when neither kind has a list. */
     fun read(dir: File, sourceId: String): Snapshot? {
         val cats = ArrayList<Category>()
         val items = ArrayList<MediaItem>()
-        val meta = readStreaming(dir, sourceId, { cats.addAll(it) }, { items.addAll(it) }) ?: return null
-        if (items.none { it.kind == ContentKind.VOD }) return null
-        return Snapshot(sourceId, meta.savedAtMs, cats, items)
+        var savedAt = 0L
+        var any = false
+        for (kind in VOD_KINDS) {
+            val m = readKind(dir, sourceId, kind, { cats.addAll(it) }, { items.addAll(it) }) ?: continue
+            any = true
+            savedAt = maxOf(savedAt, m.savedAtMs)
+        }
+        if (!any) return null
+        return Snapshot(sourceId, savedAt, cats, items)
     }
 
     /**
-     * Stream a cached snapshot into [onCategories] / [onItems] without reading the
-     * file into a single String. Returns null if the file is missing or not for [sourceId].
+     * Stream one snapshot file into [onCategories] / [onItems] without reading it into a single
+     * String. Returns null if the file is missing, unreadable, or not for [sourceId].
      */
-    fun readStreaming(
-        dir: File,
+    private fun readFile(
+        f: File,
         sourceId: String,
         onCategories: (List<Category>) -> Unit,
         onItems: (List<MediaItem>) -> Unit,
     ): Meta? {
-        val f = File(dir, FILE_NAME)
         if (!f.isFile) return null
         return runCatching {
             f.reader(Charsets.UTF_8).buffered(16 * 1024).use { raw ->
@@ -317,6 +456,10 @@ object VodDiskCache {
     fun clear(dir: File) {
         File(dir, FILE_NAME).delete()
         File(dir, "$FILE_NAME.tmp").delete()
+        for (kind in VOD_KINDS) fileFor(dir, kind).delete()
+        dir.listFiles()?.forEach { f ->
+            if (f.name.startsWith(TMP_PREFIX) && f.name.endsWith(TMP_SUFFIX)) f.delete()
+        }
     }
 
     /** Merge rule: only accept a fresh list that actually has items. */

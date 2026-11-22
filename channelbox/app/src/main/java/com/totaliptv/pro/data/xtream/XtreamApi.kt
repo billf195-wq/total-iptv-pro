@@ -342,6 +342,7 @@ class XtreamApi(
             }
             ConsumeResult(count, warnings)
         } catch (t: Throwable) {
+            if (t is java.util.concurrent.CancellationException) throw t
             Log.w(TAG, "VOD load failed; keeping live catalog: ${SensitiveText.safeLog(t)}")
             ConsumeResult(
                 0,
@@ -400,6 +401,7 @@ class XtreamApi(
             }
             ConsumeResult(count, warnings)
         } catch (t: Throwable) {
+            if (t is java.util.concurrent.CancellationException) throw t
             Log.w(TAG, "Series load failed: ${SensitiveText.safeLog(t)}")
             ConsumeResult(0, listOf("Series list failed (${SensitiveText.forUser(t)})."))
         }
@@ -837,9 +839,8 @@ class XtreamApi(
                     }
                     return 0
                 }
-                if (parsed.kind == JsonArrayStream.Kind.Array && parsed.count > 0) {
-                    Log.i(TAG, "streamed $action items=${parsed.count}")
-                }
+                // Always log the shape so a 0-item list is diagnosable from logcat (no URLs/creds).
+                Log.i(TAG, "streamed $action kind=${parsed.kind} items=${parsed.count} skipped=${parsed.skipped} rejected=${parsed.rejected} bytes=${tmp.length()}")
                 return parsed.count
             }
         } finally {

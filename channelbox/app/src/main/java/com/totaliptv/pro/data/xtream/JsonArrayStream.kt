@@ -13,6 +13,11 @@ import java.io.Reader
 object JsonArrayStream {
     const val DEFAULT_BATCH = 500
     const val AUTH_PREFIX_MAX = 4096
+    /**
+     * 1.4.115: how far to look past a UTF-8 BOM or a PHP notice/warning printed before the
+     * JSON (1.4.113 found the first '[' anywhere in the body; 1.4.114 gave up and returned 0).
+     */
+    const val JUNK_PREFIX_MAX = 256 * 1024
 
     enum class Kind { Empty, Array, Object, Other }
 
@@ -20,6 +25,10 @@ object JsonArrayStream {
         val count: Int,
         val kind: Kind,
         val prefix: String? = null,
+        /** Characters skipped before the JSON started (BOM, PHP notices). */
+        val skipped: Int = 0,
+        /** Objects that were complete JSON but did not decode (field shape mismatch). */
+        val rejected: Int = 0,
     )
 
     fun <T> consume(
@@ -30,15 +39,23 @@ object JsonArrayStream {
         onBatch: (List<T>) -> Unit,
     ): Result {
         val pb = reader as? PushbackReader ?: PushbackReader(reader, 1)
-        val first = skipWs(pb)
+        var first = skipWs(pb)
         if (first < 0) return Result(0, Kind.Empty)
+        var skipped = 0
+        // Skip a byte-order mark and any text (PHP notice, HTML warning) before the JSON.
+        while (first >= 0 && first.toChar() != '[' && first.toChar() != '{') {
+            if (skipped >= JUNK_PREFIX_MAX) return Result(0, Kind.Other, skipped = skipped)
+            skipped++
+            first = pb.read()
+        }
+        if (first < 0) return Result(0, if (skipped == 0) Kind.Empty else Kind.Other, skipped = skipped)
         val start = first.toChar()
         if (start == '{') {
-            return Result(0, Kind.Object, prefix = readLimitedObject(pb, first, AUTH_PREFIX_MAX))
+            return Result(0, Kind.Object, prefix = readLimitedObject(pb, first, AUTH_PREFIX_MAX), skipped = skipped)
         }
-        if (start != '[') return Result(0, Kind.Other)
         val size = batchSize.coerceAtLeast(1)
         var total = 0
+        var rejected = 0
         val batch = ArrayList<T>(size)
         val buf = StringBuilder(512)
         while (true) {
@@ -52,7 +69,7 @@ object JsonArrayStream {
                 var x = c
                 while (x >= 0) {
                     val xc = x.toChar()
-                    if (xc == ']') return flush(batch, total, onBatch)
+                    if (xc == ']') return flush(batch, total, onBatch, skipped, rejected)
                     if (xc == '{') {
                         objStart = x
                         break
@@ -65,23 +82,24 @@ object JsonArrayStream {
             if (!readObjectInto(pb, objStart, buf)) break
             runCatching { json.decodeFromString(deserializer, buf.toString()) }
                 .onSuccess { batch.add(it) }
+                .onFailure { rejected++ }
             if (batch.size >= size) {
                 onBatch(ArrayList(batch))
                 total += batch.size
                 batch.clear()
             }
         }
-        return flush(batch, total, onBatch)
+        return flush(batch, total, onBatch, skipped, rejected)
     }
 
-    private fun <T> flush(batch: ArrayList<T>, total: Int, onBatch: (List<T>) -> Unit): Result {
+    private fun <T> flush(batch: ArrayList<T>, total: Int, onBatch: (List<T>) -> Unit, skipped: Int, rejected: Int): Result {
         var n = total
         if (batch.isNotEmpty()) {
             onBatch(ArrayList(batch))
             n += batch.size
             batch.clear()
         }
-        return Result(n, Kind.Array)
+        return Result(n, Kind.Array, skipped = skipped, rejected = rejected)
     }
 
     fun skipWs(reader: PushbackReader): Int {

@@ -394,7 +394,8 @@ class ParentalWiringSourceTest {
     fun repositoryFiltersAndKeepsRawForLoads() {
         val repo = src("main/java/com/totaliptv/pro/data/repo/CatalogRepository.kt")
         assertTrue(repo.contains("CatalogLockFilter.apply(cats, items, ParentalGate.config)"))
-        assertTrue(repo.contains("VodDiskCache.write(dir, sourceId, rawCategories, rawItems)"))
+        // 1.4.115: per-kind saves still come from the unfiltered raw lists.
+        assertTrue(repo.contains("val items = rawItems") && repo.contains("VodDiskCache.writeKind(dir, sourceId, kind, cats, items)"))
         assertTrue(repo.contains("ParentalGate.addListener(lockListener)"))
         assertTrue(repo.contains("list.filterNot { ParentalGate.isHiddenId(it.id) }"))
         assertFalse(repo.contains("keepItems = cachedItems"))
