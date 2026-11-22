@@ -36,13 +36,23 @@ object TvBack {
     }
 
     fun hideImeIfVisible(activity: Activity): Boolean {
+        val decor = activity.window?.decorView ?: return false
+        // isAcceptingText can be true after playback or on a focused row even when
+        // the IME is hidden, which would swallow Back. Only consume the event when
+        // the IME window is actually visible.
+        val imeVisible = if (android.os.Build.VERSION.SDK_INT >= 30) {
+            val insets = decor.rootWindowInsets ?: return false
+            insets.isVisible(android.view.WindowInsets.Type.ime())
+        } else {
+            val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                ?: return false
+            imm.isActive(activity.currentFocus ?: decor)
+        }
+        if (!imeVisible) return false
         val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
             ?: return false
-        val view: View = activity.currentFocus
-            ?: activity.window?.decorView?.rootView
-            ?: return false
-        if (!imm.isActive(view) && !imm.isAcceptingText) return false
-        return imm.hideSoftInputFromWindow(view.windowToken, 0)
+        val token = (activity.currentFocus ?: decor).windowToken
+        return imm.hideSoftInputFromWindow(token, 0)
     }
 
     fun asBackKeyEvent(event: android.view.KeyEvent): android.view.KeyEvent {
