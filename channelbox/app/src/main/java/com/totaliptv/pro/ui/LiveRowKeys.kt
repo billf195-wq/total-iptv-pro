@@ -1,12 +1,13 @@
 package com.totaliptv.pro.ui
 
 /**
- * Long-press OK and Menu on a Live row offer Record.
+ * Long-press OK and Menu on a Live row open the channel menu
+ * (Add/Remove Favorites, and Record when that action is offered).
  * The long-press flag arrives on key down (repeat). The matching key up
  * must be consumed or the row's click plays the channel instead.
  */
 object LiveRowKeys {
-    enum class Action { IGNORE, RECORD, CONSUME }
+    enum class Action { IGNORE, RECORD, MENU, CONSUME }
 
     fun decide(
         isOk: Boolean,
@@ -16,10 +17,10 @@ object LiveRowKeys {
         isLongPress: Boolean,
         longAlreadyFired: Boolean
     ): Action {
-        if (isMenu) return if (keyDown) Action.RECORD else Action.CONSUME
+        if (isMenu) return if (keyDown) Action.MENU else Action.CONSUME
         if (!isOk) return Action.IGNORE
         if (keyDown && (isLongPress || repeatCount > 0)) {
-            return if (longAlreadyFired) Action.CONSUME else Action.RECORD
+            return if (longAlreadyFired) Action.CONSUME else Action.MENU
         }
         if (!keyDown && longAlreadyFired) return Action.CONSUME
         return Action.IGNORE

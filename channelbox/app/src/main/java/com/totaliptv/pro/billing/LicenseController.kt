@@ -18,7 +18,8 @@ class LicenseController(
     private val billing: BillingGateway,
     private val hasExistingAppData: suspend () -> Boolean,
     private val clock: () -> Long = { System.currentTimeMillis() },
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val enforceLicense: Boolean = true
 ) {
     private val mutex = Mutex()
     private val _status = MutableStateFlow<LicenseStatus>(LicenseStatus.Checking)
@@ -62,6 +63,10 @@ class LicenseController(
 
     suspend fun refresh() {
         mutex.withLock {
+            if (!enforceLicense) {
+                _status.value = LicenseStatus.Unlocked
+                return
+            }
             val now = clock()
             var record = store.read()
             if (!record.migrated) {
@@ -87,7 +92,7 @@ class LicenseController(
                 PurchaseQueryResult.NotOwned -> PurchaseLookup.NotOwned
                 PurchaseQueryResult.Unknown -> PurchaseLookup.Unknown
             }
-            _status.value = LicensePolicy.evaluate(record, lookup, now)
+            _status.value = LicensePolicy.evaluate(record, lookup, now, enforce = enforceLicense)
         }
     }
 
@@ -113,7 +118,8 @@ class LicenseController(
             LicenseController(
                 store = LicenseStore(context),
                 billing = PlayBillingGateway(context),
-                hasExistingAppData = existingData
+                hasExistingAppData = existingData,
+                enforceLicense = com.totaliptv.pro.BuildConfig.PLAY_UNLOCK_ENABLED
             )
     }
 }

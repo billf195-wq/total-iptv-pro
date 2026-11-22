@@ -59,7 +59,8 @@ import com.totaliptv.pro.ui.theme.OnCinemaMuted
 fun PinLockDialogHost(
     dialog: PinLockDialog?,
     repository: CatalogRepository,
-    onClose: (PinLockDialog?) -> Unit
+    onClose: (PinLockDialog?) -> Unit,
+    onPinVerified: () -> Unit = {}
 ) {
     val context = LocalContext.current
     when (dialog) {
@@ -70,6 +71,7 @@ fun PinLockDialogHost(
                 PinLockEntry.doneMessage(dialog.mode)?.let {
                     Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
                 }
+                if (dialog.mode == PinMode.VERIFY) onPinVerified()
                 onClose(if (dialog.mode == PinMode.PICK_CATEGORIES) PinLockDialog.Categories else null)
             },
             onDismiss = { onClose(null) }

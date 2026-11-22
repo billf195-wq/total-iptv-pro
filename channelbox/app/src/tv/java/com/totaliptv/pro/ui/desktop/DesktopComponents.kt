@@ -246,6 +246,7 @@ fun LiveRowItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onRecord: (() -> Unit)? = null,
+    onMenu: (() -> Unit)? = null,
     recordActive: Boolean = false,
     upFocus: FocusRequester? = null,
     focusRequester: FocusRequester? = null
@@ -290,9 +291,9 @@ fun LiveRowItem(
                             longAlreadyFired = longFired
                         )
                     ) {
-                        LiveRowKeys.Action.RECORD -> {
+                        LiveRowKeys.Action.MENU, LiveRowKeys.Action.RECORD -> {
                             longFired = true
-                            record()
+                            if (onMenu != null) onMenu() else record()
                             true
                         }
                         LiveRowKeys.Action.CONSUME -> true

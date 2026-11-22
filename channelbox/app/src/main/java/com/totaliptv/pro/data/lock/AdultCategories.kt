@@ -1,8 +1,8 @@
 package com.totaliptv.pro.data.lock
 
 /**
- * Conservative adult-category detection by category NAME only (titles are never scanned, so a
- * movie called "xXx" stays visible). Case-insensitive. Matches whole markers only:
+ * Conservative adult-category detection by category NAME ([isAdult]). Search also uses
+ * [isAdultTitle], which skips a bare "xxx" so a movie called "xXx" stays visible. Case-insensitive. Matches whole markers only:
  * "adult"/"adults" (and adultos, adulte, adulti), "xxx" (also spaced or dotted), "18+"/"+18" (also spaced
  * or punctuated), "for adults", "porn", "erotic". "Young adult" and "Adult Swim"
  * are deliberately not matched.
@@ -28,10 +28,21 @@ object AdultCategories {
         Regex("""(?<![a-z0-9])er[oó]ti(?:c|ca|cas|co|cos|que|k|sch)(?![a-z0-9])""")
     )
 
-    fun isAdult(name: String?): Boolean {
+    fun isAdult(name: String?): Boolean = matches(name, includeXxx = true)
+
+    /**
+     * Title check for Search. Same markers as [isAdult], except a bare "xxx" so the
+     * mainstream movie "xXx" is not hidden. "Young adult" and "Adult Swim" stay excluded.
+     */
+    fun isAdultTitle(name: String?): Boolean = matches(name, includeXxx = false)
+
+    private fun matches(name: String?, includeXxx: Boolean): Boolean {
         if (name.isNullOrBlank()) return false
         var text = name.lowercase()
         for (ex in exclusions) text = ex.replace(text, " ")
-        return markers.any { it.containsMatchIn(text) }
+        val xxx = markers[1]
+        return markers.any { marker ->
+            (includeXxx || marker !== xxx) && marker.containsMatchIn(text)
+        }
     }
 }

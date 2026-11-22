@@ -93,6 +93,8 @@ fun SearchScreen(
     val closeFocus = remember { FocusRequester() }
     val firstResultFocus = remember { FocusRequester() }
     val context = LocalContext.current
+    val app = context.applicationContext as TotalIptvProApp
+    val showAdultInSearch by app.preferences.showAdultInSearch.collectAsState(initial = false)
     val scope = rememberCoroutineScope()
     var detailItem by remember { mutableStateOf<MediaItem?>(null) }
     var favorites by remember { mutableStateOf<List<com.totaliptv.pro.data.model.FavoriteRef>>(emptyList()) }
@@ -126,7 +128,7 @@ fun SearchScreen(
 
     // Debounced catalog search (550ms). Does not touch TextField focus/selection.
     // Holds previous displayedResults until a settled commit is published (no mid-type list teardown).
-    LaunchedEffect(query, catalogRevision) {
+    LaunchedEffect(query, catalogRevision, showAdultInSearch) {
         val q = query.trim()
         if (q.length < 2) {
             searching = false

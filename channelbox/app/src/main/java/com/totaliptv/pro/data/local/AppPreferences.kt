@@ -69,9 +69,11 @@ class AppPreferences(private val context: Context) {
     private val accentKey = stringPreferencesKey("accent_preset")
     private val appLayoutKey = stringPreferencesKey("app_layout_mode")
     private val posterColumnsKey = intPreferencesKey("poster_columns")
+    private val screenFitPercentKey = intPreferencesKey("screen_fit_percent")
     private val recordingsDirKey = stringPreferencesKey("recordings_dir")
     private val autoPipKey = booleanPreferencesKey("auto_pip")
     private val autoPlayNextKey = booleanPreferencesKey("auto_play_next")
+    private val showAdultInSearchKey = booleanPreferencesKey("show_adult_in_search")
     private val tmdbApiKeyKey = stringPreferencesKey("tmdb_api_key")
 
     companion object {
@@ -89,6 +91,9 @@ class AppPreferences(private val context: Context) {
                 5, 6, 8, 11 -> raw
                 else -> 6
             }
+
+        fun normalizeScreenFitPercent(raw: Int?): Int =
+            com.totaliptv.pro.ui.ScreenFit.normalize(raw)
     }
 
     val sources: Flow<List<PlaylistSource>> = context.dataStore.data.map { prefs ->
@@ -124,6 +129,11 @@ class AppPreferences(private val context: Context) {
     /** Posters/banners per row on classic + desktop browse grids. Allowed: 5, 6, 8, 11. */
     val posterColumns: Flow<Int> = context.dataStore.data.map { prefs ->
         normalizePosterColumns(prefs[posterColumnsKey])
+    }
+
+    /** TV menu overscan inset, 0-10 percent per edge. Default 5. Phone ignores this. */
+    val screenFitPercent: Flow<Int> = context.dataStore.data.map { prefs ->
+        normalizeScreenFitPercent(prefs[screenFitPercentKey])
     }
 
     /** Optional recordings folder on this device. Blank = app Movies/TotalIptvPro/Recordings. */
@@ -216,17 +226,40 @@ class AppPreferences(private val context: Context) {
         }
     }
 
+    suspend fun getScreenFitPercent(): Int =
+        normalizeScreenFitPercent(context.dataStore.data.first()[screenFitPercentKey])
+
+    suspend fun setScreenFitPercent(percent: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[screenFitPercentKey] = normalizeScreenFitPercent(percent)
+        }
+    }
+
     /** Series: count down and play the next episode on its own. On unless the viewer turns it off. */
     val autoPlayNext: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[autoPlayNextKey] ?: true
     }
 
+    /** When false (default), Search hides adult categories and adult-titled items. */
+    val showAdultInSearch: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[showAdultInSearchKey] ?: false
+    }
+
     suspend fun getAutoPlayNext(): Boolean =
         context.dataStore.data.first()[autoPlayNextKey] ?: true
+
+    suspend fun getShowAdultInSearch(): Boolean =
+        context.dataStore.data.first()[showAdultInSearchKey] ?: false
 
     suspend fun setAutoPlayNext(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[autoPlayNextKey] = enabled
+        }
+    }
+
+    suspend fun setShowAdultInSearch(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[showAdultInSearchKey] = enabled
         }
     }
 

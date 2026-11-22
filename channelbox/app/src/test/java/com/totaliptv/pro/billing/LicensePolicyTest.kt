@@ -119,4 +119,23 @@ class LicensePolicyTest {
         assertTrue(LicenseStatus.Checking.allowsUse)
         assertFalse(LicenseStatus.Checking.showBuyButton)
     }
+
+    @Test
+    fun expiredTrialIsUnlockedWhenNotEnforced() {
+        val record = LicensePolicy.migrate(LicenseRecord(), false, start)
+        val expired = LicensePolicy.evaluate(record, PurchaseLookup.NotOwned, start + 40 * day, enforce = true)
+        assertEquals(LicenseStatus.Expired, expired)
+        assertFalse(expired.allowsUse)
+        val sideload = LicensePolicy.evaluate(record, PurchaseLookup.NotOwned, start + 40 * day, enforce = false)
+        assertEquals(LicenseStatus.Unlocked, sideload)
+        assertTrue(sideload.allowsUse)
+        assertFalse(sideload.showBuyButton)
+    }
+
+    @Test
+    fun defaultEvaluateStillEnforcesTheTrial() {
+        val record = LicensePolicy.migrate(LicenseRecord(), false, start)
+        val status = LicensePolicy.evaluate(record, PurchaseLookup.NotOwned, start + 30 * day)
+        assertEquals(LicenseStatus.Expired, status)
+    }
 }

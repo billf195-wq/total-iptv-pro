@@ -43,6 +43,7 @@ import com.totaliptv.pro.TotalIptvProApp
 import com.totaliptv.pro.data.local.LastPlace
 import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.data.model.ContentKind
+import com.totaliptv.pro.data.LiveFavorites
 import com.totaliptv.pro.ui.focus.FocusTrace
 import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.model.MediaItem
@@ -308,7 +309,11 @@ fun DesktopAppRoot(
                 val movies = remember(revision, vodLoading) { snapshotMovies() }
                 val series = remember(revision, vodLoading) { snapshotSeries() }
                 val live = remember(revision) { runCatching { repository.liveItems() }.getOrDefault(emptyList()) }
-                val liveCats = remember(revision) { runCatching { repository.categories(ContentKind.LIVE) }.getOrDefault(emptyList()) }
+                val liveCats = remember(revision) {
+                    LiveFavorites.withFavoritesCategory(
+                        runCatching { repository.categories(ContentKind.LIVE) }.getOrDefault(emptyList())
+                    )
+                }
                 val movieCats = remember(revision, vodLoading) { runCatching { repository.categories(ContentKind.VOD) }.getOrDefault(emptyList()) }
                 val seriesCats = remember(revision, vodLoading) { runCatching { repository.categories(ContentKind.SERIES) }.getOrDefault(emptyList()) }
 
@@ -430,10 +435,12 @@ fun DesktopAppRoot(
                                 DesktopNavSection.LIVE -> LivePane(
                                     items = live,
                                     categories = liveCats,
+                                    favorites = favorites,
                                     search = search,
                                     categoryId = categoryId,
                                     onSearch = { search = it },
                                     onCategory = { categoryId = it },
+                                    onToggleFavorite = { toggleFavoriteToast(it) },
                                     onPlay = { item ->
                                         val index = live.indexOfFirst { it.id == item.id }
                                         restoreFocusId = item.id

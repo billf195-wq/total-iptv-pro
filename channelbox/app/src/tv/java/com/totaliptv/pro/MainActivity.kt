@@ -54,6 +54,8 @@ import com.totaliptv.pro.ui.desktop.DesktopAppRoot
 import com.totaliptv.pro.ui.splash.LogoBannerSplash
 import com.totaliptv.pro.ui.splash.StartupSplashGate
 import com.totaliptv.pro.data.local.AppLayoutMode
+import com.totaliptv.pro.ui.ScreenFit
+import com.totaliptv.pro.ui.TvScreenFitFrame
 import com.totaliptv.pro.data.local.LastPlace
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
@@ -113,6 +115,7 @@ class MainActivity : ComponentActivity() {
             val appearance by app.preferences.appearanceMode.collectAsState(initial = AppearanceMode.DARK)
             val accent by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
             val licenseStatus by app.license.status.collectAsState()
+            val screenFitPercent by app.preferences.screenFitPercent.collectAsState(initial = ScreenFit.DEFAULT_PERCENT)
 
             LaunchedEffect(Unit) {
                 val initial = runCatching { app.preferences.getAppLayoutMode() }
@@ -189,7 +192,9 @@ class MainActivity : ComponentActivity() {
             }
 
             if (!splashDone && !switchingLayout) {
-                LogoBannerSplash(ready = splashCatalogReady, statusMessage = if (splashCatalogReady) null else "Updating Live / Movies / Series...", onFinished = { splashDone = true })
+                TvScreenFitFrame(screenFitPercent) {
+                    LogoBannerSplash(ready = splashCatalogReady, statusMessage = if (splashCatalogReady) null else "Updating Live / Movies / Series...", onFinished = { splashDone = true })
+                }
                 return@setContent
             }
 
@@ -225,13 +230,16 @@ class MainActivity : ComponentActivity() {
                 return@setContent
             }
 
-            if (!licenseStatus.allowsUse) {
+            if (BuildConfig.PLAY_UNLOCK_ENABLED && !licenseStatus.allowsUse) {
                 TotalIptvProTheme(appearance = appearance, accent = accent) {
-                    TvBuyScreen(license = app.license)
+                    TvScreenFitFrame(screenFitPercent) {
+                        TvBuyScreen(license = app.license)
+                    }
                 }
                 return@setContent
             }
 
+            TvScreenFitFrame(screenFitPercent) {
             Box(modifier = Modifier.fillMaxSize()) {
             if (boundLayout == AppLayoutMode.DESKTOP) {
                 DesktopAppRoot(
@@ -252,6 +260,7 @@ class MainActivity : ComponentActivity() {
             }
             com.totaliptv.pro.ui.splash.RefreshSplashOverlay()
             }
+            }
         }
     }
 
@@ -268,7 +277,7 @@ class MainActivity : ComponentActivity() {
         item: MediaItem,
         startOver: Boolean = false
     ) {
-        if (!(application as TotalIptvProApp).license.status.value.allowsUse) return
+        if (BuildConfig.PLAY_UNLOCK_ENABLED && !(application as TotalIptvProApp).license.status.value.allowsUse) return
         // Always re-bind to catalog by id so Live clicks cannot play a mismatched streamUrl
         // after category/sort list churn.
         val bound = repository.playableFrom(item)

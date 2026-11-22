@@ -49,10 +49,13 @@ class TmdbServiceLookupTest {
 
     @Test
     fun queriesCoverAllServicesBothKinds() {
-        for (svc in StreamingService.entries) {
+        // BET+ has no current TMDB US provider id, so it is keyword-only.
+        val tmdbServices = StreamingService.entries.filter { it != StreamingService.BET }
+        for (svc in tmdbServices) {
             assertTrue(TmdbServiceLookup.QUERIES.any { it.service == svc && it.type == "movie" })
             assertTrue(TmdbServiceLookup.QUERIES.any { it.service == svc && it.type == "tv" })
         }
+        assertTrue(TmdbServiceLookup.QUERIES.none { it.service == StreamingService.BET })
     }
 
     @Test
@@ -73,6 +76,17 @@ class TmdbServiceLookupTest {
         assertEquals(listOf("15"), ids("tv", "with_watch_providers", StreamingService.HULU))
         assertEquals(listOf("337"), ids("tv", "with_watch_providers", StreamingService.DISNEY))
         assertEquals(listOf("531|1770|582"), ids("tv", "with_watch_providers", StreamingService.PARAMOUNT))
+        assertEquals(listOf("386|387"), ids("movie", "with_watch_providers", StreamingService.PEACOCK))
+        assertEquals(listOf("386|387"), ids("tv", "with_watch_providers", StreamingService.PEACOCK))
+        assertEquals(listOf("43"), ids("movie", "with_watch_providers", StreamingService.STARZ))
+        assertEquals(listOf("43"), ids("tv", "with_watch_providers", StreamingService.STARZ))
+        assertEquals(listOf("34"), ids("movie", "with_watch_providers", StreamingService.MGM))
+        assertEquals(listOf("526"), ids("movie", "with_watch_providers", StreamingService.AMC))
+        assertEquals(listOf("520"), ids("movie", "with_watch_providers", StreamingService.DISCOVERY))
+        assertEquals(listOf("520"), ids("tv", "with_watch_providers", StreamingService.DISCOVERY))
+        assertEquals(listOf("283"), ids("movie", "with_watch_providers", StreamingService.CRUNCHYROLL))
+        assertEquals(listOf("283"), ids("tv", "with_watch_providers", StreamingService.CRUNCHYROLL))
+        assertEquals(emptyList(), ids("movie", "with_watch_providers", StreamingService.BET))
         assertEquals("US", TmdbServiceLookup.QUERIES.filter { it.service != null }.map { it.watchRegion }.distinct().single())
     }
 
@@ -208,7 +222,7 @@ class TmdbServiceLookupTest {
     @Test
     fun serviceQueriesInterleaveMovieAndTvSoSeriesFillsEarly() {
         val q = TmdbServiceLookup.QUERIES
-        assertEquals(21, q.size)
+        assertEquals(33, q.size)
         // Each service should appear as movie, then tv network, then tv watch-provider
         // before the next service starts, so Series Hulu/Disney+/Paramount+ are not last.
         fun triple(start: Int, service: com.totaliptv.pro.data.StreamingService) {
@@ -229,6 +243,20 @@ class TmdbServiceLookupTest {
         triple(12, com.totaliptv.pro.data.StreamingService.HULU)
         triple(15, com.totaliptv.pro.data.StreamingService.DISNEY)
         triple(18, com.totaliptv.pro.data.StreamingService.PARAMOUNT)
+        fun pair(start: Int, service: com.totaliptv.pro.data.StreamingService) {
+            assertEquals("movie", q[start].type)
+            assertEquals("with_watch_providers", q[start].param)
+            assertEquals(service, q[start].service)
+            assertEquals("tv", q[start + 1].type)
+            assertEquals("with_watch_providers", q[start + 1].param)
+            assertEquals(service, q[start + 1].service)
+        }
+        pair(21, com.totaliptv.pro.data.StreamingService.PEACOCK)
+        pair(23, com.totaliptv.pro.data.StreamingService.STARZ)
+        pair(25, com.totaliptv.pro.data.StreamingService.MGM)
+        pair(27, com.totaliptv.pro.data.StreamingService.AMC)
+        pair(29, com.totaliptv.pro.data.StreamingService.DISCOVERY)
+        pair(31, com.totaliptv.pro.data.StreamingService.CRUNCHYROLL)
         // Series queries for the late services are no longer stuck after every movie query.
         val huluTv = q.indexOfFirst { it.service == com.totaliptv.pro.data.StreamingService.HULU && it.type == "tv" }
         val lastMovie = q.indexOfLast { it.type == "movie" }

@@ -35,6 +35,8 @@ import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.itemsIndexed as tvItemsIndexed
 import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items as gridItems
@@ -89,6 +91,7 @@ import com.totaliptv.pro.ui.theme.AppearanceMode
 import com.totaliptv.pro.data.model.Category
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.FavoriteRef
+import com.totaliptv.pro.data.FavoriteSections
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
@@ -334,25 +337,28 @@ private fun HomeShelfHeader(text: String) {
 fun LivePane(
     items: List<MediaItem>,
     categories: List<Category>,
+    favorites: List<com.totaliptv.pro.data.model.FavoriteRef> = emptyList(),
     search: String,
     categoryId: String?,
     onSearch: (String) -> Unit,
     onCategory: (String?) -> Unit,
     onPlay: (MediaItem) -> Unit,
     onRecord: (MediaItem) -> Unit = {},
+    onToggleFavorite: (MediaItem) -> Unit = {},
     restoreFocusId: String? = null,
     restoreFocusIndex: Int = -1,
     pendingFocusRestore: Boolean = false,
     onRestoreConsumed: () -> Unit = {}
 ) {
-    val filtered = remember(items, search, categoryId) {
-        LiveChannelMapping.filterLiveChannels(items, categoryId, search)
+    val filtered = remember(items, search, categoryId, favorites) {
+        com.totaliptv.pro.data.LiveFavorites.filterLive(items, favorites, categoryId, search)
     }
     val context = LocalContext.current
     val dvrSnap by remember(context) {
         (context.applicationContext as TotalIptvProApp).dvr.snapshot
     }.collectAsState()
     var showGameDay by remember { mutableStateOf(false) }
+    var menuChannel by remember { mutableStateOf<MediaItem?>(null) }
     val gameDayFocus = remember { FocusRequester() }
     val chipFocus = remember { FocusRequester() }
     val liveListState = rememberLazyListState()
@@ -455,10 +461,42 @@ fun LivePane(
                     item,
                     onClick = { onPlay(item) },
                     onRecord = { onRecord(item) },
+                    onMenu = { menuChannel = item },
                     recordActive = DvrRecordUi.matches(dvrSnap.active, item.id, item.streamUrl),
                     upFocus = if (index == 0) gameDayFocus else null,
                     focusRequester = rowFocus(item.id)
                 )
+            }
+        }
+    }
+    menuChannel?.let { ch ->
+        val already = favorites.any { it.id == ch.id }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                Modifier
+                    .background(TipSurface, RoundedCornerShape(TipDimens.NavCorner))
+                    .padding(TipDimens.dp(20)),
+                verticalArrangement = Arrangement.spacedBy(TipDimens.dp(10)),
+                horizontalAlignment = Alignment.Start
+            ) {
+                Text(ch.name, color = TipGoldText, fontSize = TipDimens.BodyLargeSp)
+                AmberButton(
+                    if (already) "Remove from Favorites" else "Add to Favorites",
+                    onClick = {
+                        onToggleFavorite(ch)
+                        menuChannel = null
+                    }
+                )
+                AmberButton("Record", onClick = {
+                    onRecord(ch)
+                    menuChannel = null
+                })
+                AmberButton("Cancel", onClick = { menuChannel = null })
             }
         }
     }
@@ -731,7 +769,7 @@ fun FavoritesPane(
     }
     Column(Modifier.fillMaxSize()) {
         Text(
-            if (favorites.isEmpty()) "Long-press a poster or Favorite while watching to save titles here."
+            if (favorites.isEmpty()) "Long-press a Live channel or a poster, or choose Favorite while watching. Favorites are grouped into Live, Movies and Series."
             else "${favorites.size} saved",
             color = TipGoldMuted,
             fontSize = TipDimens.BodyMediumSp
@@ -751,6 +789,9 @@ fun FavoritesPane(
                 )
             }
         } else {
+            val liveFavs = resolved.filter { it.first.kind == ContentKind.LIVE }
+            val movieFavs = resolved.filter { it.first.kind == ContentKind.VOD }
+            val seriesFavs = resolved.filter { it.first.kind == ContentKind.SERIES }
             LazyVerticalGrid(
                 columns = GridCells.Fixed(AppPreferences.normalizePosterColumns(columns)),
                 state = gridState,
@@ -759,22 +800,37 @@ fun FavoritesPane(
                 contentPadding = PaddingValues(bottom = TipDimens.dp(24)),
                 modifier = Modifier.weight(1f).fillMaxWidth()
             ) {
-                gridItemsIndexed(resolved, key = { _, pair -> pair.first.id }) { index, (fav, item) ->
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                        DesktopPosterCard(
-                            item,
-                            onClick = {
-                                if (fav.kind == ContentKind.VOD || fav.kind == ContentKind.SERIES) {
-                                    onOpenDetail(item, index)
-                                } else {
-                                    // LIVE (and other): play immediately like Classic favorites.
-                                    onPlayFavorite(fav)
-                                }
-                            },
-                            focusRequester = posterFocus(gridScope, fav.id)
+                fun LazyGridScope.favSection(title: String, rows: List<Pair<FavoriteRef, MediaItem>>) {
+                    if (rows.isEmpty()) return
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "desk-fav-h-$title") {
+                        Text(
+                            title,
+                            color = TipGoldText,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = TipDimens.BodyLargeSp,
+                            modifier = Modifier.padding(top = TipDimens.dp(8), bottom = TipDimens.dp(4))
                         )
                     }
+                    gridItemsIndexed(rows, key = { _, pair -> pair.first.id }) { _, (fav, item) ->
+                        val index = resolved.indexOfFirst { it.first.id == fav.id }.coerceAtLeast(0)
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                            DesktopPosterCard(
+                                item,
+                                onClick = {
+                                    if (fav.kind == ContentKind.VOD || fav.kind == ContentKind.SERIES) {
+                                        onOpenDetail(item, index)
+                                    } else {
+                                        onPlayFavorite(fav)
+                                    }
+                                },
+                                focusRequester = posterFocus(gridScope, fav.id)
+                            )
+                        }
+                    }
                 }
+                favSection("Live", liveFavs)
+                favSection("Movies", movieFavs)
+                favSection("Series", seriesFavs)
             }
         }
     }
@@ -843,6 +899,9 @@ fun DesktopSettingsPane(
     var showHowTo by remember { mutableStateOf(false) }
     val autoPlayNext by (app?.preferences?.autoPlayNext ?: kotlinx.coroutines.flow.flowOf(true))
         .collectAsState(initial = true)
+    val showAdultInSearch by (app?.preferences?.showAdultInSearch ?: kotlinx.coroutines.flow.flowOf(false))
+        .collectAsState(initial = false)
+    var pendingShowAdult by remember { mutableStateOf(false) }
     LaunchedEffect(showHowTo) {
         if (!showHowTo) runCatching { settingsFocus.requestFocus() }
     }
@@ -903,6 +962,7 @@ fun DesktopSettingsPane(
             .collectAsState(initial = com.totaliptv.pro.billing.LicensePolicy.DISPLAY_PRICE)
         val licenseMessage by (app?.license?.message ?: kotlinx.coroutines.flow.flowOf<String?>(null))
             .collectAsState(initial = null)
+        if (com.totaliptv.pro.BuildConfig.PLAY_UNLOCK_ENABLED) {
         SectionHeader(LicenseStrings.SECTION)
         Text(
             LicenseStrings.statusLine(licenseStatus, licensePrice),
@@ -952,6 +1012,7 @@ fun DesktopSettingsPane(
             }
         }
         Spacer(Modifier.height(TipDimens.dp(20)))
+        }
 
         val appearance by (app?.preferences?.appearanceMode ?: kotlinx.coroutines.flow.flowOf(AppearanceMode.DARK))
             .collectAsState(initial = AppearanceMode.DARK)
@@ -959,6 +1020,8 @@ fun DesktopSettingsPane(
             .collectAsState(initial = AccentPreset.AMBER)
         val posterColumns by (app?.preferences?.posterColumns ?: kotlinx.coroutines.flow.flowOf(6))
             .collectAsState(initial = 6)
+        val screenFitPercent by (app?.preferences?.screenFitPercent ?: kotlinx.coroutines.flow.flowOf(com.totaliptv.pro.ui.ScreenFit.DEFAULT_PERCENT))
+            .collectAsState(initial = com.totaliptv.pro.ui.ScreenFit.DEFAULT_PERCENT)
 
         val lockRevision by ParentalGate.revision.collectAsState()
         val pinEntries = remember(lockRevision) { PinLockEntry.visibleEntries() }
@@ -981,7 +1044,50 @@ fun DesktopSettingsPane(
                 pinReturnSlot = -1
             }
         }
-        PinLockDialogHost(dialog = pinDialog, repository = repository, onClose = { pinDialog = it })
+        PinLockDialogHost(
+            dialog = pinDialog,
+            repository = repository,
+            onClose = { pinDialog = it },
+            onPinVerified = {
+                if (pendingShowAdult) {
+                    pendingShowAdult = false
+                    scope.launch { app?.preferences?.setShowAdultInSearch(true) }
+                }
+            }
+        )
+
+        SectionHeader("Search")
+        TipFocusable(
+            onClick = {
+                if (showAdultInSearch) {
+                    scope.launch { app?.preferences?.setShowAdultInSearch(false) }
+                } else if (com.totaliptv.pro.data.lock.ParentalGate.isEnabled) {
+                    pendingShowAdult = true
+                    pinDialog = PinLockDialog.Pad(com.totaliptv.pro.data.lock.PinMode.VERIFY)
+                } else {
+                    scope.launch { app?.preferences?.setShowAdultInSearch(true) }
+                }
+            }
+        ) { focused ->
+            Text(
+                if (showAdultInSearch) "Show adult in search: On" else "Show adult in search: Off",
+                color = if (focused) TipAccent else TipGoldText,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                    .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+            )
+        }
+        Text(
+            if (showAdultInSearch)
+                "Adult titles and adult categories can appear in Search."
+            else
+                "Off by default. Hides adult titles and adult categories from Search. A PIN, if set, is required to turn this on.",
+            color = TipGoldMuted,
+            fontSize = TipDimens.BodyMediumSp
+        )
+        Spacer(Modifier.height(HomeShelfFit.desktopRowGap))
+
         SectionHeader(PinLockEntry.SECTION)
         Text(
             remember(lockRevision) { PinFlow.statusLine() },
@@ -1094,10 +1200,22 @@ fun DesktopSettingsPane(
         }
         Spacer(Modifier.height(TipDimens.dp(12)))
         SectionHeader("Service groups")
+        val tmdbKey by (app?.preferences?.tmdbApiKey ?: kotlinx.coroutines.flow.flowOf(""))
+            .collectAsState(initial = "")
         val serviceStatus by repository.serviceLookupStatus.collectAsState()
+        val tmdbKeyLabel = when {
+            tmdbKey.isNotBlank() -> "Saved"
+            com.totaliptv.pro.BuildConfig.TMDB_DEFAULT_KEY.isNotBlank() -> "Using the built-in key"
+            else -> "Not set"
+        }
+        val serviceStatusText = when {
+            serviceStatus.isNotBlank() -> serviceStatus
+            tmdbKey.isNotBlank() || com.totaliptv.pro.BuildConfig.TMDB_DEFAULT_KEY.isNotBlank() ->
+                "Loading streaming groups…"
+            else -> "Netflix, Prime Video, HBO / Max, Apple TV+, Hulu, Disney+, Paramount+, Peacock, Starz, MGM+, AMC+, Discovery+, BET+ and Crunchyroll lists from TMDB (US)."
+        }
         Text(
-            "TMDB API key (for service groups): set it in Classic layout > Settings. " +
-                serviceStatus.ifBlank { "Netflix, Prime Video, HBO / Max, Apple TV+, Hulu, Disney+ and Paramount+ lists from TMDB (US)." },
+            "Service groups: $tmdbKeyLabel. $serviceStatusText",
             color = TipGoldMuted,
             fontSize = TipDimens.BodyMediumSp
         )
@@ -1188,6 +1306,82 @@ fun DesktopSettingsPane(
                             .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
                     )
                 }
+            }
+        }
+
+        Spacer(Modifier.height(TipDimens.dp(20)))
+        SectionHeader("Screen fit")
+        Text(
+            "Moves menus in from the edges so an older TV does not cut them off. Live playback stays full screen. 5% is the usual amount. Now ${screenFitPercent}%.",
+            color = TipGoldMuted,
+            fontSize = TipDimens.BodyMediumSp
+        )
+        Spacer(Modifier.height(TipDimens.dp(8)))
+        Row(horizontalArrangement = Arrangement.spacedBy(TipDimens.NavGap)) {
+            TipFocusable(
+                onClick = {
+                    if (screenFitPercent > 0) {
+                        scope.launch {
+                            val next = com.totaliptv.pro.ui.ScreenFit.normalize(screenFitPercent - 1)
+                            app?.preferences?.setScreenFitPercent(next)
+                            Toast.makeText(context, "Screen fit: ${next}%", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            ) { focused ->
+                Text(
+                    "Lower",
+                    color = if (focused) TipAccent else TipGoldText,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                        .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                )
+            }
+            Text(
+                "${screenFitPercent}%",
+                color = TipGoldText,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .background(TipAmber, RoundedCornerShape(TipDimens.dp(8)))
+                    .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+            )
+            TipFocusable(
+                onClick = {
+                    if (screenFitPercent < 10) {
+                        scope.launch {
+                            val next = com.totaliptv.pro.ui.ScreenFit.normalize(screenFitPercent + 1)
+                            app?.preferences?.setScreenFitPercent(next)
+                            Toast.makeText(context, "Screen fit: ${next}%", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            ) { focused ->
+                Text(
+                    "Raise",
+                    color = if (focused) TipAccent else TipGoldText,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                        .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                )
+            }
+            TipFocusable(
+                onClick = {
+                    scope.launch {
+                        app?.preferences?.setScreenFitPercent(com.totaliptv.pro.ui.ScreenFit.DEFAULT_PERCENT)
+                        Toast.makeText(context, "Screen fit: 5%", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            ) { focused ->
+                Text(
+                    "Use 5%",
+                    color = if (focused) TipAccent else TipGoldText,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .background(TipSurface, RoundedCornerShape(TipDimens.dp(8)))
+                        .padding(horizontal = TipDimens.dp(18), vertical = TipDimens.dp(12))
+                )
             }
         }
 

@@ -1,7 +1,7 @@
 package com.totaliptv.pro.data.lock
 
 /** Which PIN dialog is open. */
-enum class PinMode { SET, UNLOCK, CHANGE, TURN_OFF, RESET, PICK_CATEGORIES }
+enum class PinMode { SET, UNLOCK, CHANGE, TURN_OFF, RESET, PICK_CATEGORIES, VERIFY }
 
 /**
  * Pure step logic for the PIN dialogs, shared by TV (Classic + Desktop) and phone.
@@ -30,6 +30,7 @@ class PinFlow(val mode: PinMode, private val gate: ParentalGate = ParentalGate) 
             PinMode.TURN_OFF -> "Turn off PIN lock"
             PinMode.RESET -> "Forgot PIN — set a new PIN"
             PinMode.PICK_CATEGORIES -> "Enter PIN to choose categories"
+            PinMode.VERIFY -> "Enter PIN to show adult in search"
         }
 
     val prompt: String
@@ -69,6 +70,10 @@ class PinFlow(val mode: PinMode, private val gate: ParentalGate = ParentalGate) 
                 when (mode) {
                     PinMode.UNLOCK, PinMode.PICK_CATEGORIES -> {
                         gate.unlock(entered)
+                        step = Step.DONE
+                    }
+                    PinMode.VERIFY -> {
+                        // Verify only: do not unlock the parental session.
                         step = Step.DONE
                     }
                     PinMode.TURN_OFF -> {

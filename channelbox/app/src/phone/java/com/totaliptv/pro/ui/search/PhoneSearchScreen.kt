@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.repo.CatalogRepository
+import com.totaliptv.pro.TotalIptvProApp
+import androidx.compose.ui.platform.LocalContext
 import com.totaliptv.pro.ui.components.PhoneDetailSheet
 import com.totaliptv.pro.ui.components.PhonePageHeader
 import com.totaliptv.pro.ui.components.PhoneLiveRow
@@ -45,6 +47,8 @@ fun PhoneSearchScreen(
     contentPadding: PaddingValues = PaddingValues(0.dp)
 ) {
     val revision by repository.catalogRevision.collectAsState()
+    val app = LocalContext.current.applicationContext as TotalIptvProApp
+    val showAdultInSearch by app.preferences.showAdultInSearch.collectAsState(initial = false)
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var detail by remember { mutableStateOf<MediaItem?>(null) }
@@ -53,7 +57,7 @@ fun PhoneSearchScreen(
         withContext(Dispatchers.IO) { runCatching { repository.ensureCatalogLoaded() } }
     }
 
-    LaunchedEffect(query, revision) {
+    LaunchedEffect(query, revision, showAdultInSearch) {
         val q = query.trim()
         if (q.length < 2) {
             results = emptyList()

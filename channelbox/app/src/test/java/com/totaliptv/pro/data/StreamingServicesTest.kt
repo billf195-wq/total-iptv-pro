@@ -125,6 +125,33 @@ class StreamingServicesTest {
     }
 
     @Test
+    fun peacockStarzAndOtherNewServices() {
+        assertEquals(setOf(StreamingService.PEACOCK), cat("Peacock Series"))
+        assertEquals(setOf(StreamingService.PEACOCK), title("The Office (Peacock)"))
+        assertEquals(setOf(StreamingService.STARZ), cat("Starz"))
+        assertEquals(setOf(StreamingService.STARZ), title("Power (Starz)"))
+        assertTrue(title("The Stars Look Down").isEmpty())
+        assertTrue(cat("Stars").isEmpty())
+        assertEquals(setOf(StreamingService.MGM), cat("MGM+"))
+        assertEquals(setOf(StreamingService.MGM), title("From (MGM Plus)"))
+        assertTrue(title("MGM musical").isEmpty())
+        assertTrue(cat("MGM Movies").isEmpty())
+        assertEquals(setOf(StreamingService.AMC), cat("AMC+ Hits"))
+        assertEquals(setOf(StreamingService.AMC), title("Interview with the Vampire (AMC Plus)"))
+        assertTrue(title("AMC Theatres").isEmpty())
+        assertTrue(cat("AMC").isEmpty())
+        assertEquals(setOf(StreamingService.DISCOVERY), cat("Discovery+"))
+        assertEquals(setOf(StreamingService.DISCOVERY), title("Homestead Rescue (Discovery Plus)"))
+        assertTrue(cat("Discovery Channel").isEmpty())
+        assertEquals(setOf(StreamingService.BET), cat("BET+"))
+        assertEquals(setOf(StreamingService.BET), title("Tyler Perry (BET Plus)"))
+        assertTrue(title("The Better Sister").isEmpty())
+        assertTrue(cat("BET Awards").isEmpty())
+        assertEquals(setOf(StreamingService.CRUNCHYROLL), cat("Crunchyroll"))
+        assertEquals(setOf(StreamingService.CRUNCHYROLL), title("One Piece (Crunchyroll)"))
+    }
+
+    @Test
     fun plainGroupsMatchNothing() {
         listOf("English Series", "Action Movies", "4K UHD", "Kids", "Uncategorized", "Documentaries")
             .forEach { assertTrue(cat(it).isEmpty(), it) }

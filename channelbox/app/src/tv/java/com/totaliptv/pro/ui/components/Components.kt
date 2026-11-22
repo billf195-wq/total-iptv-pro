@@ -31,6 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -835,24 +838,65 @@ fun ChannelListItem(
     logoUrl: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    subtitle: String? = null
+    subtitle: String? = null,
+    onLongClick: (() -> Unit)? = null,
+    isFavorite: Boolean = false
 ) {
     var focused by remember { mutableStateOf(false) }
     val latestClick by rememberUpdatedState(onClick)
+    val latestLong by rememberUpdatedState(onLongClick)
     var lastClickMs by remember { mutableStateOf(0L) }
+    var longFired by remember { mutableStateOf(false) }
     fun fireClick() {
+        if (longFired) return
         val now = System.currentTimeMillis()
         if (now - lastClickMs < 450L) return
         lastClickMs = now
         latestClick()
+    }
+    fun fireLong() {
+        val cb = latestLong ?: return
+        longFired = true
+        cb()
     }
     val shape = RoundedCornerShape(8.dp)
     Surface(
         onClick = { fireClick() },
         modifier = modifier
             .fillMaxWidth()
-            .pointerInput(title) {
-                detectTapGestures(onTap = { fireClick() })
+            .pointerInput(title, onLongClick != null) {
+                detectTapGestures(
+                    onTap = { fireClick() },
+                    onLongPress = { if (onLongClick != null) fireLong() }
+                )
+            }
+            .onPreviewKeyEvent { e ->
+                val isOk = e.key == androidx.compose.ui.input.key.Key.DirectionCenter ||
+                    e.key == androidx.compose.ui.input.key.Key.Enter ||
+                    e.key == androidx.compose.ui.input.key.Key.NumPadEnter
+                val isMenu = e.key == androidx.compose.ui.input.key.Key.Menu
+                val down = e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown
+                if (isOk && down && e.nativeKeyEvent.repeatCount == 0 && !e.nativeKeyEvent.isLongPress) {
+                    longFired = false
+                }
+                when (
+                    com.totaliptv.pro.ui.LiveRowKeys.decide(
+                        isOk = isOk,
+                        isMenu = isMenu,
+                        keyDown = down,
+                        repeatCount = e.nativeKeyEvent.repeatCount,
+                        isLongPress = e.nativeKeyEvent.isLongPress,
+                        longAlreadyFired = longFired
+                    )
+                ) {
+                    com.totaliptv.pro.ui.LiveRowKeys.Action.MENU,
+                    com.totaliptv.pro.ui.LiveRowKeys.Action.RECORD -> {
+                        if (onLongClick != null) fireLong()
+                        true
+                    }
+                    com.totaliptv.pro.ui.LiveRowKeys.Action.CONSUME -> true
+                    com.totaliptv.pro.ui.LiveRowKeys.Action.IGNORE -> false
+                }
             }
             .onFocusChanged { focused = it.isFocused }
             .then(
@@ -892,7 +936,7 @@ fun ChannelListItem(
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = title,
+                    text = (if (isFavorite) "★ " else "") + title,
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

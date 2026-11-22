@@ -48,7 +48,8 @@ import com.totaliptv.pro.ui.home.longPressReleaseGate
 fun PhonePinLockDialogHost(
     dialog: PinLockDialog?,
     repository: CatalogRepository,
-    onClose: (PinLockDialog?) -> Unit
+    onClose: (PinLockDialog?) -> Unit,
+    onPinVerified: () -> Unit = {}
 ) {
     val context = LocalContext.current
     when (dialog) {
@@ -59,6 +60,7 @@ fun PhonePinLockDialogHost(
                 PinLockEntry.doneMessage(dialog.mode)?.let {
                     Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
                 }
+                if (dialog.mode == PinMode.VERIFY) onPinVerified()
                 onClose(if (dialog.mode == PinMode.PICK_CATEGORIES) PinLockDialog.Categories else null)
             },
             onDismiss = { onClose(null) }

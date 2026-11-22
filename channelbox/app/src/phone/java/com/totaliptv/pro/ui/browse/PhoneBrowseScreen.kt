@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
@@ -39,6 +40,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.totaliptv.pro.data.LiveChannelMapping
+import com.totaliptv.pro.data.LiveFavorites
+import com.totaliptv.pro.data.FavoriteSections
+import android.widget.Toast
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.totaliptv.pro.data.model.Category
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.MediaItem
@@ -50,6 +56,7 @@ import com.totaliptv.pro.ui.components.PhoneLiveRow
 import com.totaliptv.pro.ui.components.PhonePosterCard
 import com.totaliptv.pro.ui.theme.BrandBlue
 import com.totaliptv.pro.ui.theme.CinemaSurface
+import com.totaliptv.pro.ui.theme.OnCinema
 import com.totaliptv.pro.ui.theme.OnCinemaMuted
 import com.totaliptv.pro.ui.theme.tipScreenBrush
 import com.totaliptv.pro.dvr.DvrActions
@@ -75,6 +82,8 @@ fun PhoneBrowseScreen(
     var loading by remember { mutableStateOf(true) }
     var categories by remember { mutableStateOf<List<Category>>(emptyList()) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val favorites by repository.favorites.collectAsState(initial = emptyList())
     val lastPlace = remember { (context.applicationContext as TotalIptvProApp).lastPlace }
     val initialPlace = remember { lastPlace.peek() }
     val sectionScreen = when (section) {
@@ -124,20 +133,26 @@ fun PhoneBrowseScreen(
             categories = emptyList()
             selectedCat = null
         } else {
-            categories = repository.categories(kind)
+            val raw = repository.categories(kind)
+            categories = if (section == BrowseSection.Live) LiveFavorites.withFavoritesCategory(raw) else raw
             if (selectedCat == null || categories.none { it.id == selectedCat }) {
-                selectedCat = categories.firstOrNull()?.id
+                selectedCat = if (section == BrowseSection.Live) {
+                    LiveFavorites.defaultCategoryId(categories, LiveFavorites.liveFavoriteCount(favorites))
+                } else {
+                    categories.firstOrNull()?.id
+                }
             }
         }
         loading = false
     }
 
-    LaunchedEffect(section, selectedCat, sort, revision) {
+    LaunchedEffect(section, selectedCat, sort, revision, favorites) {
         items = when (section) {
             BrowseSection.Favorites -> emptyList() // filled below via flow
             BrowseSection.Live -> {
-                val aligned = LiveChannelMapping.filterLiveChannels(
+                val aligned = LiveFavorites.filterLive(
                     repository.liveItems(),
+                    favorites,
                     selectedCat
                 )
                 // Live has no ratings: Top rated keeps the provider lineup order.
@@ -202,7 +217,6 @@ fun PhoneBrowseScreen(
         }
     }
 
-    val favorites by repository.favorites.collectAsState(initial = emptyList())
     val favItems = remember(favorites, revision) {
         favorites.map {
             MediaItem(
@@ -294,10 +308,64 @@ fun PhoneBrowseScreen(
             }
             displayItems.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Nothing here yet", color = OnCinemaMuted)
+                    Text(
+                        if (section == BrowseSection.Favorites)
+                            "No favorites yet. Press and hold a Live channel, or Favorite a movie or series."
+                        else if (section == BrowseSection.Live && LiveFavorites.isFavoritesCategory(selectedCat))
+                            "No favorite channels yet. Press and hold a channel to add it here."
+                        else
+                            "Nothing here yet",
+                        color = OnCinemaMuted
+                    )
                 }
             }
-            section == BrowseSection.Live || section == BrowseSection.Favorites -> {
+            section == BrowseSection.Favorites -> {
+                val liveFavs = displayItems.filter { it.kind == ContentKind.LIVE }
+                val movieFavs = displayItems.filter { it.kind == ContentKind.VOD }
+                val seriesFavs = displayItems.filter { it.kind == ContentKind.SERIES }
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+                    if (liveFavs.isNotEmpty()) {
+                        item(key = "ph-fav-h-Live") {
+                            Text("Live", style = MaterialTheme.typography.titleMedium, color = OnCinema, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+                        }
+                        items(liveFavs, key = { it.id }) { fav ->
+                            PhoneLiveRow(
+                                item = fav,
+                                onClick = { onPlay(fav) },
+                                isFavorite = true,
+                                onLongClick = {
+                                    val wasFav = fav.id in favorites.map { it.id }.toSet()
+                                    scope.launch {
+                                        repository.toggleFavorite(fav)
+                                        Toast.makeText(
+                                            context,
+                                            if (wasFav) "Removed from favorites" else "Added to favorites",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    if (movieFavs.isNotEmpty()) {
+                        item(key = "ph-fav-h-Movies") {
+                            Text("Movies", style = MaterialTheme.typography.titleMedium, color = OnCinema, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+                        }
+                        items(movieFavs, key = { it.id }) { fav ->
+                            PhonePosterCard(item = fav, onClick = { detail = fav })
+                        }
+                    }
+                    if (seriesFavs.isNotEmpty()) {
+                        item(key = "ph-fav-h-Series") {
+                            Text("Series", style = MaterialTheme.typography.titleMedium, color = OnCinema, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+                        }
+                        items(seriesFavs, key = { it.id }) { fav ->
+                            PhonePosterCard(item = fav, onClick = { detail = fav })
+                        }
+                    }
+                }
+            }
+            section == BrowseSection.Live -> {
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                     items(displayItems, key = { it.id }) { item ->
                         PhoneLiveRow(
@@ -305,6 +373,20 @@ fun PhoneBrowseScreen(
                             onClick = {
                                 if (item.kind == ContentKind.LIVE) onPlay(item) else detail = item
                             },
+                            onLongClick = if (item.kind == ContentKind.LIVE) {
+                                {
+                                    val wasFav = item.id in favorites.map { it.id }.toSet()
+                                    scope.launch {
+                                        repository.toggleFavorite(item)
+                                        Toast.makeText(
+                                            context,
+                                            if (wasFav) "Removed from favorites" else "Added to favorites",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            } else null,
+                            isFavorite = item.kind == ContentKind.LIVE && item.id in favorites.map { it.id }.toSet(),
                             onRecord = if (item.kind == ContentKind.LIVE || item.streamUrl.isNotBlank()) {
                                 { DvrActions.recordNow(context, item) }
                             } else null,

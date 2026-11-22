@@ -55,7 +55,13 @@ object LicensePolicy {
         }
     }
 
-    fun evaluate(record: LicenseRecord, purchase: PurchaseLookup, nowMillis: Long): LicenseStatus {
+    fun evaluate(
+        record: LicenseRecord,
+        purchase: PurchaseLookup,
+        nowMillis: Long,
+        enforce: Boolean = true
+    ): LicenseStatus {
+        if (!enforce) return LicenseStatus.Unlocked
         val purchased = record.purchasedCached || purchase is PurchaseLookup.Owned
         if (record.grandfathered || purchased) return LicenseStatus.Unlocked
         val firstSeen = record.firstSeenAtMillis

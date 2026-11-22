@@ -81,8 +81,8 @@ android {
         applicationId = "com.totaliptv.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 121
-        versionName = "1.4.109"
+        versionCode = 122
+        versionName = "1.4.110"
         buildConfigField(
             "String",
             "DEFAULT_UPDATE_BASE_URL",
@@ -122,8 +122,8 @@ android {
         create("tv") {
             dimension = "device"
             // Keep Shield / Leanback applicationId unchanged.
-            versionCode = 121
-            versionName = "1.4.109"
+            versionCode = 122
+            versionName = "1.4.110"
             buildConfigField(
                 "String",
                 "DEFAULT_UPDATE_BASE_URL",
@@ -134,8 +134,8 @@ android {
             dimension = "device"
             applicationIdSuffix = ".phone"
             // Phone-only bump so Shield is not forced to update.
-            versionCode = 98
-            versionName = "1.4.86-phone"
+            versionCode = 99
+            versionName = "1.4.87-phone"
             resValue("string", "app_name", "Total IPTV Pro Phone")
             buildConfigField(
                 "String",
@@ -149,11 +149,14 @@ android {
             dimension = "distribution"
             isDefault = true
             buildConfigField("boolean", "SELF_UPDATER_ENABLED", "true")
+            // Direct-install / sideload builds are paid up front: no Play trial or unlock wall.
+            buildConfigField("boolean", "PLAY_UNLOCK_ENABLED", "false")
         }
         // Google Play builds must not check GitHub/Drive or request install permission.
         create("play") {
             dimension = "distribution"
             buildConfigField("boolean", "SELF_UPDATER_ENABLED", "false")
+            buildConfigField("boolean", "PLAY_UNLOCK_ENABLED", "true")
         }
     }
 

@@ -29,15 +29,21 @@ object HowToGuide {
             if (tv) "Live TV & the Guide" else "Live TV",
             if (tv) {
                 "Open Live, pick a category, then press OK on " +
-                    "a channel to watch it. Open Guide to see what is on now and next for each channel. " +
+                    "a channel to watch it. A Favorites category sits at the top of the Live list: " +
+                    "hold OK on a channel (or press Menu) to add or remove it there. Open Guide to see " +
+                    "what is on now and next for each channel. " +
                     "In the Guide you can watch, record now, or schedule a recording of the next show."
             } else {
-                "Tap Live at the bottom of the screen, pick a category, then tap a channel to watch it."
+                "Tap Live at the bottom of the screen, pick a category, then tap a channel to watch it. " +
+                    "A Favorites category sits at the top of the Live list. Press and hold a channel to " +
+                    "add or remove it there."
             }
         )
         out += Section(
             "Movies & Series",
             "Open Movies or Series, pick a category, then $press a poster to see its details. " +
+                "A series shows its plot, year and rating when we have them, and a short summary for " +
+                "the episode you pick. " +
                 "Choose Play to start, or Resume to pick up where you left off. For a series, choose a " +
                 "season and an episode first. Use Mark watched to put a check mark on a movie or episode; " +
                 "choose it again to mark it unwatched. Titles you finish are checked automatically."
@@ -55,18 +61,25 @@ object HowToGuide {
                 "Choose Favorite in a title's details to add it; choose it again to remove it. In the " +
                     "Classic layout you can also hold OK on a poster, and your favorites show in a " +
                     "Favorites row on Home. In the Desktop layout they are under Favorites in the side " +
-                    "menu. On a Continue watching title, Favorite is in the hold-OK menu."
+                    "menu. On a Continue watching title, Favorite is in the hold-OK menu. Live channels " +
+                    "you favorite also appear in the Favorites category at the top of the Live list. " +
+                    "The Favorites tab is grouped into Live, Movies and Series, and keeps titles you already saved."
             } else {
-                "Open a title and tap Favorite. Tap it again to remove it."
+                "Open a title and tap Favorite. Tap it again to remove it. Press and hold a Live " +
+                    "channel to add or remove it in the Favorites category at the top of the Live list. " +
+                    "The Favorites tab is grouped into Live, Movies and Series, and keeps titles you already saved."
             }
         )
         out += Section(
             "Search",
             if (tv) {
                 "Choose Search, type with the on-screen keyboard, and results from Live, Movies and " +
-                    "Series appear as you type."
+                    "Series appear as you type. Adult titles and adult categories stay out of Search unless " +
+                    "you turn on Show adult in search in Settings. If a PIN is set, that switch asks for the PIN."
             } else {
-                "Tap Search at the bottom and type. Results from Live, Movies and Series appear as you type."
+                "Tap Search at the bottom and type. Results from Live, Movies and Series appear as you type. " +
+                    "Adult titles and adult categories stay out of Search unless you turn on Show adult in search " +
+                    "in Settings. If a PIN is set, that switch asks for the PIN."
             }
         )
         out += Section(
@@ -115,6 +128,7 @@ object HowToGuide {
                 append("If a channel or movie will not play, choose Retry in the player. ")
                 if (tv) {
                     append("If lists look out of date, use Refresh data in Settings (Classic layout) or Update in the side menu (Desktop layout). ")
+                    append("If menus are cut off at the edges of your TV, open Settings and raise Screen fit (5% is the usual amount). Live playback stays full screen. ")
                 } else {
                     append("If lists look out of date, use Refresh data in Settings. ")
                 }

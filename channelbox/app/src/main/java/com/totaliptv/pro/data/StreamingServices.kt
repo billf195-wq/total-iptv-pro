@@ -12,7 +12,14 @@ enum class StreamingService(val key: String, val label: String) {
     APPLE("apple", "Apple TV+"),
     HULU("hulu", "Hulu"),
     DISNEY("disney", "Disney+"),
-    PARAMOUNT("paramount", "Paramount+")
+    PARAMOUNT("paramount", "Paramount+"),
+    PEACOCK("peacock", "Peacock"),
+    STARZ("starz", "Starz"),
+    MGM("mgm", "MGM+"),
+    AMC("amc", "AMC+"),
+    DISCOVERY("discovery", "Discovery+"),
+    BET("bet", "BET+"),
+    CRUNCHYROLL("crunchyroll", "Crunchyroll")
 }
 
 /**
@@ -45,10 +52,18 @@ object StreamingServices {
     private val hulu = rx("""hulu""")
     private val disney = rx("""disney\s*\+|disney\s*plus|disneyplus""")
     private val paramount = rx("""paramount\s*\+|paramount\s*plus|paramountplus""")
+    private val peacock = rx("""peacock""")
+    private val starz = rx("""starz""")
+    private val mgm = rx("""mgm\s*\+|mgm\s*plus|mgmplus""")
+    private val amcPlus = rx("""amc\s*\+|amc\s*plus|amcplus""")
+    private val discovery = rx("""discovery\s*\+|discovery\s*plus|discoveryplus""")
+    private val betPlus = rx("""bet\s*\+|bet\s*plus|betplus""")
+    private val crunchyroll = rx("""crunchyroll""")
 
     private val TITLE_HINTS = listOf(
         "netflix", "nflx", "amazon", "prime", "amzn", "hbo", "max", "apple", "atv",
-        "hulu", "disney", "paramount"
+        "hulu", "disney", "paramount", "peacock", "starz", "mgm", "amc",
+        "discovery", "bet+", "bet plus", "crunchyroll"
     )
 
     private val segmentSplit = Regex("""[|:\-–—/\[\]()•*#]+""")
@@ -65,6 +80,13 @@ object StreamingServices {
         if (hulu.containsMatchIn(n)) out += StreamingService.HULU
         if (disney.containsMatchIn(n)) out += StreamingService.DISNEY
         if (paramount.containsMatchIn(n)) out += StreamingService.PARAMOUNT
+        if (peacock.containsMatchIn(n)) out += StreamingService.PEACOCK
+        if (starz.containsMatchIn(n)) out += StreamingService.STARZ
+        if (mgm.containsMatchIn(n)) out += StreamingService.MGM
+        if (amcPlus.containsMatchIn(n)) out += StreamingService.AMC
+        if (discovery.containsMatchIn(n)) out += StreamingService.DISCOVERY
+        if (betPlus.containsMatchIn(n)) out += StreamingService.BET
+        if (crunchyroll.containsMatchIn(n)) out += StreamingService.CRUNCHYROLL
         return out
     }
 
@@ -82,6 +104,13 @@ object StreamingServices {
         if (hulu.containsMatchIn(n)) out += StreamingService.HULU
         if (disney.containsMatchIn(n)) out += StreamingService.DISNEY
         if (paramount.containsMatchIn(n)) out += StreamingService.PARAMOUNT
+        if (peacock.containsMatchIn(n)) out += StreamingService.PEACOCK
+        if (starz.containsMatchIn(n)) out += StreamingService.STARZ
+        if (mgm.containsMatchIn(n)) out += StreamingService.MGM
+        if (amcPlus.containsMatchIn(n)) out += StreamingService.AMC
+        if (discovery.containsMatchIn(n)) out += StreamingService.DISCOVERY
+        if (betPlus.containsMatchIn(n)) out += StreamingService.BET
+        if (crunchyroll.containsMatchIn(n)) out += StreamingService.CRUNCHYROLL
         return out
     }
 

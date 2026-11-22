@@ -40,6 +40,7 @@ enum class PinLockEntry(val label: String, val subtitle: String) {
             PinMode.TURN_OFF -> "PIN lock off"
             PinMode.RESET -> "New PIN set. Your locked list was cleared."
             PinMode.PICK_CATEGORIES -> null
+            PinMode.VERIFY -> null
         }
 
         const val FORGOT_TITLE = "Forgot your PIN?"

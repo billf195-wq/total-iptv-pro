@@ -68,6 +68,22 @@ class XtreamApi(
                 else -> 0
             }
         }
+
+        fun plotFromEpisodeObject(obj: JsonObject): String? {
+            fun str(el: JsonElement?): String? {
+                val p = el as? JsonPrimitive ?: return el?.toString()?.trim()?.trim('"')?.takeIf { it.isNotBlank() }
+                return p.contentOrNull?.trim()?.takeIf { it.isNotBlank() }
+            }
+            val info = obj["info"] as? JsonObject
+            return listOf(
+                str(obj["plot"]),
+                str(obj["description"]),
+                str(obj["overview"]),
+                str(info?.get("plot")),
+                str(info?.get("description")),
+                str(info?.get("overview"))
+            ).firstOrNull { !it.isNullOrBlank() }
+        }
     }
 
     @Serializable
@@ -404,7 +420,8 @@ class XtreamApi(
         val posterUrl: String? = null,
         val youtubeTrailer: String? = null,
         val plot: String? = null,
-        val rating: String? = null
+        val rating: String? = null,
+        val year: Int? = null
     )
 
     fun fetchVodPoster(creds: Credentials, streamId: Int): String? =
@@ -464,8 +481,13 @@ class XtreamApi(
             info?.get("rating")?.asString() ?: movieData?.get("rating")?.asString(),
             info?.get("rating_5based")?.asString() ?: movieData?.get("rating_5based")?.asString()
         )
+        val year = com.totaliptv.pro.data.tmdb.TitleMatch.yearFromDate(info?.get("year")?.asString())
+            ?: com.totaliptv.pro.data.tmdb.TitleMatch.yearFromDate(info?.get("releaseDate")?.asString())
+            ?: com.totaliptv.pro.data.tmdb.TitleMatch.yearFromDate(info?.get("releasedate")?.asString())
+            ?: com.totaliptv.pro.data.tmdb.TitleMatch.yearFromDate(info?.get("release_date")?.asString())
+            ?: com.totaliptv.pro.data.tmdb.TitleMatch.yearFromDate(movieData?.get("year")?.asString())
         Log.i(TAG, "$action id=$streamId trailer=${trailer ?: "(none)"} poster=${!poster.isNullOrBlank()} plot=${!plot.isNullOrBlank()}")
-        return VodDetails(posterUrl = poster, youtubeTrailer = trailer, plot = plot, rating = rating)
+        return VodDetails(posterUrl = poster, youtubeTrailer = trailer, plot = plot, rating = rating, year = year)
     }
 
 
@@ -474,7 +496,8 @@ class XtreamApi(
         val title: String,
         val episodeId: Int,
         val season: Int = 1,
-        val episodeNum: Int = 1
+        val episodeNum: Int = 1,
+        val plot: String? = null
     )
 
     data class SeriesSeasonInfo(
@@ -498,6 +521,16 @@ class XtreamApi(
             val idx = flat.indexOfFirst { it.episodeId == episodeId }
             return if (idx >= 0 && idx + 1 < flat.size) flat[idx + 1] else null
         }
+
+        fun withEpisodePlot(episodeId: Int, plot: String): SeriesInfo = copy(
+            seasons = seasons.map { season ->
+                season.copy(
+                    episodes = season.episodes.map { ep ->
+                        if (ep.episodeId == episodeId) ep.copy(plot = plot) else ep
+                    }
+                )
+            }
+        )
     }
 
     /** Full season/episode tree from get_series_info. */
@@ -511,7 +544,7 @@ class XtreamApi(
             if (body.isBlank()) return null
             val root = json.parseToJsonElement(body).jsonObject
             val episodesEl = root["episodes"] ?: return null
-            data class Cand(val season: Int, val epNum: Int, val id: Int, val ext: String, val title: String)
+            data class Cand(val season: Int, val epNum: Int, val id: Int, val ext: String, val title: String, val plot: String?)
             val candidates = mutableListOf<Cand>()
             fun ingest(season: Int, arr: JsonArray) {
                 arr.forEachIndexed { idx, el ->
@@ -524,7 +557,7 @@ class XtreamApi(
                     val title = obj["title"]?.asString()?.takeIf { it.isNotBlank() }
                         ?: "S${season}E${idx + 1}"
                     val epNum = obj["episode_num"]?.asString()?.toIntOrNull() ?: (idx + 1)
-                    candidates += Cand(season, epNum, eid, ext, title)
+                    candidates += Cand(season, epNum, eid, ext, title, plotFromEpisodeObject(obj))
                 }
             }
             when (episodesEl) {
@@ -549,7 +582,8 @@ class XtreamApi(
                                 title = c.title,
                                 episodeId = c.id,
                                 season = c.season,
-                                episodeNum = c.epNum
+                                episodeNum = c.epNum,
+                                plot = c.plot
                             )
                         }
                     )

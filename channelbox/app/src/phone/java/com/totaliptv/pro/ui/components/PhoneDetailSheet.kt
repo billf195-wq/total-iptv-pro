@@ -128,6 +128,17 @@ fun PhoneDetailSheet(
         }
     }
 
+    LaunchedEffect(item.id, selectedEpisodeId, seriesInfo, enriched.tmdbId) {
+        val info = seriesInfo ?: return@LaunchedEffect
+        val ep = info.findEpisode(selectedEpisodeId) ?: return@LaunchedEffect
+        if (!ep.plot.isNullOrBlank()) return@LaunchedEffect
+        val filled = withContext(Dispatchers.IO) {
+            runCatching { repository.fillEpisodePlot(enriched, ep) }.getOrDefault(ep)
+        }
+        val plot = filled.plot?.trim()?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        seriesInfo = info.withEpisodePlot(ep.episodeId, plot)
+    }
+
     val canResume = progress?.shouldResume() == true
     val watchedTargetId = when {
         isSeriesPicker && selectedEpisodeId > 0 -> WatchedStore.episodeId(selectedEpisodeId)
@@ -218,8 +229,22 @@ fun PhoneDetailSheet(
                         color = OnCinemaMuted,
                         style = MaterialTheme.typography.bodyMedium
                     )
+                    enriched.year?.let {
+                        Text(it.toString(), color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
+                    }
                     mergedDisplayRating(enriched)?.let {
                         Text("Rating $it", color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
+                    }
+                    val seriesPlot = enriched.plot?.trim()?.takeIf { it.isNotBlank() }
+                    if (seriesPlot != null) {
+                        Text(
+                            seriesPlot,
+                            color = OnCinema.copy(alpha = 0.92f),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 6,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
                     }
                     if (!isSeriesPicker && targetWatched) {
                         Text("✓ Watched", color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
@@ -292,6 +317,18 @@ fun PhoneDetailSheet(
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
+                    }
+                    val selectedEp = seasonEpisodes.firstOrNull { it.episodeId == selectedEpisodeId }
+                    val episodePlot = selectedEp?.plot?.trim()?.takeIf { it.isNotBlank() }
+                    if (episodePlot != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            episodePlot,
+                            color = OnCinema.copy(alpha = 0.92f),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 6,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }

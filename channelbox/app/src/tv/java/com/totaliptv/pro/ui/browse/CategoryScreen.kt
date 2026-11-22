@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
@@ -48,6 +49,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.launch
 import com.totaliptv.pro.data.LiveChannelMapping
+import com.totaliptv.pro.data.LiveFavorites
+import com.totaliptv.pro.data.FavoriteSections
 import com.totaliptv.pro.data.model.Category
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.FavoriteRef
@@ -113,33 +116,44 @@ fun BrowseScreen(
 
     val categories: List<Category> = remember(section, catalogRevision) {
         when (section) {
-            BrowseSection.Live -> repository.categories(ContentKind.LIVE)
+            BrowseSection.Live -> LiveFavorites.withFavoritesCategory(repository.categories(ContentKind.LIVE))
             BrowseSection.Movies -> repository.categories(ContentKind.VOD)
             BrowseSection.Series -> repository.categories(ContentKind.SERIES)
             BrowseSection.Favorites -> emptyList()
         }
     }
 
-    val categoryCounts: Map<String, Int> = remember(categories, catalogRevision) {
-        categories.associate { it.id to repository.itemCountForCategory(it.id) }
+    val categoryCounts: Map<String, Int> = remember(categories, catalogRevision, favorites) {
+        categories.associate { cat ->
+            cat.id to if (LiveFavorites.isFavoritesCategory(cat.id)) {
+                LiveFavorites.liveFavoriteCount(favorites)
+            } else {
+                repository.itemCountForCategory(cat.id)
+            }
+        }
     }
 
     var selectedCategoryId by remember(section) {
         mutableStateOf(categories.firstOrNull()?.id)
     }
     // Groups can appear later (service lookup); keep the user's pick unless it disappeared.
-    LaunchedEffect(categories) {
+    LaunchedEffect(categories, favorites) {
         if (selectedCategoryId == null || categories.none { it.id == selectedCategoryId }) {
-            selectedCategoryId = categories.firstOrNull()?.id
+            selectedCategoryId = if (section == BrowseSection.Live) {
+                LiveFavorites.defaultCategoryId(categories, LiveFavorites.liveFavoriteCount(favorites))
+            } else {
+                categories.firstOrNull()?.id
+            }
         }
     }
 
-    val displayItems: List<MediaItem> = remember(selectedCategoryId, section, catalogRevision, catalogSort) {
+    val displayItems: List<MediaItem> = remember(selectedCategoryId, section, catalogRevision, catalogSort, favorites) {
         when (section) {
             BrowseSection.Favorites -> emptyList()
             BrowseSection.Live -> {
-                val aligned = LiveChannelMapping.filterLiveChannels(
+                val aligned = LiveFavorites.filterLive(
                     repository.liveItems(),
+                    favorites,
                     selectedCategoryId
                 )
                 // Live has no ratings: Top rated keeps the provider lineup order.
@@ -217,7 +231,11 @@ fun BrowseScreen(
 
     LaunchedEffect(categories) {
         if (categories.isNotEmpty() && selectedCategoryId == null) {
-            selectedCategoryId = categories.first().id
+            selectedCategoryId = if (section == BrowseSection.Live) {
+                LiveFavorites.defaultCategoryId(categories, LiveFavorites.liveFavoriteCount(favorites))
+            } else {
+                categories.first().id
+            }
         }
         // Only auto-focus rail on category list load — not when detail dismiss / restore ends
         // (pendingFocusRestore must NOT be a LaunchedEffect key or it steals after restore).
@@ -363,8 +381,11 @@ fun BrowseScreen(
                 when (section) {
                     BrowseSection.Favorites -> {
                         if (favorites.isEmpty()) {
-                            EmptyBrowseMessage("No favorites yet. Long-press a movie/series poster, or Favorite while watching.")
+                            EmptyBrowseMessage("No favorites yet. Long-press a Live channel or a movie/series poster, or choose Favorite while watching.")
                         } else {
+                            val liveFavs = FavoriteSections.live(favorites)
+                            val movieFavs = FavoriteSections.movies(favorites)
+                            val seriesFavs = FavoriteSections.series(favorites)
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(AppPreferences.normalizePosterColumns(posterColumns)),
                                 state = favGridState,
@@ -373,13 +394,12 @@ fun BrowseScreen(
                                 verticalArrangement = Arrangement.spacedBy(14.dp),
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                gridItemsIndexed(favorites, key = { _, it -> it.id }) { index, fav ->
+                                @Composable fun posterOrChannel(index: Int, fav: FavoriteRef) {
                                     if (fav.kind == ContentKind.VOD || fav.kind == ContentKind.SERIES) {
                                         PosterCard(
                                             title = fav.name,
                                             imageUrl = fav.logoUrl,
                                             onClick = {
-                                                // Prefer catalog item so xtreamStreamId / youtubeTrailer survive
                                                 openDetail(
                                                     repository.itemById(fav.id)
                                                         ?: MediaItem(
@@ -418,14 +438,61 @@ fun BrowseScreen(
                                         )
                                     }
                                 }
+                                if (liveFavs.isNotEmpty()) {
+                                    item(span = { GridItemSpan(maxLineSpan) }, key = "fav-h-Live") {
+                                        Text(
+                                            "Live",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                                        )
+                                    }
+                                    gridItemsIndexed(liveFavs, key = { _, it -> it.id }) { _, fav ->
+                                        posterOrChannel(favorites.indexOfFirst { it.id == fav.id }.coerceAtLeast(0), fav)
+                                    }
+                                }
+                                if (movieFavs.isNotEmpty()) {
+                                    item(span = { GridItemSpan(maxLineSpan) }, key = "fav-h-Movies") {
+                                        Text(
+                                            "Movies",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                                        )
+                                    }
+                                    gridItemsIndexed(movieFavs, key = { _, it -> it.id }) { _, fav ->
+                                        posterOrChannel(favorites.indexOfFirst { it.id == fav.id }.coerceAtLeast(0), fav)
+                                    }
+                                }
+                                if (seriesFavs.isNotEmpty()) {
+                                    item(span = { GridItemSpan(maxLineSpan) }, key = "fav-h-Series") {
+                                        Text(
+                                            "Series",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                                        )
+                                    }
+                                    gridItemsIndexed(seriesFavs, key = { _, it -> it.id }) { _, fav ->
+                                        posterOrChannel(favorites.indexOfFirst { it.id == fav.id }.coerceAtLeast(0), fav)
+                                    }
+                                }
                             }
                         }
                     }
                     BrowseSection.Live -> {
-                        if (categories.isEmpty()) {
+                        val providerLiveEmpty = categories.all { LiveFavorites.isFavoritesCategory(it.id) } &&
+                            LiveFavorites.liveFavoriteCount(favorites) == 0 &&
+                            repository.liveItems().isEmpty()
+                        if (providerLiveEmpty) {
                             EmptyBrowseMessage("No live categories. Check your playlist or reload from Home.")
                         } else if (displayItems.isEmpty()) {
-                            EmptyBrowseMessage("No channels in this category.")
+                            EmptyBrowseMessage(
+                                if (LiveFavorites.isFavoritesCategory(selectedCategoryId))
+                                    "No favorite channels yet. Hold OK on a channel, or press Menu, to add it here."
+                                else
+                                    "No channels in this category."
+                            )
                         } else {
                             LazyColumn(
                                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -442,7 +509,9 @@ fun BrowseScreen(
                                                 "browseClick name=${item.name} id=${item.id} sid=${item.xtreamStreamId} num=${item.channelNum} url=${SensitiveText.redact(item.streamUrl)}"
                                             )
                                             onPlay(item)
-                                        }
+                                        },
+                                        onLongClick = { toggleFavoriteToast(item) },
+                                        isFavorite = item.id in favoriteIds
                                     )
                                 }
                             }

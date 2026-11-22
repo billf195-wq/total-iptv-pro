@@ -124,7 +124,7 @@ class MainActivity : ComponentActivity() {
         item: MediaItem,
         startOver: Boolean = false
     ) {
-        if (!(application as TotalIptvProApp).license.status.value.allowsUse) return
+        if (BuildConfig.PLAY_UNLOCK_ENABLED && !(application as TotalIptvProApp).license.status.value.allowsUse) return
         val bound = repository.playableFrom(item)
         val catalogId = item.seriesCatalogId
             ?: bound.seriesCatalogId
@@ -290,7 +290,7 @@ private fun PhoneAppRoot(
         return
     }
 
-    if (splashDone && prefsReady && !licenseStatus.allowsUse) {
+    if (splashDone && prefsReady && BuildConfig.PLAY_UNLOCK_ENABLED && !licenseStatus.allowsUse) {
         PhoneBuyScreen(license = app.license)
         return
     }

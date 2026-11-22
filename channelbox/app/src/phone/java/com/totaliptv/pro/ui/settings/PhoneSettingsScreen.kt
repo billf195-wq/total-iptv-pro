@@ -95,11 +95,23 @@ fun PhoneSettingsScreen(
     val licenseStatus by app.license.status.collectAsState()
     val licensePrice by app.license.price.collectAsState()
     val licenseMessage by app.license.message.collectAsState()
+    val showAdultInSearch by app.preferences.showAdultInSearch.collectAsState(initial = false)
+    var pendingShowAdult by remember { mutableStateOf(false) }
     val activity = context as? android.app.Activity
     val lockRevision by ParentalGate.revision.collectAsState()
     val pinEntries = remember(lockRevision) { PinLockEntry.visibleEntries() }
     var pinDialog by remember { mutableStateOf<PinLockDialog?>(null) }
-    PhonePinLockDialogHost(dialog = pinDialog, repository = repository, onClose = { pinDialog = it })
+    PhonePinLockDialogHost(
+        dialog = pinDialog,
+        repository = repository,
+        onClose = { pinDialog = it },
+        onPinVerified = {
+            if (pendingShowAdult) {
+                pendingShowAdult = false
+                scope.launch { app.preferences.setShowAdultInSearch(true) }
+            }
+        }
+    )
 
     if (showHowTo) {
         PhoneHowToScreen(onBack = { showHowTo = false }, contentPadding = contentPadding)
@@ -129,6 +141,7 @@ fun PhoneSettingsScreen(
             Text("How to Use")
         }
         Spacer(Modifier.height(16.dp))
+        if (BuildConfig.PLAY_UNLOCK_ENABLED) {
         Text("Unlock", style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text(
@@ -153,6 +166,7 @@ fun PhoneSettingsScreen(
                 Spacer(Modifier.height(4.dp))
                 Text(licenseMessage!!, color = OnCinemaMuted, style = MaterialTheme.typography.bodySmall)
             }
+        }
         }
         Spacer(Modifier.height(8.dp))
         Text(
@@ -512,6 +526,33 @@ fun PhoneSettingsScreen(
         )
 
         Spacer(Modifier.height(24.dp))
+        Text("Search", style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = {
+                if (showAdultInSearch) {
+                    scope.launch { app.preferences.setShowAdultInSearch(false) }
+                } else if (ParentalGate.isEnabled) {
+                    pendingShowAdult = true
+                    pinDialog = PinLockDialog.Pad(com.totaliptv.pro.data.lock.PinMode.VERIFY)
+                } else {
+                    scope.launch { app.preferences.setShowAdultInSearch(true) }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (showAdultInSearch) "Show adult in search: On" else "Show adult in search: Off")
+        }
+        Text(
+            if (showAdultInSearch)
+                "Adult titles and adult categories can appear in Search."
+            else
+                "Off by default. Hides adult titles and adult categories from Search. A PIN, if set, is required to turn this on.",
+            color = OnCinemaMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(20.dp))
+
         Text(PinLockEntry.SECTION, style = MaterialTheme.typography.titleMedium, color = OnCinema, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text(

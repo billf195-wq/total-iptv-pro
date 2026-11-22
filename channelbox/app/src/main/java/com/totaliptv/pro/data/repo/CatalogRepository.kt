@@ -13,6 +13,7 @@ import com.totaliptv.pro.data.CatalogCategories
 import com.totaliptv.pro.data.tmdb.ServiceIndex
 import com.totaliptv.pro.data.tmdb.TmdbServiceCache
 import com.totaliptv.pro.data.tmdb.TmdbServiceLookup
+import com.totaliptv.pro.data.tmdb.TmdbPlotLookup
 import com.totaliptv.pro.data.VodDiskCache
 import com.totaliptv.pro.data.LiveEpgBinding
 import com.totaliptv.pro.data.local.AppPreferences
@@ -20,6 +21,7 @@ import com.totaliptv.pro.data.m3u.M3uParser
 import com.totaliptv.pro.data.m3u.XmltvParser
 import com.totaliptv.pro.data.lock.CatalogLockFilter
 import com.totaliptv.pro.data.lock.ParentalGate
+import com.totaliptv.pro.data.lock.AdultSearchFilter
 import com.totaliptv.pro.data.model.Category
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.EpgChannelRow
@@ -135,8 +137,14 @@ class CatalogRepository(
     private val repoScope = CoroutineScope(repoJob + Dispatchers.IO)
     private var vodJob: Job? = null
 
+    @Volatile
+    private var showAdultInSearchCached = false
+
     init {
         ParentalGate.addListener(lockListener)
+        repoScope.launch {
+            prefs.showAdultInSearch.collect { showAdultInSearchCached = it }
+        }
     }
 
     /** Bumps whenever the in-memory catalog changes (live publish or VOD merge). */
@@ -1266,7 +1274,10 @@ class CatalogRepository(
         if (liveHits.isEmpty() && vodHits.isEmpty()) return emptyList()
         liveHits.sortBy { it.name.lowercase() }
         vodHits.sortBy { it.name.lowercase() }
-        return liveHits + vodHits
+        val combined = liveHits + vodHits
+        if (showAdultInSearchCached) return combined
+        val byId = rawCategories.associateBy { it.id }
+        return AdultSearchFilter.filter(combined, byId, showAdultInSearch = false)
     }
 
     /** Display label for search rows: Live / Movie / Series. */
@@ -1301,6 +1312,26 @@ class CatalogRepository(
         val sid = item.xtreamStreamId ?: return@withContext null
         val creds = activeXtreamCreds ?: return@withContext null
         xtreamApi.fetchSeriesInfo(creds, sid)
+    }
+
+    /** Fill a missing episode plot from the built-in / user key when the provider left it blank. */
+    suspend fun fillEpisodePlot(
+        item: MediaItem,
+        episode: XtreamApi.SeriesEpisode
+    ): XtreamApi.SeriesEpisode = withContext(Dispatchers.IO) {
+        episode.plot?.trim()?.takeIf { it.isNotBlank() }?.let { return@withContext episode }
+        val key = runCatching { prefs.effectiveTmdbApiKey() }.getOrDefault("")
+        if (key.isBlank()) return@withContext episode
+        val plot = TmdbPlotLookup.fillEpisodeOverview(
+            http,
+            key,
+            item.tmdbId,
+            item.name,
+            item.year,
+            episode.season,
+            episode.episodeNum
+        )
+        if (plot.isNullOrBlank()) episode else episode.copy(plot = plot)
     }
 
     /** Resolve a specific episode from get_series_info into a playable MediaItem. */
@@ -1433,7 +1464,8 @@ class CatalogRepository(
         // When a TMDB key is set, stars come from TMDB only, so do not fetch a
         // provider rating just to show a badge.
         val needsRating = !tmdbOnly && item.displayRating() == null && isVodOrSeries
-        if (!needsPoster && !needsTrailer && !needsPlot && !needsRating) {
+        val needsYear = item.year == null && isVodOrSeries
+        if (!needsPoster && !needsTrailer && !needsPlot && !needsRating && !needsYear) {
             return@withContext stamped(item)
         }
         val sid = item.xtreamStreamId ?: return@withContext stamped(item)
@@ -1466,6 +1498,15 @@ class CatalogRepository(
         }
         if (needsRating && !details.rating.isNullOrBlank()) {
             out = out.copy(rating = details.rating)
+        }
+        if (needsYear && details.year != null) {
+            out = out.copy(year = details.year)
+        }
+        if (isVodOrSeries && (out.plot.isNullOrBlank() || out.year == null)) {
+            val key = runCatching { prefs.effectiveTmdbApiKey() }.getOrDefault("")
+            if (key.isNotBlank()) {
+                out = TmdbPlotLookup.fill(http, key, out)
+            }
         }
         stamped(out)
     }

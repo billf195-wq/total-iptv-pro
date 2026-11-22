@@ -114,6 +114,9 @@ fun SettingsScreen(
     val accentPreset by app.preferences.accentPreset.collectAsState(initial = AccentPreset.BLUE)
     val appLayoutMode by app.preferences.appLayoutMode.collectAsState(initial = AppLayoutMode.CLASSIC)
     val posterColumns by app.preferences.posterColumns.collectAsState(initial = 6)
+    val screenFitPercent by app.preferences.screenFitPercent.collectAsState(initial = com.totaliptv.pro.ui.ScreenFit.DEFAULT_PERCENT)
+    val showAdultInSearch by app.preferences.showAdultInSearch.collectAsState(initial = false)
+    var pendingShowAdult by remember { mutableStateOf(false) }
     val updateBaseUrl by app.preferences.updateBaseUrl.collectAsState(
         initial = AppPreferences.DEFAULT_UPDATE_BASE_URL
     )
@@ -163,7 +166,17 @@ fun SettingsScreen(
             pinReturnSlot = -1
         }
     }
-    PinLockDialogHost(dialog = pinDialog, repository = repository, onClose = { pinDialog = it })
+    PinLockDialogHost(
+        dialog = pinDialog,
+        repository = repository,
+        onClose = { pinDialog = it },
+        onPinVerified = {
+            if (pendingShowAdult) {
+                pendingShowAdult = false
+                scope.launch { app.preferences.setShowAdultInSearch(true) }
+            }
+        }
+    )
 
     BackHandler {
         when {
@@ -223,6 +236,7 @@ fun SettingsScreen(
                 )
             }
 
+            if (BuildConfig.PLAY_UNLOCK_ENABLED) {
             item { SectionTitle(LicenseStrings.SECTION) }
             item {
                 Text(
@@ -250,6 +264,7 @@ fun SettingsScreen(
                         onClick = { scope.launch { app.license.restore() } }
                     )
                 }
+            }
             }
             if (BuildConfig.SELF_UPDATER_ENABLED) {
             item {
@@ -554,6 +569,72 @@ fun SettingsScreen(
                 }
             }
 
+            item { SectionTitle("Screen fit") }
+            item {
+                Text(
+                    text = "Moves menus in from the edges so an older TV does not cut them off. Live playback stays full screen. 5% is the usual amount.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+            item {
+                FocusableCard(
+                    title = "Lower margin",
+                    subtitle = if (screenFitPercent <= 0) "Already at 0%" else "Now ${screenFitPercent}%. Applies right away.",
+                    onClick = {
+                        if (screenFitPercent > 0) {
+                            scope.launch {
+                                val next = com.totaliptv.pro.ui.ScreenFit.normalize(screenFitPercent - 1)
+                                app.preferences.setScreenFitPercent(next)
+                                Toast.makeText(context, "Screen fit: ${next}%", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                FocusableCard(
+                    title = "Screen fit: ${screenFitPercent}%",
+                    subtitle = if (screenFitPercent == com.totaliptv.pro.ui.ScreenFit.DEFAULT_PERCENT) "Usual amount" else "0% is flush; 10% is the most inset",
+                    onClick = { },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                FocusableCard(
+                    title = "Raise margin",
+                    subtitle = if (screenFitPercent >= 10) "Already at 10%" else "Now ${screenFitPercent}%. Applies right away.",
+                    onClick = {
+                        if (screenFitPercent < 10) {
+                            scope.launch {
+                                val next = com.totaliptv.pro.ui.ScreenFit.normalize(screenFitPercent + 1)
+                                app.preferences.setScreenFitPercent(next)
+                                Toast.makeText(context, "Screen fit: ${next}%", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                FocusableCard(
+                    title = "Use 5%",
+                    subtitle = if (screenFitPercent == com.totaliptv.pro.ui.ScreenFit.DEFAULT_PERCENT)
+                        "Already at the usual amount"
+                    else
+                        "Restore the usual TV margin",
+                    onClick = {
+                        scope.launch {
+                            app.preferences.setScreenFitPercent(com.totaliptv.pro.ui.ScreenFit.DEFAULT_PERCENT)
+                            Toast.makeText(context, "Screen fit: 5%", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             item { SectionTitle("Personal DVR") }
             item {
                 val dvr = com.totaliptv.pro.dvr.DvrActions.recorder(context)
@@ -620,6 +701,28 @@ fun SettingsScreen(
                             ).show()
                         }
                     }
+                )
+            }
+
+            item { SectionTitle("Search") }
+            item {
+                FocusableCard(
+                    title = if (showAdultInSearch) "Show adult in search: On" else "Show adult in search: Off",
+                    subtitle = if (showAdultInSearch)
+                        "Adult titles and adult categories can appear in Search. Tap to hide them."
+                    else
+                        "Off by default. Hides adult titles and adult categories from Search. A PIN, if set, is required to turn this on.",
+                    onClick = {
+                        if (showAdultInSearch) {
+                            scope.launch { app.preferences.setShowAdultInSearch(false) }
+                        } else if (ParentalGate.isEnabled) {
+                            pendingShowAdult = true
+                            pinDialog = PinLockDialog.Pad(com.totaliptv.pro.data.lock.PinMode.VERIFY)
+                        } else {
+                            scope.launch { app.preferences.setShowAdultInSearch(true) }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
@@ -778,7 +881,7 @@ fun SettingsScreen(
             item {
                 FocusableCard(
                     title = "Refresh service groups",
-                    subtitle = serviceStatus.ifBlank { "Netflix, Prime Video, HBO / Max, Apple TV+, Hulu, Disney+ and Paramount+ lists from TMDB (US)" },
+                    subtitle = serviceStatus.ifBlank { "Netflix, Prime Video, HBO / Max, Apple TV+, Hulu, Disney+, Paramount+, Peacock, Starz, MGM+, AMC+, Discovery+, BET+ and Crunchyroll lists from TMDB (US)" },
                     onClick = { repository.startServiceLookup(force = true) }
                 )
             }

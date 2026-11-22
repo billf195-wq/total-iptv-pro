@@ -126,11 +126,14 @@ fun PhonePosterCard(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun PhoneLiveRow(
     item: MediaItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
+    isFavorite: Boolean = false,
     onRecord: (() -> Unit)? = null,
     recordActive: Boolean = false,
     recordLabel: String = "Record"
@@ -141,7 +144,10 @@ fun PhoneLiveRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .then(
+                if (onLongClick == null) Modifier.clickable(onClick = onClick)
+                else Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            )
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -169,7 +175,7 @@ fun PhoneLiveRow(
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = item.name,
+                text = (if (isFavorite) "★ " else "") + item.name,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyLarge,

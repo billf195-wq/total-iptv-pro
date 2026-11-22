@@ -5,7 +5,7 @@ import kotlin.test.assertEquals
 
 class LiveRowKeysTest {
     @Test
-    fun longPressOnKeyDownRecordsAndTheMatchingKeyUpIsConsumed() {
+    fun longPressOnKeyDownOpensMenuAndTheMatchingKeyUpIsConsumed() {
         val first = LiveRowKeys.decide(
             isOk = true,
             isMenu = false,
@@ -23,7 +23,7 @@ class LiveRowKeysTest {
             isLongPress = true,
             longAlreadyFired = false
         )
-        assertEquals(LiveRowKeys.Action.RECORD, held)
+        assertEquals(LiveRowKeys.Action.MENU, held)
         val again = LiveRowKeys.decide(
             isOk = true,
             isMenu = false,
@@ -45,9 +45,9 @@ class LiveRowKeysTest {
     }
 
     @Test
-    fun menuOpensRecordOnKeyDownAndConsumesKeyUp() {
+    fun menuOpensChannelMenuOnKeyDownAndConsumesKeyUp() {
         assertEquals(
-            LiveRowKeys.Action.RECORD,
+            LiveRowKeys.Action.MENU,
             LiveRowKeys.decide(false, isMenu = true, keyDown = true, 0, false, false)
         )
         assertEquals(

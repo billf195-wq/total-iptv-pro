@@ -284,7 +284,24 @@ class TmdbServiceLookup(
             Query("tv", "with_watch_providers", "337", StreamingService.DISNEY),
             Query("movie", "with_watch_providers", "531|1770|582", StreamingService.PARAMOUNT),
             Query("tv", "with_networks", "4330", StreamingService.PARAMOUNT),
-            Query("tv", "with_watch_providers", "531|1770|582", StreamingService.PARAMOUNT)
+            Query("tv", "with_watch_providers", "531|1770|582", StreamingService.PARAMOUNT),
+            // Verified 2026-11-21 against TMDB /watch/providers?watch_region=US (movie + tv).
+            // Peacock lists as "Peacock Premium" 386 and "Peacock Premium Plus" 387.
+            // Discovery+ lists as "Discovery +" 520 (older 524 is no longer on the US list).
+            // BET+ is not on the current TMDB provider list, so it has no discover query
+            // (the chip still appears from category/title matches when any titles exist).
+            Query("movie", "with_watch_providers", "386|387", StreamingService.PEACOCK),
+            Query("tv", "with_watch_providers", "386|387", StreamingService.PEACOCK),
+            Query("movie", "with_watch_providers", "43", StreamingService.STARZ),
+            Query("tv", "with_watch_providers", "43", StreamingService.STARZ),
+            Query("movie", "with_watch_providers", "34", StreamingService.MGM),
+            Query("tv", "with_watch_providers", "34", StreamingService.MGM),
+            Query("movie", "with_watch_providers", "526", StreamingService.AMC),
+            Query("tv", "with_watch_providers", "526", StreamingService.AMC),
+            Query("movie", "with_watch_providers", "520", StreamingService.DISCOVERY),
+            Query("tv", "with_watch_providers", "520", StreamingService.DISCOVERY),
+            Query("movie", "with_watch_providers", "283", StreamingService.CRUNCHYROLL),
+            Query("tv", "with_watch_providers", "283", StreamingService.CRUNCHYROLL)
         )
 
         /**

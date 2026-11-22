@@ -149,6 +149,17 @@ fun MovieDetailSheet(
         runCatching { playFocus.requestFocus() }
     }
 
+    LaunchedEffect(item.id, selectedEpisodeId, seriesInfo, enriched.tmdbId, enriched.plot) {
+        val info = seriesInfo ?: return@LaunchedEffect
+        val ep = info.findEpisode(selectedEpisodeId) ?: return@LaunchedEffect
+        if (!ep.plot.isNullOrBlank()) return@LaunchedEffect
+        val filled = withContext(Dispatchers.IO) {
+            runCatching { repository.fillEpisodePlot(enriched, ep) }.getOrDefault(ep)
+        }
+        val plot = filled.plot?.trim()?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        seriesInfo = info.withEpisodePlot(ep.episodeId, plot)
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, item.id) {
         val observer = LifecycleEventObserver { _, event ->
@@ -292,6 +303,7 @@ fun MovieDetailSheet(
                     overflow = TextOverflow.Ellipsis
                 )
                 val meta = listOfNotNull(
+                    enriched.year?.toString(),
                     enriched.groupTitle?.takeIf { it.isNotBlank() },
                     mergedDisplayRating(enriched)?.let { "★ $it" },
                     if (canResume && pct != null) "Resume at $pct%" else null,
@@ -307,12 +319,12 @@ fun MovieDetailSheet(
                     )
                 }
                 val plotText = enriched.plot?.trim()?.takeIf { it.isNotBlank() }
-                if (plotText != null && !isSeriesPicker) {
+                if (plotText != null) {
                     Text(
                         text = plotText,
                         style = MaterialTheme.typography.bodyMedium,
                         color = OnCinema.copy(alpha = 0.92f),
-                        maxLines = 5,
+                        maxLines = if (isSeriesPicker) 4 else 5,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 2.dp)
                     )
@@ -377,6 +389,17 @@ fun MovieDetailSheet(
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
+                        }
+                        val selectedEp = seasonEpisodes.firstOrNull { it.episodeId == selectedEpisodeId }
+                        val episodePlot = selectedEp?.plot?.trim()?.takeIf { it.isNotBlank() }
+                        if (episodePlot != null) {
+                            Text(
+                                text = episodePlot,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OnCinema.copy(alpha = 0.9f),
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 } else {
