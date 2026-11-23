@@ -478,7 +478,8 @@ fun HomeScreen(
     var channelEpgMap by remember(displayItems) { mutableStateOf<Map<String, EpgNowNext>>(emptyMap()) }
 
     // Home rails
-    var heroItem by remember { mutableStateOf<MediaItem?>(null) }
+    var heroItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    val heroItem = heroItems.firstOrNull()
     var continueWatching by remember { mutableStateOf<List<WatchProgress>>(emptyList()) }
     var progressById by remember { mutableStateOf<Map<String, WatchProgress>>(emptyMap()) }
     /** Continue watching long-press menu target (entry + row index). */
@@ -562,12 +563,13 @@ fun HomeScreen(
             repeat(8) {
                 val today = HeroBannerPick.dayString(System.currentTimeMillis())
                 val stored = HeroBannerPick.read(heroDir)
-                val picked = HeroBannerPick.pick(repository.topRated(ContentKind.VOD), today, stored)
+                val rotation = HeroBannerPick.rotation(repository.topRated(ContentKind.VOD), today, stored)
+                val picked = rotation.firstOrNull()
                 if (picked != null) {
                     if (stored == null || stored.day != today || stored.itemId != picked.id) {
                         HeroBannerPick.write(heroDir, HeroBannerPick.Stored(today, picked.id))
                     }
-                    withContext(Dispatchers.Main) { heroItem = picked }
+                    withContext(Dispatchers.Main) { heroItems = rotation }
                     return@withContext
                 }
                 kotlinx.coroutines.delay(350)
@@ -762,7 +764,7 @@ fun HomeScreen(
                         homeListState = homeListState,
                         cwRowState = cwRowState,
                         favRowState = favRowState,
-                        heroItem = heroItem,
+                        heroItems = heroItems,
                         heroPlayFocus = heroPlayFocus,
                         heroInfoFocus = heroInfoFocus,
                         continueWatching = continueWatching,
@@ -1078,7 +1080,7 @@ private fun HomeTabContent(
     homeListState: androidx.compose.foundation.lazy.LazyListState,
     cwRowState: androidx.tv.foundation.lazy.list.TvLazyListState,
     favRowState: androidx.tv.foundation.lazy.list.TvLazyListState,
-    heroItem: MediaItem? = null,
+    heroItems: List<MediaItem> = emptyList(),
     heroPlayFocus: FocusRequester,
     heroInfoFocus: FocusRequester,
     continueWatching: List<WatchProgress>,
@@ -1102,6 +1104,7 @@ private fun HomeTabContent(
     onHomeScroll: (index: Int, offset: Int, rows: List<com.totaliptv.pro.data.local.RowScroll>) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
+    val heroItem = heroItems.firstOrNull()
     val homeScopes = setOf("cw", "fav")
     LaunchedEffect(homeListState, cwRowState, favRowState) {
         snapshotFlow {
@@ -1182,13 +1185,13 @@ private fun HomeTabContent(
     ) {
         if (heroItem != null) {
             item(key = "home-hero") {
-                val shownHero = heroItem.copy(rating = mergedDisplayRating(heroItem) ?: heroItem.rating)
+                val displayItems = heroItems.map { item ->
+                    item.copy(rating = mergedDisplayRating(item) ?: item.rating)
+                }
                 HomeHeroBanner(
-                    title = shownHero.name,
-                    imageUrl = HeroBannerPick.imageUrl(shownHero),
-                    metaLine = HeroBannerPick.metaLine(shownHero),
-                    onPlay = { onPlay(heroItem) },
-                    onInfo = { onOpenDetail(heroItem, 0, "hero") },
+                    items = displayItems,
+                    onPlay = { item -> onPlay(item) },
+                    onInfo = { item -> onOpenDetail(item, 0, "hero") },
                     playFocus = heroPlayFocus,
                     infoFocus = heroInfoFocus,
                     onDownFromBanner = {

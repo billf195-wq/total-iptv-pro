@@ -44,6 +44,14 @@ import com.totaliptv.pro.data.local.LastPlace
 import com.totaliptv.pro.util.SensitiveText
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.LiveFavorites
+import com.totaliptv.pro.data.FavoriteSections
+import com.totaliptv.pro.ui.focus.SafeFocus
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import com.totaliptv.pro.ui.focus.FocusTrace
 import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.model.MediaItem
@@ -115,6 +123,9 @@ fun DesktopAppRoot(
         var restoreFocusScope by remember { mutableStateOf<String?>(null) }
         var pendingFocusRestore by remember { mutableStateOf(false) }
         val posterFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+        val heroPlayFocus = remember { FocusRequester() }
+        val heroInfoFocus = remember { FocusRequester() }
+        val homeSidebarFocus = remember { FocusRequester() }
         fun posterFocus(scope: String, id: String): FocusRequester =
             posterFocusRequesters.getOrPut("$scope:$id") { FocusRequester() }
         var favorites by remember { mutableStateOf<List<FavoriteRef>>(emptyList()) }
@@ -326,8 +337,18 @@ fun DesktopAppRoot(
                         runCatching { repository.categories(ContentKind.LIVE) }.getOrDefault(emptyList())
                     )
                 }
-                val movieCats = remember(revision, vodLoading) { runCatching { repository.categories(ContentKind.VOD) }.getOrDefault(emptyList()) }
-                val seriesCats = remember(revision, vodLoading) { runCatching { repository.categories(ContentKind.SERIES) }.getOrDefault(emptyList()) }
+                val movieCats = remember(revision, vodLoading, favorites) {
+                    FavoriteSections.withFavoritesCategory(
+                        ContentKind.VOD,
+                        runCatching { repository.categories(ContentKind.VOD) }.getOrDefault(emptyList())
+                    )
+                }
+                val seriesCats = remember(revision, vodLoading, favorites) {
+                    FavoriteSections.withFavoritesCategory(
+                        ContentKind.SERIES,
+                        runCatching { repository.categories(ContentKind.SERIES) }.getOrDefault(emptyList())
+                    )
+                }
 
                 // Prefetch Home ranking off the main thread while browsing other sections.
                 // Avoids Movies→Home doing pickTopRated* synchronously during section switch.
@@ -367,6 +388,8 @@ fun DesktopAppRoot(
                             refreshing = refreshing,
                             // Block sidebar from stealing focus while detail is open or poster restore pending.
                             focusEnabled = detailItem == null && !pendingFocusRestore,
+                            homeFocus = homeSidebarFocus,
+                            onEnterHomeContent = { SafeFocus.request(heroPlayFocus) },
                             onSection = {
                                 if (it != section) {
                                     // Bound FocusRequester map growth from Movies/Series grids.
@@ -444,7 +467,15 @@ fun DesktopAppRoot(
                                     onResume = { wp: WatchProgress, index: Int ->
                                         openDetailOrPlay(wp.toMediaItem(), focusKey = wp.id, index = index, scope = "desk-cw")
                                     },
-                                    onResumeMenu = { wp: WatchProgress, index: Int -> cwMenu = wp to index }
+                                    onResumeMenu = { wp: WatchProgress, index: Int -> cwMenu = wp to index },
+                                    favorites = favorites,
+                                    onOpenFavorite = { fav ->
+                                        onPlayFavorite(fav)
+                                    },
+                                    onOpenHero = { item -> openDetailOrPlay(item, index = 0, scope = "desk-hero") },
+                                    heroPlayFocus = heroPlayFocus,
+                                    heroInfoFocus = heroInfoFocus,
+                                    onLeftFromPlay = { SafeFocus.request(homeSidebarFocus) }
                                 )
                                 DesktopNavSection.LIVE -> LivePane(
                                     items = live,
@@ -473,6 +504,8 @@ fun DesktopAppRoot(
                                     title = "Movies",
                                     items = movies,
                                     categories = movieCats,
+                                    kind = ContentKind.VOD,
+                                    favorites = favorites,
                                     search = search,
                                     categoryId = categoryId,
                                     sort = browseSort,
@@ -499,6 +532,8 @@ fun DesktopAppRoot(
                                     title = "Series",
                                     items = series,
                                     categories = seriesCats,
+                                    kind = ContentKind.SERIES,
+                                    favorites = favorites,
                                     search = search,
                                     categoryId = categoryId,
                                     sort = browseSort,
@@ -680,6 +715,8 @@ private fun DesktopSidebar(
     onSection: (DesktopNavSection) -> Unit,
     onRefresh: () -> Unit,
     onChangeSource: () -> Unit,
+    homeFocus: FocusRequester? = null,
+    onEnterHomeContent: () -> Boolean = { false },
     modifier: Modifier = Modifier
 ) {
     val items = listOf(
@@ -711,6 +748,21 @@ private fun DesktopSidebar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusProperties { canFocus = focusEnabled }
+                    .then(
+                        if (sec == DesktopNavSection.HOME && homeFocus != null) {
+                            Modifier.focusRequester(homeFocus)
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .onPreviewKeyEvent { event ->
+                        if (sec != DesktopNavSection.HOME || event.type != KeyEventType.KeyDown) {
+                            return@onPreviewKeyEvent false
+                        }
+                        // Right from the Home sidebar item lands on banner Play.
+                        // Down stays in the sidebar so Live remains reachable.
+                        if (event.key == Key.DirectionRight) onEnterHomeContent() else false
+                    }
             ) { focused ->
                 Text(
                     label,

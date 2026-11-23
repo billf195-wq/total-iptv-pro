@@ -37,6 +37,14 @@ object HomeShelfFit {
     val classicPosterTitle = 26.dp
     /** Classic Home hero banner. Taller now that Home no longer shows Newly added. */
     val classicHeroHeight = 320.dp
+    /** Desktop Home uses the same taller top-aligned hero as Classic. */
+    val desktopHeroHeight = classicHeroHeight
+
+    /** Hero plus Continue watching / Favorites rows (0-2) and the gaps between them. */
+    fun desktopHomeHeroBlock(posterRows: Int): Dp {
+        val rows = homeBlock(desktopRow(), desktopRowGap, posterRows)
+        return if (posterRows > 0) desktopHeroHeight + desktopRowGap + rows else desktopHeroHeight
+    }
 
     val sidebarLogo = 36.dp
 

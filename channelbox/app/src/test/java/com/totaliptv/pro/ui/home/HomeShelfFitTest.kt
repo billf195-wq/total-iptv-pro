@@ -38,7 +38,12 @@ class HomeShelfFitTest {
         assertFalse(pane.contains("PaneTitle(\"Home\")"))
         assertFalse(pane.contains("Continue watching and top picks"))
         assertTrue(pane.contains("HomeShelfFit.desktopPosterImage"))
-        assertTrue(pane.contains("HomeShelfFit.desktopHomeBlock()"))
+        assertTrue(pane.contains("HomeShelfFit.desktopHomeHeroBlock"))
+        assertTrue(pane.contains("HomeHeroBanner("))
+        assertTrue(pane.contains("HeroBannerPick.rotation"))
+        assertFalse(pane.contains("Top rated movies"))
+        assertFalse(pane.contains("Top rated series"))
+        assertEquals(320f, HomeShelfFit.desktopHeroHeight.value, 0.01f)
         assertTrue(pane.contains("centeredTopOffset"))
         assertTrue(pane.contains("userScrollEnabled = !centerHome"))
         assertTrue(root.contains("section == DesktopNavSection.HOME"))
@@ -47,6 +52,8 @@ class HomeShelfFitTest {
         val tab = classic.substringAfter("fun HomeTabContent").substringBefore("fun HomeShelfLabel")
         assertFalse(tab.contains("HeroFeatureBanner("))
         assertTrue(tab.contains("HomeHeroBanner("))
+        assertTrue(tab.contains("items = "))
+        assertTrue(classic.contains("HeroBannerPick.rotation"))
         assertTrue(tab.contains("onInfo"))
         assertTrue(tab.contains("HomeShelfFit.classicPosterImage"))
         assertFalse(tab.contains("HomeShelfLabel(\"Newly added\")"))
@@ -54,6 +61,19 @@ class HomeShelfFitTest {
         assertEquals(320f, HomeShelfFit.classicHeroHeight.value, 0.01f)
         val heroPlusOneRow = HomeShelfFit.classicHeroHeight + HomeShelfFit.classicRowGap + HomeShelfFit.classicRow()
         assertTrue(heroPlusOneRow.value <= HomeShelfFit.classicHomeArea().value)
+        // Continue watching titles (the 26 dp title slot) must sit fully on a 1080p Shield.
+        val classicCwOnScreen =
+            HomeShelfFit.classicContentPadTop + HomeShelfFit.classicHeroHeight +
+                HomeShelfFit.classicRowGap + HomeShelfFit.classicRow() +
+                HomeShelfFit.classicContentPadBottom
+        assertTrue(classicCwOnScreen.value <= HomeShelfFit.classicHomeArea().value)
+        val desktopCwOnScreen =
+            HomeShelfFit.pageTopOffset + HomeShelfFit.desktopHeroHeight +
+                HomeShelfFit.desktopRowGap + HomeShelfFit.desktopRow() +
+                HomeShelfFit.desktopContentPadBottom
+        assertTrue(desktopCwOnScreen.value <= HomeShelfFit.SHIELD_1080P_HEIGHT_DP.toFloat())
+        assertFalse(File("src/tv/java/com/totaliptv/pro/ui/home/HomeScreen.kt").readText().contains("Welcome to Total IPTV Pro"))
+        assertFalse(File("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopPanes.kt").readText().contains("Welcome to Total IPTV Pro"))
         val banner = File("src/tv/java/com/totaliptv/pro/ui/home/HomeHeroBanner.kt").readText()
         assertTrue(banner.contains("Alignment.TopCenter"))
         assertTrue(banner.contains("ContentScale.Crop"))

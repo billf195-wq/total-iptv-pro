@@ -92,6 +92,11 @@ import com.totaliptv.pro.data.model.Category
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.FavoriteSections
+import com.totaliptv.pro.data.DesktopBrowseChips
+import com.totaliptv.pro.data.HeroBannerPick
+import com.totaliptv.pro.ui.home.HomeHeroBanner
+import com.totaliptv.pro.ui.home.HomeHeroColors
+import com.totaliptv.pro.ui.mergedDisplayRating
 import com.totaliptv.pro.data.model.MediaItem
 import com.totaliptv.pro.data.model.WatchProgress
 import com.totaliptv.pro.data.repo.CatalogRepository
@@ -124,6 +129,7 @@ fun HomePane(
     resume: List<WatchProgress>,
     warning: String?,
     catalogRevision: Int = 0,
+    favorites: List<FavoriteRef> = emptyList(),
     restoreFocusId: String? = null,
     restoreFocusIndex: Int = -1,
     restoreFocusScope: String? = null,
@@ -133,45 +139,40 @@ fun HomePane(
     onPlay: (MediaItem, index: Int) -> Unit,
     onOpenSeries: (MediaItem, index: Int) -> Unit,
     onResume: (WatchProgress, index: Int) -> Unit,
-    onResumeMenu: (WatchProgress, index: Int) -> Unit = { _, _ -> }
+    onResumeMenu: (WatchProgress, index: Int) -> Unit = { _, _ -> },
+    onOpenFavorite: (FavoriteRef) -> Unit = {},
+    onOpenHero: (MediaItem) -> Unit = { item -> onPlay(item, 0) },
+    heroPlayFocus: FocusRequester,
+    heroInfoFocus: FocusRequester,
+    onLeftFromPlay: () -> Boolean = { false }
 ) {
-    // Never rank the full catalog synchronously on the first Home frame (Movies→Home ANR).
-    // Warm from process cache when revision unchanged; otherwise compute off main after yield.
-    var top by remember {
-        mutableStateOf(TopRatedCache.movies(catalogRevision) ?: TopRatedRow("Top rated movies", emptyList()))
-    }
-    var topSeries by remember {
-        mutableStateOf(TopRatedCache.series(catalogRevision) ?: TopRatedRow("Top rated series", emptyList()))
-    }
-    val tmdbLookup = (LocalContext.current.applicationContext as? TotalIptvProApp)
-        ?.repository?.tmdbScoreLookup()
+    val app = LocalContext.current.applicationContext as? TotalIptvProApp
+    var heroItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     LaunchedEffect(catalogRevision, movies.size, series.size) {
-        TopRatedCache.movies(catalogRevision)?.let { cachedM ->
-            TopRatedCache.series(catalogRevision)?.let { cachedS ->
-                top = cachedM
-                topSeries = cachedS
-                return@LaunchedEffect
-            }
+        val repo = app?.repository ?: return@LaunchedEffect
+        val heroDir = app.filesDir
+        val today = HeroBannerPick.dayString(System.currentTimeMillis())
+        val stored = HeroBannerPick.read(heroDir)
+        val rotation = withContext(Dispatchers.Default) {
+            HeroBannerPick.rotation(repo.topRated(ContentKind.VOD), today, stored)
         }
-        // Paint Home chrome first; ranking can wait one frame.
-        yield()
-        val ranked = withContext(Dispatchers.Default) {
-            pickTopRatedMovies(movies, tmdbLookup) to pickTopRatedSeries(series, tmdbLookup)
+        val picked = rotation.firstOrNull()
+        if (picked != null && (stored == null || stored.day != today || stored.itemId != picked.id)) {
+            HeroBannerPick.write(heroDir, HeroBannerPick.Stored(today, picked.id))
         }
-        TopRatedCache.put(catalogRevision, ranked.first, ranked.second)
-        top = ranked.first
-        topSeries = ranked.second
+        heroItems = rotation
     }
+    val heroItem = heroItems.firstOrNull()
     val homeListState = rememberLazyListState()
     val resumeRowState = rememberTvLazyListState()
-    val moviesRowState = rememberTvLazyListState()
-    val seriesRowState = rememberTvLazyListState()
-    val homeScopes = setOf("desk-cw", "desk-movies", "desk-series")
+    val favRowState = rememberTvLazyListState()
+    val homeScopes = setOf("desk-cw", "desk-fav")
     var didInitialHomeFocus by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
-    val homeBlock = HomeShelfFit.desktopHomeBlock()
-    val centerHome = homeBlock <= maxHeight
-    LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope, centerHome) {
+    val posterRows = listOf(resume.isNotEmpty(), favorites.isNotEmpty()).count { it }
+    val homeBlock = HomeShelfFit.desktopHomeHeroBlock(posterRows)
+    val centerHome = posterRows > 0 && homeBlock <= maxHeight
+    LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope, centerHome, heroItem?.id) {
         if (!pendingFocusRestore) return@LaunchedEffect
         val scope = restoreFocusScope
         val id = restoreFocusId
@@ -183,24 +184,22 @@ fun HomePane(
         val idx = restoreFocusIndex.coerceAtLeast(0)
         var focused = false
         for (attempt in 0 until 8) {
+            val heroOffset = if (heroItem != null) 1 else 0
             val rowOrdinal = when (scope) {
-                "desk-cw" -> 0
-                "desk-movies" -> 1
-                "desk-series" -> 2
+                "desk-cw" -> heroOffset
+                "desk-fav" -> heroOffset + if (resume.isNotEmpty()) 1 else 0
                 else -> 0
             }
             // A centered block is already fully on screen. Scrolling it would undo the inset.
             if (!centerHome) {
-                runCatching { homeListState.scrollToItem(rowOrdinal) }
+                runCatching { homeListState.scrollToItem(rowOrdinal.coerceAtLeast(0)) }
             }
             when (scope) {
                 "desk-cw" -> runCatching { resumeRowState.scrollToItem(idx) }
-                "desk-movies" -> runCatching { moviesRowState.scrollToItem(idx) }
-                "desk-series" -> runCatching { seriesRowState.scrollToItem(idx) }
+                "desk-fav" -> runCatching { favRowState.scrollToItem(idx) }
             }
             kotlinx.coroutines.yield()
             kotlinx.coroutines.delay(if (attempt == 0) 40L else 60L)
-            // requestFocus() is Unit here (throws if requester inactive); do not assume Boolean.
             focused = runCatching {
                 posterFocus(scope, id).requestFocus()
                 true
@@ -209,19 +208,12 @@ fun HomePane(
         }
         onRestoreConsumed()
     }
-    LaunchedEffect(resume.firstOrNull()?.id, top.items.firstOrNull()?.id, pendingFocusRestore) {
+    LaunchedEffect(heroItem?.id, pendingFocusRestore) {
         if (didInitialHomeFocus || pendingFocusRestore) return@LaunchedEffect
-        val target = when {
-            resume.isNotEmpty() -> "desk-cw" to resume.first().id
-            top.items.isNotEmpty() -> "desk-movies" to top.items.first().id
-            else -> return@LaunchedEffect
-        }
+        if (heroItem == null) return@LaunchedEffect
         delay(80)
         if (pendingFocusRestore) return@LaunchedEffect
-        val focused = runCatching {
-            posterFocus(target.first, target.second).requestFocus()
-            true
-        }.getOrDefault(false)
+        val focused = SafeFocus.request(heroPlayFocus)
         if (focused) didInitialHomeFocus = true
     }
     val homeTop = HomeShelfFit.centeredTopOffset(
@@ -243,22 +235,35 @@ fun HomePane(
         ),
         verticalArrangement = Arrangement.spacedBy(HomeShelfFit.desktopRowGap)
     ) {
-        item {
-            HomeShelfHeader("Continue watching")
-            if (resume.isEmpty()) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(TipSurface, RoundedCornerShape(TipDimens.NavCorner))
-                        .padding(TipDimens.dp(16))
-                ) {
-                    Text(
-                        "Play a movie or series episode — it will show up here.",
-                        color = TipGoldMuted,
-                        fontSize = TipDimens.BodyMediumSp
-                    )
+        val shownHero = heroItem
+        if (shownHero != null) {
+            item(key = "desk-home-hero") {
+                val displayItems = heroItems.map { item ->
+                    item.copy(rating = mergedDisplayRating(item) ?: item.rating)
                 }
-            } else {
+                HomeHeroBanner(
+                    items = displayItems,
+                    onPlay = { item -> onPlay(item, 0) },
+                    onInfo = { item -> onOpenHero(item) },
+                    playFocus = heroPlayFocus,
+                    infoFocus = heroInfoFocus,
+                    colors = desktopHomeHeroColors(),
+                    onLeftFromPlay = onLeftFromPlay,
+                    onDownFromBanner = {
+                        val firstCw = resume.firstOrNull()?.id
+                        val firstFav = favorites.firstOrNull()?.id
+                        when {
+                            firstCw != null -> SafeFocus.request(posterFocus("desk-cw", firstCw))
+                            firstFav != null -> SafeFocus.request(posterFocus("desk-fav", firstFav))
+                            else -> false
+                        }
+                    }
+                )
+            }
+        }
+        if (resume.isNotEmpty()) {
+            item {
+                HomeShelfHeader("Continue watching")
                 PosterRowBringIntoView(posterBringIntoView) {
                 TvLazyRow(
                     state = resumeRowState,
@@ -271,53 +276,63 @@ fun HomePane(
                             focusRequester = posterFocus("desk-cw", entry.id),
                             onLongClick = { onResumeMenu(entry, index) },
                             imageHeight = HomeShelfFit.desktopPosterImage,
-                            titleSlotHeight = HomeShelfFit.desktopPosterTitle
+                            titleSlotHeight = HomeShelfFit.desktopPosterTitle,
+                            modifier = if (heroItem != null) Modifier.onPreviewKeyEvent { event ->
+                                event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.DirectionUp &&
+                                    SafeFocus.request(heroPlayFocus)
+                            } else Modifier
                         )
                     }
                 }
                 }
             }
-        }
-        item {
-            HomeShelfHeader(top.title)
-            if (top.items.isEmpty()) {
-                Text("No movies in catalog yet.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
-            } else {
-                PosterRowBringIntoView(posterBringIntoView) {
-                TvLazyRow(
-                    state = moviesRowState,
-                    horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
+        } else if (heroItem == null) {
+            item {
+                HomeShelfHeader("Continue watching")
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(TipSurface, RoundedCornerShape(TipDimens.NavCorner))
+                        .padding(TipDimens.dp(16))
                 ) {
-                    tvItemsIndexed(top.items, key = { _, it -> it.id }) { index, item ->
-                        DesktopPosterCard(
-                            item,
-                            onClick = { onPlay(item, index) },
-                            focusRequester = posterFocus("desk-movies", item.id),
-                            imageHeight = HomeShelfFit.desktopPosterImage,
-                            titleSlotHeight = HomeShelfFit.desktopPosterTitle
-                        )
-                    }
-                }
+                    Text(
+                        "Play a movie or series episode — it will show up here.",
+                        color = TipGoldMuted,
+                        fontSize = TipDimens.BodyMediumSp
+                    )
                 }
             }
         }
-        item {
-            HomeShelfHeader(topSeries.title)
-            if (topSeries.items.isEmpty()) {
-                Text("No series in catalog yet.", color = TipGoldMuted, fontSize = TipDimens.BodyMediumSp)
-            } else {
+        if (favorites.isNotEmpty()) {
+            item {
+                HomeShelfHeader("Favorites")
                 PosterRowBringIntoView(posterBringIntoView) {
                 TvLazyRow(
-                    state = seriesRowState,
+                    state = favRowState,
                     horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
                 ) {
-                    tvItemsIndexed(topSeries.items, key = { _, it -> it.id }) { index, item ->
+                    tvItemsIndexed(favorites, key = { _, it -> it.id }) { _, fav ->
+                        val media = MediaItem(
+                            id = fav.id,
+                            name = fav.name,
+                            streamUrl = fav.streamUrl,
+                            categoryId = null,
+                            kind = fav.kind,
+                            logoUrl = fav.logoUrl,
+                            posterUrl = fav.logoUrl
+                        )
                         DesktopPosterCard(
-                            item,
-                            onClick = { onOpenSeries(item, index) },
-                            focusRequester = posterFocus("desk-series", item.id),
+                            media,
+                            onClick = { onOpenFavorite(fav) },
+                            focusRequester = posterFocus("desk-fav", fav.id),
                             imageHeight = HomeShelfFit.desktopPosterImage,
-                            titleSlotHeight = HomeShelfFit.desktopPosterTitle
+                            titleSlotHeight = HomeShelfFit.desktopPosterTitle,
+                            modifier = if (heroItem != null && resume.isEmpty()) Modifier.onPreviewKeyEvent { event ->
+                                event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.DirectionUp &&
+                                    SafeFocus.request(heroPlayFocus)
+                            } else Modifier
                         )
                     }
                 }
@@ -328,6 +343,24 @@ fun HomePane(
     }
     }
 }
+
+@Composable
+private fun desktopHomeHeroColors(): HomeHeroColors = HomeHeroColors(
+    surface = TipSurface,
+    border = TipOutline,
+    playContainer = TipAmber,
+    playFocused = TipAccent,
+    playContent = TipOnAmber,
+    infoContainer = TipSurfaceAlt,
+    infoFocused = TipSurfaceAlt,
+    infoContent = TipGoldText,
+    title = androidx.compose.ui.graphics.Color.White,
+    meta = TipGoldMuted,
+    focusBorder = TipAccent,
+    scrimStart = androidx.compose.ui.graphics.Color(0xE607090D),
+    scrimMid = androidx.compose.ui.graphics.Color(0x9907090D),
+    scrimEnd = androidx.compose.ui.graphics.Color(0x2207090D)
+)
 
 @Composable
 private fun HomeShelfHeader(text: String) {
@@ -544,6 +577,8 @@ fun BrowseGridPane(
     title: String,
     items: List<MediaItem>,
     categories: List<Category>,
+    kind: ContentKind,
+    favorites: List<FavoriteRef> = emptyList(),
     search: String,
     categoryId: String?,
     sort: String,
@@ -577,7 +612,7 @@ fun BrowseGridPane(
     }
 
     val desktopRepo = (LocalContext.current.applicationContext as? com.totaliptv.pro.TotalIptvProApp)?.repository
-    val filtered = remember(items, query, categoryId, sort) {
+    val filtered = remember(items, query, categoryId, sort, favorites, kind) {
         // Synthetic Newly added categories have no real item.categoryId matches -
         // resolve like CatalogRepository.itemsForCategory instead of filtering to empty.
         val isNewlyAdded = categoryId == CatalogRepository.NEWLY_ADDED_VOD_CATEGORY_ID ||
@@ -585,6 +620,8 @@ fun BrowseGridPane(
         val virtualOther = CatalogCategories.isTopRatedId(categoryId) ||
             StreamingServices.isServiceCategoryId(categoryId)
         var list = when {
+            FavoriteSections.isFavoritesCategory(categoryId) ->
+                FavoriteSections.items(kind, favorites, items)
             isNewlyAdded -> sortDesktopRecentlyAdded(items)
                 .take(CatalogRepository.NEWLY_ADDED_LIMIT)
             // Top rated + service groups come from the repository
@@ -670,6 +707,7 @@ fun BrowseGridPane(
             onCategory = onCategory,
             sort = sort,
             onSort = onSort,
+            allAfterFavorites = true,
             onEditingChange = { editingSearch = it },
             onDownToResults = { focusFirstPoster() }
         )
@@ -1577,7 +1615,8 @@ fun FilterBar(
     chipFocus: FocusRequester? = null,
     belowFocus: FocusRequester? = null,
     onEditingChange: (Boolean) -> Unit = {},
-    onDownToResults: (() -> Boolean)? = null
+    onDownToResults: (() -> Boolean)? = null,
+    allAfterFavorites: Boolean = false
 ) {
     val searchFocus = remember { FocusRequester() }
     val internalChipFocus = remember { FocusRequester() }
@@ -1601,16 +1640,11 @@ fun FilterBar(
             )
             Spacer(Modifier.height(TipDimens.dp(8)))
         }
-        // Movies / Series: Newly added, Top rated and the service groups come first, then "All",
-        // then provider groups. Live keeps "All" first.
-        val leading = categories.takeWhile { CatalogCategories.isVirtual(it.id) }
-        val trailing = categories.drop(leading.size)
-        val chipItems = remember(leading, trailing) {
-            buildList {
-                leading.forEach { add(it.id to it.name) }
-                add(null to "All")
-                trailing.forEach { add(it.id to it.name) }
-            }
+        // Movies / Series: one visible All immediately after Favorites.
+        // Live keeps All first. A hidden or duplicate All / See all is dropped.
+        val chipItems = remember(categories, allAfterFavorites) {
+            if (allAfterFavorites) DesktopBrowseChips.items(categories)
+            else DesktopBrowseChips.liveItems(categories)
         }
         val chipRequesters = remember(chipItems.map { it.first }) {
             List(chipItems.size) { FocusRequester() }
