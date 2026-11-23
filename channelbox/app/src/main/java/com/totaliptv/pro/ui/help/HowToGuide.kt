@@ -79,7 +79,10 @@ object HowToGuide {
                 "take a few minutes to fill in. " +
                 "Choose Play to start, or Resume to pick up where you left off. For a series, choose a " +
                 "season and an episode first. Use Mark watched to put a check mark on a movie or episode; " +
-                "choose it again to mark it unwatched. Titles you finish are checked automatically."
+                "choose it again to mark it unwatched. Titles you finish are checked automatically." +
+                (if (tv) " A Favorites category sits at the top of the Movies list and of the Series list. " +
+                    "Movies shows only your favorite movies and Series only your favorite series. To add " +
+                    "or remove one, $hold its poster or choose Favorite on its page." else "")
         )
         out += Section(
             "Continue Watching (remove & move)",

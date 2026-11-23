@@ -63,6 +63,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.totaliptv.pro.data.LiveChannelMapping
+import com.totaliptv.pro.data.FavoriteSections
+import com.totaliptv.pro.data.LiveFavorites
 import com.totaliptv.pro.data.model.Category
 import com.totaliptv.pro.data.model.ContentKind
 import com.totaliptv.pro.data.model.EpgNowNext
@@ -362,6 +364,8 @@ fun HomeScreen(
         HubTab.Series -> ContentKind.SERIES
         HubTab.Home -> null
     }
+    /** Favorites row at the top of this tab's sidebar (only this tab's kind). Not a provider group. */
+    val favCategoryId: String? = browseKind?.let { FavoriteSections.categoryId(it) }
 
     val categories: List<Category> = remember(hubTab, catalogRevision) {
         when (hubTab) {
@@ -396,10 +400,12 @@ fun HomeScreen(
                 HubTab.Movies -> LastPlace.SCREEN_MOVIES
                 HubTab.Series -> LastPlace.SCREEN_SERIES
                 HubTab.Home -> LastPlace.SCREEN_HOME
-            } && categories.any { it.id == saved }
+            } && (categories.any { it.id == saved } || (saved == favCategoryId))
         if (savedFits && selectedCategoryId == null) {
             selectedCategoryId = saved
-        } else if (selectedCategoryId == null || categories.none { it.id == selectedCategoryId }) {
+        } else if (selectedCategoryId == null ||
+            (selectedCategoryId != favCategoryId && categories.none { it.id == selectedCategoryId })
+        ) {
             selectedCategoryId = if (savedFits) saved else categories.firstOrNull()?.id
         }
     }
@@ -407,11 +413,16 @@ fun HomeScreen(
     // Keep displayItems in the same remember-key as category/tab/sort so the grid cannot
     // render a previous category's rows (LazyVerticalGrid keys would then bind clicks
     // to leftover items while the header already shows the new category).
-    val displayItems: List<MediaItem> = remember(selectedCategoryId, hubTab, catalogRevision, catalogSort) {
+    val onFavoritesRow = favCategoryId != null && selectedCategoryId == favCategoryId
+    // Favorites only re-key the grid while the Favorites row is open (other groups ignore them).
+    val favoritesKey: Any = if (onFavoritesRow) favorites else Unit
+    val displayItems: List<MediaItem> = remember(selectedCategoryId, hubTab, catalogRevision, catalogSort, favoritesKey) {
         when (hubTab) {
             HubTab.Home -> emptyList()
             HubTab.Live -> {
-                val aligned = LiveChannelMapping.filterLiveChannels(
+                val aligned = if (onFavoritesRow) {
+                    LiveFavorites.channels(repository.liveItems(), favorites)
+                } else LiveChannelMapping.filterLiveChannels(
                     repository.liveItems(),
                     selectedCategoryId
                 )
@@ -420,8 +431,16 @@ fun HomeScreen(
                 else repository.sortCatalogItems(aligned, catalogSort)
             }
             else -> {
-                val base = selectedCategoryId?.let { repository.itemsForCategory(it) }.orEmpty()
-                repository.sortCategoryItems(selectedCategoryId, base, catalogSort)
+                if (onFavoritesRow) {
+                    val kind = browseKind ?: ContentKind.VOD
+                    // Saved order for Newest; the other sorts apply like any group.
+                    val favItems = FavoriteSections.items(kind, favorites, repository.itemsByKind(kind))
+                    if (catalogSort == CatalogSort.RECENTLY_ADDED) favItems
+                    else repository.sortCatalogItems(favItems, catalogSort)
+                } else {
+                    val base = selectedCategoryId?.let { repository.itemsForCategory(it) }.orEmpty()
+                    repository.sortCategoryItems(selectedCategoryId, base, catalogSort)
+                }
             }
         }
     }
@@ -745,9 +764,9 @@ fun HomeScreen(
                                 )
                                 CategoryRailItem(
                                     title = "Favorites",
-                                    selected = false,
-                                    count = favorites.size,
-                                    onClick = { onOpenSection(BrowseSection.Favorites) }
+                                    selected = onFavoritesRow,
+                                    count = FavoriteSections.count(favorites, ContentKind.LIVE),
+                                    onClick = { selectedCategoryId = LiveFavorites.CATEGORY_ID }
                                 )
                                 CategoryRailItem(
                                     title = "TV Guide",
@@ -768,6 +787,15 @@ fun HomeScreen(
                                     title = "Refresh data",
                                     selected = false,
                                     onClick = { triggerRefreshData() }
+                                )
+                                Spacer(Modifier.height(6.dp))
+                            } else if (favCategoryId != null) {
+                                // Movies / Series: their own Favorites row, same as Live's.
+                                CategoryRailItem(
+                                    title = "Favorites",
+                                    selected = onFavoritesRow,
+                                    count = FavoriteSections.count(favorites, browseKind ?: ContentKind.VOD),
+                                    onClick = { selectedCategoryId = favCategoryId }
                                 )
                                 Spacer(Modifier.height(6.dp))
                             }
@@ -821,6 +849,7 @@ fun HomeScreen(
                                     displayItems = displayItems,
                                     categories = categories,
                                     selectedCategoryId = selectedCategoryId,
+                                    favoritesRow = onFavoritesRow,
                                     focusedChannel = focusedChannel,
                                     featuredEpg = featuredEpg,
                                     channelEpgMap = channelEpgMap,
@@ -844,7 +873,8 @@ fun HomeScreen(
                                     isSeries = hubTab == HubTab.Series,
                                     displayItems = displayItems,
                                     posterOverrides = posterOverrides,
-                                    categoriesEmpty = categories.isEmpty(),
+                                    categoriesEmpty = categories.isEmpty() && !onFavoritesRow,
+                                    favoritesRow = onFavoritesRow,
                                     vodLoading = vodLoading,
                                     vodError = vodError,
                                     onRetryVod = { repository.retryVod() },
@@ -1268,6 +1298,7 @@ private fun LiveMainPane(
     displayItems: List<MediaItem>,
     categories: List<Category>,
     selectedCategoryId: String?,
+    favoritesRow: Boolean = false,
     focusedChannel: MediaItem?,
     featuredEpg: EpgNowNext,
     channelEpgMap: Map<String, EpgNowNext>,
@@ -1331,7 +1362,8 @@ private fun LiveMainPane(
         Text(
             text = "${displayItems.size} channels" +
                 (selectedCategoryId?.let { id ->
-                    categories.find { it.id == id }?.name?.let { "  |  $it" }
+                    (categories.find { it.id == id }?.name ?: if (favoritesRow) "Favorites" else null)
+                        ?.let { "  |  $it" }
                 } ?: ""),
             style = MaterialTheme.typography.labelMedium,
             color = BrandBlue.copy(alpha = 0.9f)
@@ -1349,10 +1381,13 @@ private fun LiveMainPane(
         )
     }
 
-    if (categories.isEmpty()) {
+    if (categories.isEmpty() && !favoritesRow) {
         EmptyHub("No live categories. Check your playlist or reload.")
     } else if (displayItems.isEmpty()) {
-        EmptyHub("No channels in this category.")
+        EmptyHub(
+            if (favoritesRow) "No favorite channels yet. Choose Favorite while watching a channel to add it here."
+            else "No channels in this category."
+        )
     } else {
         val fallbackLiveGrid = rememberLazyGridState()
         val gridState = gridState ?: fallbackLiveGrid
@@ -1415,6 +1450,7 @@ private fun VodMainPane(
     displayItems: List<MediaItem>,
     posterOverrides: Map<String, MediaItem> = emptyMap(),
     categoriesEmpty: Boolean,
+    favoritesRow: Boolean = false,
     vodLoading: Boolean = false,
     vodError: String? = null,
     onRetryVod: () -> Unit = {},
@@ -1509,7 +1545,13 @@ private fun VodMainPane(
             if (isSeries) "Series catalogs aren't available for this playlist yet."
             else "This playlist has no movies."
         )
-        displayItems.isEmpty() -> EmptyHub("No titles in this category.")
+        displayItems.isEmpty() -> EmptyHub(
+            when {
+                !favoritesRow -> "No titles in this category."
+                isSeries -> "No favorite series yet. Hold OK on a series poster, or choose Favorite on its page, to add it here."
+                else -> "No favorite movies yet. Hold OK on a movie poster, or choose Favorite on its page, to add it here."
+            }
+        )
         else -> {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(AppPreferences.normalizePosterColumns(posterColumns)),
@@ -1530,7 +1572,11 @@ private fun VodMainPane(
                     PosterCard(
                         title = shown.name,
                         imageUrl = shown.artworkUrl(),
-                        onClick = { onOpenDetail(item, index) },
+                        onClick = {
+                            // A saved single episode has no series page; play it.
+                            if (favoritesRow && FavoriteSections.isEpisode(item.id)) onPlay(item)
+                            else onOpenDetail(item, index)
+                        },
                         isFavorite = item.id in favoriteIds,
                         onLongClick = { onToggleFavorite(item) },
                         rating = mergedDisplayRating(shown),

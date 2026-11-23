@@ -39,7 +39,7 @@ object LiveFavorites {
     }
 
     fun liveFavoriteCount(favorites: List<FavoriteRef>): Int =
-        favorites.count { it.kind == ContentKind.LIVE }
+        favorites.count { FavoriteSections.kindOf(it) == ContentKind.LIVE }
 
     /**
      * Favorite live channels in the order they were saved. Prefers the live catalog
@@ -59,7 +59,7 @@ object LiveFavorites {
         val out = ArrayList<MediaItem>()
         val seen = HashSet<String>()
         for (fav in favorites) {
-            if (fav.kind != ContentKind.LIVE) continue
+            if (FavoriteSections.kindOf(fav) != ContentKind.LIVE) continue
             val item = byId[fav.id] ?: MediaItem(
                 id = fav.id,
                 name = fav.name,
