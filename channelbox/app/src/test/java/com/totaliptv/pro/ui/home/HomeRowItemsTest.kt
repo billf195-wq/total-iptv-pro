@@ -15,6 +15,8 @@ class HomeRowItemsTest {
         assertFalse(home.contains("take(24)"))
         assertTrue(home.contains("TvLazyRow("))
         assertTrue(home.contains("tvItemsIndexed(resume,"))
+        assertTrue(home.contains("HomeShelfHeader(\"Continue watching\")"))
+        assertFalse(home.contains("HomeShelfHeader(\"Favorites\")"))
 
         val helpers = File("src/tv/java/com/totaliptv/pro/ui/desktop/DesktopHomeHelpers.kt").readText()
         assertFalse(helpers.contains("TOP_N"))
@@ -22,15 +24,16 @@ class HomeRowItemsTest {
 
         val classic = File("src/tv/java/com/totaliptv/pro/ui/home/HomeScreen.kt").readText()
         assertTrue(classic.contains("TvLazyRow("))
-        // Classic Home is hero + Continue watching (+ Favorites). Newly added stays in Movies/Series.
+        // Classic Home is hero + Continue watching only. Favorites stay in Movies/Series/Live sidebars.
+        val tab = classic.substringAfter("fun HomeTabContent").substringBefore("fun HomeShelfLabel")
         assertFalse(classic.contains("HomeShelfLabel(\"Newly added\")"))
         assertFalse(classic.contains("onSeeAllNewlyAdded"))
         assertFalse(classic.contains("SeeAllPosterTile"))
         assertFalse(classic.contains("HomeShelfLabel(\"Top rated\")"))
         assertFalse(classic.contains("onSeeAllTopRated"))
         assertFalse(classic.contains("topPicksHasMore"))
-        assertTrue(classic.contains("HomeShelfLabel(\"Continue watching\")"))
-        assertTrue(classic.contains("HomeShelfLabel(\"Favorites\")"))
+        assertTrue(tab.contains("HomeShelfLabel(\"Continue watching\")"))
+        assertFalse(tab.contains("HomeShelfLabel(\"Favorites\")"))
         assertTrue(classic.contains("onLeftToRail"))
         assertTrue(classic.contains("Key.DirectionLeft"))
         assertTrue(classic.contains("HomeHeroBanner("))

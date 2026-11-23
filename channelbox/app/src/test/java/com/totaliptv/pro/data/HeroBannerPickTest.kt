@@ -218,51 +218,48 @@ class HeroBannerPickTest {
     }
 
     @Test
-    fun rotationStartsAtDailyPickAndCapsAtFive() {
+    fun pickIsASingleTitleFromTheTopSet() {
         val titles = (1..7).map { i ->
             movie("m$i", "Movie $i", country = "USA", rating = if (i % 2 == 0) "8.3" else "8.2")
         }
         val day = "2026-11-23"
         val picked = HeroBannerPick.pick(titles, day, stored = null)
-        val rotation = HeroBannerPick.rotation(titles, day, stored = null)
-        assertEquals(HeroBannerPick.ROTATION_COUNT, rotation.size)
-        assertEquals(5, HeroBannerPick.ROTATION_COUNT)
-        assertEquals(10_000L, HeroBannerPick.ROTATION_INTERVAL_MS)
-        assertEquals(picked?.id, rotation.first().id)
-        assertEquals(rotation.map { it.id }.distinct().size, rotation.size)
         val poolIds = HeroBannerPick.topSet(titles).map { it.id }.toSet()
-        assertTrue(rotation.all { it.id in poolIds })
         assertEquals(7, poolIds.size)
+        assertTrue(picked != null && picked.id in poolIds)
+        val src = java.io.File("src/main/java/com/totaliptv/pro/data/HeroBannerPick.kt").readText()
+        assertFalse(src.contains("fun rotation("))
+        assertFalse(src.contains("ROTATION_COUNT"))
+        assertFalse(src.contains("ROTATION_INTERVAL_MS"))
     }
 
     @Test
-    fun rotationSameDayStoredStartsWithCachedId() {
+    fun sameDayStoredPickIsTheCachedId() {
         val titles = (1..5).map { i ->
             movie("c$i", "Cached $i", country = "USA", rating = "8.2")
         }
         val day = "2026-11-23"
         val stored = HeroBannerPick.Stored(day, "c3")
-        val rotation = HeroBannerPick.rotation(titles, day, stored)
-        assertEquals(listOf("c3", "c4", "c5", "c1", "c2"), rotation.map { it.id })
         assertEquals("c3", HeroBannerPick.pick(titles, day, stored)?.id)
+        val nextDay = HeroBannerPick.pick(titles, "2026-11-24", stored)
+        assertTrue(nextDay != null)
+        assertTrue(nextDay!!.id in titles.map { it.id })
     }
 
     @Test
-    fun rotationUsesFewerWhenTopSetIsSmallerAndSkipsBadRatings() {
+    fun pickSkipsImplausibleLowVoteAndMidRatedTitles() {
         val mid = movie("mid", "Napoleon", country = "USA", rating = "6.3")
         val implausible = movie("fake", "Fake", country = "USA", rating = "9.9", voteCount = 9000)
         val lowVotes = movie("low", "Low Votes", country = "USA", rating = "8.8", voteCount = 10)
         val a = movie("a", "A", country = "USA", rating = "8.2", voteCount = 200)
         val b = movie("b", "B", country = "USA", rating = "8.1", voteCount = 200)
         val c = movie("c", "C", country = "USA", rating = "8.0", voteCount = 200)
-        val rotation = HeroBannerPick.rotation(
-            listOf(mid, implausible, lowVotes, a, b, c),
-            "2026-11-23",
-            stored = null
-        )
-        assertEquals(3, rotation.size)
-        assertTrue(rotation.all { it.id in setOf("a", "b", "c") })
-        assertEquals(HeroBannerPick.pick(listOf(mid, implausible, lowVotes, a, b, c), "2026-11-23", null)?.id, rotation.first().id)
+        val candidates = listOf(mid, implausible, lowVotes, a, b, c)
+        val picked = HeroBannerPick.pick(candidates, "2026-11-23", stored = null)
+        val poolIds = HeroBannerPick.topSet(candidates).map { it.id }.toSet()
+        assertEquals(setOf("a", "b", "c"), poolIds)
+        assertTrue(picked != null && picked.id in poolIds)
+        assertFalse(poolIds.contains("mid") || poolIds.contains("fake") || poolIds.contains("low"))
     }
 
 }

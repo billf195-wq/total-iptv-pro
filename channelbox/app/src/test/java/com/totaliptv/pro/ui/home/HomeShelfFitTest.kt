@@ -40,9 +40,14 @@ class HomeShelfFitTest {
         assertTrue(pane.contains("HomeShelfFit.desktopPosterImage"))
         assertTrue(pane.contains("HomeShelfFit.desktopHomeHeroBlock"))
         assertTrue(pane.contains("HomeHeroBanner("))
-        assertTrue(pane.contains("HeroBannerPick.rotation"))
+        assertTrue(pane.contains("HeroBannerPick.pick("))
+        assertFalse(pane.contains("HeroBannerPick.rotation"))
+        assertTrue(pane.contains("HomeShelfFit.desktopHomeBannerTop"))
+        assertTrue(pane.contains("padding(top = HomeShelfFit.desktopHomeBannerTop)"))
         assertFalse(pane.contains("Top rated movies"))
         assertFalse(pane.contains("Top rated series"))
+        assertTrue(pane.contains("HomeShelfHeader(\"Continue watching\")"))
+        assertFalse(pane.contains("HomeShelfHeader(\"Favorites\")"))
         assertEquals(320f, HomeShelfFit.desktopHeroHeight.value, 0.01f)
         assertTrue(pane.contains("centeredTopOffset"))
         assertTrue(pane.contains("userScrollEnabled = !centerHome"))
@@ -52,11 +57,13 @@ class HomeShelfFitTest {
         val tab = classic.substringAfter("fun HomeTabContent").substringBefore("fun HomeShelfLabel")
         assertFalse(tab.contains("HeroFeatureBanner("))
         assertTrue(tab.contains("HomeHeroBanner("))
-        assertTrue(tab.contains("items = "))
-        assertTrue(classic.contains("HeroBannerPick.rotation"))
+        assertTrue(tab.contains("title = "))
+        assertTrue(classic.contains("HeroBannerPick.pick("))
+        assertFalse(classic.contains("HeroBannerPick.rotation"))
         assertTrue(tab.contains("onInfo"))
         assertTrue(tab.contains("HomeShelfFit.classicPosterImage"))
         assertFalse(tab.contains("HomeShelfLabel(\"Newly added\")"))
+        assertFalse(tab.contains("HomeShelfLabel(\"Favorites\")"))
         assertFalse(tab.contains("onSeeAllNewlyAdded"))
         assertEquals(320f, HomeShelfFit.classicHeroHeight.value, 0.01f)
         val heroPlusOneRow = HomeShelfFit.classicHeroHeight + HomeShelfFit.classicRowGap + HomeShelfFit.classicRow()
@@ -67,8 +74,9 @@ class HomeShelfFitTest {
                 HomeShelfFit.classicRowGap + HomeShelfFit.classicRow() +
                 HomeShelfFit.classicContentPadBottom
         assertTrue(classicCwOnScreen.value <= HomeShelfFit.classicHomeArea().value)
+        assertEquals(44f, HomeShelfFit.desktopHomeBannerTop.value, 0.01f)
         val desktopCwOnScreen =
-            HomeShelfFit.pageTopOffset + HomeShelfFit.desktopHeroHeight +
+            HomeShelfFit.desktopHomeBannerTop + HomeShelfFit.desktopHeroHeight +
                 HomeShelfFit.desktopRowGap + HomeShelfFit.desktopRow() +
                 HomeShelfFit.desktopContentPadBottom
         assertTrue(desktopCwOnScreen.value <= HomeShelfFit.SHIELD_1080P_HEIGHT_DP.toFloat())

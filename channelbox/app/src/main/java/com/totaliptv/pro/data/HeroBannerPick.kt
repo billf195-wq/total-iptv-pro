@@ -25,10 +25,6 @@ object HeroBannerPick {
     const val IMPLAUSIBLE_RATING = 9.5
     /** Skip a title only when a vote count is known and is below this floor. */
     const val MIN_VOTE_COUNT = 50
-    /** How many titles the Home hero rotates through. */
-    const val ROTATION_COUNT = 5
-    const val ROTATION_INTERVAL_MS = 10_000L
-    const val ROTATION_CROSSFADE_MS = 450
 
     data class Stored(val day: String, val itemId: String)
 
@@ -115,24 +111,6 @@ object HeroBannerPick {
             pool.find { it.id == stored.itemId }?.let { return it }
         }
         return pool[indexFor(day, pool.size)]
-    }
-
-    /**
-     * Up to [ROTATION_COUNT] titles from the same top set as [pick], starting
-     * at today's daily pick so the first still matches the static hero.
-     */
-    fun rotation(
-        candidates: List<MediaItem>,
-        day: String,
-        stored: Stored?,
-        count: Int = ROTATION_COUNT
-    ): List<MediaItem> {
-        val pool = topSet(candidates)
-        if (pool.isEmpty() || count <= 0) return emptyList()
-        val first = pick(candidates, day, stored) ?: pool.first()
-        val start = pool.indexOfFirst { it.id == first.id }.let { if (it < 0) 0 else it }
-        val n = minOf(count, pool.size)
-        return List(n) { i -> pool[(start + i) % pool.size] }
     }
 
     fun indexFor(day: String, size: Int): Int {

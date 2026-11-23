@@ -39,6 +39,12 @@ object HomeShelfFit {
     val classicHeroHeight = 320.dp
     /** Desktop Home uses the same taller top-aligned hero as Classic. */
     val desktopHeroHeight = classicHeroHeight
+    /**
+     * Top inset above the Desktop Home hero. Classic places its banner below
+     * the 40.dp nav plus [classicContentPadTop]. Desktop has no top nav, so
+     * this same offset keeps the banner from sitting flush with the top edge.
+     */
+    val desktopHomeBannerTop = classicNav + classicContentPadTop
 
     /** Hero plus Continue watching / Favorites rows (0-2) and the gaps between them. */
     fun desktopHomeHeroBlock(posterRows: Int): Dp {

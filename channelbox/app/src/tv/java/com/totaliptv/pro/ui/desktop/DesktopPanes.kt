@@ -75,6 +75,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.totaliptv.pro.R
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -147,29 +148,30 @@ fun HomePane(
     onLeftFromPlay: () -> Boolean = { false }
 ) {
     val app = LocalContext.current.applicationContext as? TotalIptvProApp
-    var heroItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    var heroItem by remember { mutableStateOf<MediaItem?>(null) }
     LaunchedEffect(catalogRevision, movies.size, series.size) {
         val repo = app?.repository ?: return@LaunchedEffect
         val heroDir = app.filesDir
         val today = HeroBannerPick.dayString(System.currentTimeMillis())
         val stored = HeroBannerPick.read(heroDir)
-        val rotation = withContext(Dispatchers.Default) {
-            HeroBannerPick.rotation(repo.topRated(ContentKind.VOD), today, stored)
+        val picked = withContext(Dispatchers.Default) {
+            HeroBannerPick.pick(repo.topRated(ContentKind.VOD), today, stored)
         }
-        val picked = rotation.firstOrNull()
         if (picked != null && (stored == null || stored.day != today || stored.itemId != picked.id)) {
             HeroBannerPick.write(heroDir, HeroBannerPick.Stored(today, picked.id))
         }
-        heroItems = rotation
+        heroItem = picked
     }
-    val heroItem = heroItems.firstOrNull()
     val homeListState = rememberLazyListState()
     val resumeRowState = rememberTvLazyListState()
-    val favRowState = rememberTvLazyListState()
-    val homeScopes = setOf("desk-cw", "desk-fav")
+    val homeScopes = setOf("desk-cw")
     var didInitialHomeFocus by remember { mutableStateOf(false) }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-    val posterRows = listOf(resume.isNotEmpty(), favorites.isNotEmpty()).count { it }
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .padding(top = HomeShelfFit.desktopHomeBannerTop)
+    ) {
+    val posterRows = listOf(resume.isNotEmpty()).count { it }
     val homeBlock = HomeShelfFit.desktopHomeHeroBlock(posterRows)
     val centerHome = posterRows > 0 && homeBlock <= maxHeight
     LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope, centerHome, heroItem?.id) {
@@ -187,16 +189,14 @@ fun HomePane(
             val heroOffset = if (heroItem != null) 1 else 0
             val rowOrdinal = when (scope) {
                 "desk-cw" -> heroOffset
-                "desk-fav" -> heroOffset + if (resume.isNotEmpty()) 1 else 0
                 else -> 0
             }
             // A centered block is already fully on screen. Scrolling it would undo the inset.
             if (!centerHome) {
                 runCatching { homeListState.scrollToItem(rowOrdinal.coerceAtLeast(0)) }
             }
-            when (scope) {
-                "desk-cw" -> runCatching { resumeRowState.scrollToItem(idx) }
-                "desk-fav" -> runCatching { favRowState.scrollToItem(idx) }
+            if (scope == "desk-cw") {
+                runCatching { resumeRowState.scrollToItem(idx) }
             }
             kotlinx.coroutines.yield()
             kotlinx.coroutines.delay(if (attempt == 0) 40L else 60L)
@@ -216,11 +216,10 @@ fun HomePane(
         val focused = SafeFocus.request(heroPlayFocus)
         if (focused) didInitialHomeFocus = true
     }
-    val homeTop = HomeShelfFit.centeredTopOffset(
-        maxHeight,
-        homeBlock,
-        HomeShelfFit.pageTopOffset
-    )
+    // Top margin lives on the parent Box so D-pad focus / bring-into-view
+    // cannot scroll the banner flush with the top edge. Classic keeps its
+    // equivalent gap outside the Home list (under the 40.dp nav).
+    val homeTop = HomeShelfFit.centeredTopOffset(maxHeight, homeBlock, 0.dp)
     val posterBringIntoView = LocalBringIntoViewSpec.current
     CompositionLocalProvider(
         LocalBringIntoViewSpec provides if (centerHome) NoVerticalHomeScroll else posterBringIntoView
@@ -238,25 +237,20 @@ fun HomePane(
         val shownHero = heroItem
         if (shownHero != null) {
             item(key = "desk-home-hero") {
-                val displayItems = heroItems.map { item ->
-                    item.copy(rating = mergedDisplayRating(item) ?: item.rating)
-                }
+                val shownHeroRated = shownHero.copy(rating = mergedDisplayRating(shownHero) ?: shownHero.rating)
                 HomeHeroBanner(
-                    items = displayItems,
-                    onPlay = { item -> onPlay(item, 0) },
-                    onInfo = { item -> onOpenHero(item) },
+                    title = shownHeroRated.name,
+                    imageUrl = HeroBannerPick.imageUrl(shownHeroRated),
+                    metaLine = HeroBannerPick.metaLine(shownHeroRated),
+                    onPlay = { onPlay(shownHeroRated, 0) },
+                    onInfo = { onOpenHero(shownHeroRated) },
                     playFocus = heroPlayFocus,
                     infoFocus = heroInfoFocus,
                     colors = desktopHomeHeroColors(),
                     onLeftFromPlay = onLeftFromPlay,
                     onDownFromBanner = {
                         val firstCw = resume.firstOrNull()?.id
-                        val firstFav = favorites.firstOrNull()?.id
-                        when {
-                            firstCw != null -> SafeFocus.request(posterFocus("desk-cw", firstCw))
-                            firstFav != null -> SafeFocus.request(posterFocus("desk-fav", firstFav))
-                            else -> false
-                        }
+                        if (firstCw != null) SafeFocus.request(posterFocus("desk-cw", firstCw)) else false
                     }
                 )
             }
@@ -301,41 +295,6 @@ fun HomePane(
                         color = TipGoldMuted,
                         fontSize = TipDimens.BodyMediumSp
                     )
-                }
-            }
-        }
-        if (favorites.isNotEmpty()) {
-            item {
-                HomeShelfHeader("Favorites")
-                PosterRowBringIntoView(posterBringIntoView) {
-                TvLazyRow(
-                    state = favRowState,
-                    horizontalArrangement = Arrangement.spacedBy(TipDimens.PosterRowGap)
-                ) {
-                    tvItemsIndexed(favorites, key = { _, it -> it.id }) { _, fav ->
-                        val media = MediaItem(
-                            id = fav.id,
-                            name = fav.name,
-                            streamUrl = fav.streamUrl,
-                            categoryId = null,
-                            kind = fav.kind,
-                            logoUrl = fav.logoUrl,
-                            posterUrl = fav.logoUrl
-                        )
-                        DesktopPosterCard(
-                            media,
-                            onClick = { onOpenFavorite(fav) },
-                            focusRequester = posterFocus("desk-fav", fav.id),
-                            imageHeight = HomeShelfFit.desktopPosterImage,
-                            titleSlotHeight = HomeShelfFit.desktopPosterTitle,
-                            modifier = if (heroItem != null && resume.isEmpty()) Modifier.onPreviewKeyEvent { event ->
-                                event.type == KeyEventType.KeyDown &&
-                                    event.key == Key.DirectionUp &&
-                                    SafeFocus.request(heroPlayFocus)
-                            } else Modifier
-                        )
-                    }
-                }
                 }
             }
         }
