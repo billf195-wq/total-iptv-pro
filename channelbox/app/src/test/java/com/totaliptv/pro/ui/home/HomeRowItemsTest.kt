@@ -21,8 +21,16 @@ class HomeRowItemsTest {
 
         val classic = File("src/tv/java/com/totaliptv/pro/ui/home/HomeScreen.kt").readText()
         assertTrue(classic.contains("TvLazyRow("))
-        assertTrue(classic.contains("newlyAddedMovies(Int.MAX_VALUE)"))
+        assertTrue(classic.contains("previewPlusHasMore"))
+        assertTrue(classic.contains("SeeAllPosterTile"))
+        assertTrue(classic.contains("CatalogCategories.NEWLY_ADDED_VOD_ID"))
+        assertTrue(classic.contains("CatalogCategories.TOP_RATED_VOD_ID"))
+        assertFalse(classic.contains("newlyAddedMovies(Int.MAX_VALUE)"))
         assertFalse(classic.contains("newlyAddedMovies(24)"))
+        // Full lists stay reachable from the See all tile / sidebar row; only the Home preview is capped.
+        val cats = File("src/main/java/com/totaliptv/pro/data/CatalogCategories.kt").readText()
+        assertTrue(cats.contains("const val HOME_ROW_LIMIT = 20"))
+        assertTrue(cats.contains("const val ALL_NAME = \"See all\""))
 
         val phone = File("src/phone/java/com/totaliptv/pro/ui/home/PhoneHomeScreen.kt").readText()
         assertTrue(phone.contains("LazyColumn("))

@@ -763,6 +763,77 @@ fun PosterCard(
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun SeeAllPosterTile(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    imageHeight: Dp? = null,
+    titleSlotHeight: Dp? = null,
+    label: String = "See all"
+) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(10.dp)
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .width(ClassicDimens.PosterWidth)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { focused = it.isFocused }
+            .then(if (focused) Modifier.border(2.5.dp, FocusBorder, shape) else Modifier),
+        shape = ClickableSurfaceDefaults.shape(
+            shape = shape,
+            focusedShape = shape,
+            pressedShape = shape
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = CinemaSurface,
+            focusedContainerColor = CinemaSurfaceHigh,
+            pressedContainerColor = BrandBlue.copy(alpha = 0.22f)
+        )
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (imageHeight != null) Modifier.height(imageHeight)
+                        else Modifier.aspectRatio(2f / 3f)
+                    )
+                    .background(Color(0xFF0C1018)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    color = if (focused) Color.White else OnCinema,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(8.dp)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (titleSlotHeight != null) Modifier.height(titleSlotHeight) else Modifier)
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    text = label,
+                    color = if (focused) Color.White else OnCinema,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
 /** Live channel tile - square logo grid, leanback-friendly */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

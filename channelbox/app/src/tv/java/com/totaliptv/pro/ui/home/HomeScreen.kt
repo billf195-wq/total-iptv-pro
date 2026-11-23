@@ -63,6 +63,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.totaliptv.pro.data.LiveChannelMapping
+import com.totaliptv.pro.data.CatalogCategories
 import com.totaliptv.pro.data.FavoriteSections
 import com.totaliptv.pro.data.LiveFavorites
 import com.totaliptv.pro.data.model.Category
@@ -88,6 +89,7 @@ import com.totaliptv.pro.ui.components.ErrorText
 import com.totaliptv.pro.ui.components.FeaturedNowPanel
 import com.totaliptv.pro.ui.components.MovieDetailSheet
 import com.totaliptv.pro.ui.components.LiveChannelCard
+import com.totaliptv.pro.ui.components.SeeAllPosterTile
 import com.totaliptv.pro.ui.components.PosterCard
 import com.totaliptv.pro.ui.focus.FocusTrace
 import com.totaliptv.pro.ui.home.HomeShelfFit
@@ -379,8 +381,16 @@ fun HomeScreen(
     val categoryCounts: Map<String, Int> = remember(categories, catalogRevision) {
         categories.associate { it.id to repository.itemCountForCategory(it.id) }
     }
+    val allCategoryCount: Int? = remember(browseKind, catalogRevision) {
+        browseKind?.takeIf { it == ContentKind.VOD || it == ContentKind.SERIES }?.let {
+            repository.itemCountForCategory(CatalogCategories.allId(it))
+        }
+    }
 
+    // Home "See all" tiles set this, then switch tabs; remember(hubTab) consumes it.
+    var pendingCategoryId by remember { mutableStateOf<String?>(null) }
     var selectedCategoryId by remember(hubTab) {
+        val pending = pendingCategoryId
         val saved = initialPlace?.takeIf {
             it.screen.lowercase() == when (hubTab) {
                 HubTab.Live -> LastPlace.SCREEN_LIVE
@@ -389,7 +399,16 @@ fun HomeScreen(
                 HubTab.Home -> LastPlace.SCREEN_HOME
             }
         }?.categoryId
-        mutableStateOf(saved ?: categories.firstOrNull()?.id)
+        val initial = when {
+            pending != null && CatalogCategories.isKnownBrowseId(pending, categories, favCategoryId) -> pending
+            CatalogCategories.isKnownBrowseId(saved, categories, favCategoryId) -> saved
+            hubTab == HubTab.Movies || hubTab == HubTab.Series -> CatalogCategories.defaultBrowseId(categories)
+            else -> saved ?: categories.firstOrNull()?.id
+        }
+        mutableStateOf(initial)
+    }
+    LaunchedEffect(hubTab) {
+        if (pendingCategoryId != null) pendingCategoryId = null
     }
     // Groups can appear later (service lookup); keep the user's pick unless it disappeared.
     LaunchedEffect(categories, hubTab) {
@@ -400,13 +419,13 @@ fun HomeScreen(
                 HubTab.Movies -> LastPlace.SCREEN_MOVIES
                 HubTab.Series -> LastPlace.SCREEN_SERIES
                 HubTab.Home -> LastPlace.SCREEN_HOME
-            } && (categories.any { it.id == saved } || (saved == favCategoryId))
+            } && CatalogCategories.isKnownBrowseId(saved, categories, favCategoryId)
         if (savedFits && selectedCategoryId == null) {
             selectedCategoryId = saved
-        } else if (selectedCategoryId == null ||
-            (selectedCategoryId != favCategoryId && categories.none { it.id == selectedCategoryId })
-        ) {
-            selectedCategoryId = if (savedFits) saved else categories.firstOrNull()?.id
+        } else if (!CatalogCategories.isKnownBrowseId(selectedCategoryId, categories, favCategoryId)) {
+            selectedCategoryId = if (savedFits) saved
+                else if (hubTab == HubTab.Movies || hubTab == HubTab.Series) CatalogCategories.defaultBrowseId(categories)
+                else categories.firstOrNull()?.id
         }
     }
 
@@ -452,6 +471,8 @@ fun HomeScreen(
     // Home rails
     var newlyAdded by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var topPicks by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    var newlyAddedHasMore by remember { mutableStateOf(false) }
+    var topPicksHasMore by remember { mutableStateOf(false) }
     var continueWatching by remember { mutableStateOf<List<WatchProgress>>(emptyList()) }
     var progressById by remember { mutableStateOf<Map<String, WatchProgress>>(emptyMap()) }
     /** Continue watching long-press menu target (entry + row index). */
@@ -527,9 +548,12 @@ fun HomeScreen(
     LaunchedEffect(hubTab, catalogRevision) {
         if (hubTab != HubTab.Home) return@LaunchedEffect
         reloadContinueWatching()
-        val newest = repository.newlyAddedMovies(Int.MAX_VALUE)
-        newlyAdded = newest
-        topPicks = newest.drop(1).ifEmpty { newest }
+        val newestPreview = CatalogCategories.previewPlusHasMore(repository.newlyAddedMovies())
+        newlyAdded = newestPreview.first
+        newlyAddedHasMore = newestPreview.second
+        val topPreview = CatalogCategories.previewPlusHasMore(repository.topRated(ContentKind.VOD))
+        topPicks = topPreview.first
+        topPicksHasMore = topPreview.second
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -583,7 +607,9 @@ fun HomeScreen(
 
     LaunchedEffect(categories) {
         if (categories.isNotEmpty() && selectedCategoryId == null) {
-            selectedCategoryId = categories.first().id
+            selectedCategoryId = if (hubTab == HubTab.Movies || hubTab == HubTab.Series)
+                CatalogCategories.defaultBrowseId(categories)
+            else categories.first().id
         }
     }
 
@@ -718,6 +744,16 @@ fun HomeScreen(
                         favRowState = favRowState,
                         newlyAdded = newlyAdded,
                         topPicks = topPicks,
+                        newlyAddedHasMore = newlyAddedHasMore,
+                        topPicksHasMore = topPicksHasMore,
+                        onSeeAllNewlyAdded = {
+                            pendingCategoryId = CatalogCategories.NEWLY_ADDED_VOD_ID
+                            hubTab = HubTab.Movies
+                        },
+                        onSeeAllTopRated = {
+                            pendingCategoryId = CatalogCategories.TOP_RATED_VOD_ID
+                            hubTab = HubTab.Movies
+                        },
                         continueWatching = continueWatching,
                         progressById = progressById,
                         favorites = favorites,
@@ -789,13 +825,22 @@ fun HomeScreen(
                                     onClick = { triggerRefreshData() }
                                 )
                                 Spacer(Modifier.height(6.dp))
-                            } else if (favCategoryId != null) {
-                                // Movies / Series: their own Favorites row, same as Live's.
+                            } else if (hubTab == HubTab.Movies || hubTab == HubTab.Series) {
+                                // Movies / Series: Favorites, then See all (every title), then categories.
+                                if (favCategoryId != null) {
+                                    CategoryRailItem(
+                                        title = "Favorites",
+                                        selected = onFavoritesRow,
+                                        count = FavoriteSections.count(favorites, browseKind ?: ContentKind.VOD),
+                                        onClick = { selectedCategoryId = favCategoryId }
+                                    )
+                                }
+                                val allId = CatalogCategories.allId(browseKind ?: ContentKind.VOD)
                                 CategoryRailItem(
-                                    title = "Favorites",
-                                    selected = onFavoritesRow,
-                                    count = FavoriteSections.count(favorites, browseKind ?: ContentKind.VOD),
-                                    onClick = { selectedCategoryId = favCategoryId }
+                                    title = CatalogCategories.ALL_NAME,
+                                    selected = selectedCategoryId == allId,
+                                    count = allCategoryCount,
+                                    onClick = { selectedCategoryId = allId }
                                 )
                                 Spacer(Modifier.height(6.dp))
                             }
@@ -1008,6 +1053,10 @@ private fun HomeTabContent(
     favRowState: androidx.tv.foundation.lazy.list.TvLazyListState,
     newlyAdded: List<MediaItem>,
     topPicks: List<MediaItem>,
+    newlyAddedHasMore: Boolean,
+    topPicksHasMore: Boolean,
+    onSeeAllNewlyAdded: () -> Unit,
+    onSeeAllTopRated: () -> Unit,
     continueWatching: List<WatchProgress>,
     progressById: Map<String, WatchProgress>,
     favorites: List<FavoriteRef>,
@@ -1188,13 +1237,23 @@ private fun HomeTabContent(
                             titleSlotHeight = HomeShelfFit.classicPosterTitle
                         )
                     }
+                    if (newlyAddedHasMore) {
+                        item(key = "see-all-new") {
+                            SeeAllPosterTile(
+                                onClick = onSeeAllNewlyAdded,
+                                focusRequester = posterFocus("new", "see-all"),
+                                imageHeight = HomeShelfFit.classicPosterImage,
+                                titleSlotHeight = HomeShelfFit.classicPosterTitle
+                            )
+                        }
+                    }
                 }
                 }
             }
         }
         if (topPicks.isNotEmpty()) {
             item {
-                HomeShelfLabel("Top picks")
+                HomeShelfLabel("Top rated")
                 PosterRowBringIntoView(posterBringIntoView) {
                 TvLazyRow(
                     state = topRowState,
@@ -1221,6 +1280,16 @@ private fun HomeTabContent(
                             imageHeight = HomeShelfFit.classicPosterImage,
                             titleSlotHeight = HomeShelfFit.classicPosterTitle
                         )
+                    }
+                    if (topPicksHasMore) {
+                        item(key = "see-all-top") {
+                            SeeAllPosterTile(
+                                onClick = onSeeAllTopRated,
+                                focusRequester = posterFocus("top", "see-all"),
+                                imageHeight = HomeShelfFit.classicPosterImage,
+                                titleSlotHeight = HomeShelfFit.classicPosterTitle
+                            )
+                        }
                     }
                 }
                 }

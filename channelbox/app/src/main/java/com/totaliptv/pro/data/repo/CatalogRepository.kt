@@ -972,6 +972,8 @@ class CatalogRepository(
         }
         if (categoryId == CatalogCategories.TOP_RATED_VOD_ID) return topRated(ContentKind.VOD)
         if (categoryId == CatalogCategories.TOP_RATED_SERIES_ID) return topRated(ContentKind.SERIES)
+        if (categoryId == CatalogCategories.ALL_VOD_ID) return itemsByKind(ContentKind.VOD)
+        if (categoryId == CatalogCategories.ALL_SERIES_ID) return itemsByKind(ContentKind.SERIES)
         StreamingServices.parseCategoryId(categoryId)?.let { key ->
             return serviceGroups()[key].orEmpty()
         }
@@ -1059,6 +1061,8 @@ class CatalogRepository(
         if (categoryId == NEWLY_ADDED_SERIES_CATEGORY_ID) return newlyAddedSeries().size
         if (categoryId == CatalogCategories.TOP_RATED_VOD_ID) return topRated(ContentKind.VOD).size
         if (categoryId == CatalogCategories.TOP_RATED_SERIES_ID) return topRated(ContentKind.SERIES).size
+        if (categoryId == CatalogCategories.ALL_VOD_ID) return itemsByKind(ContentKind.VOD).size
+        if (categoryId == CatalogCategories.ALL_SERIES_ID) return itemsByKind(ContentKind.SERIES).size
         StreamingServices.parseCategoryId(categoryId)?.let { key ->
             return serviceGroups()[key]?.size ?: 0
         }

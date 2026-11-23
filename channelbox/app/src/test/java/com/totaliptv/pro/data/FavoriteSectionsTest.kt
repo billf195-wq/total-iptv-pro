@@ -143,7 +143,10 @@ class FavoriteSectionsTest {
         // Movies / Series: own Favorites row above the categories, only that kind.
         assertTrue(src.contains("count = FavoriteSections.count(favorites, browseKind ?: ContentKind.VOD)"))
         assertTrue(src.contains("FavoriteSections.items(kind, favorites, repository.itemsByKind(kind))"))
-        assertTrue(src.contains("selectedCategoryId != favCategoryId && categories.none"))
+        assertTrue(src.contains("CatalogCategories.isKnownBrowseId"))
+        assertTrue(src.contains("CatalogCategories.ALL_NAME"))
+        assertTrue(src.contains("CatalogCategories.allId"))
+        assertTrue(src.contains("CatalogCategories.defaultBrowseId"))
         assertFalse(src.contains("count = favorites.size"))
         assertFalse(src.contains("CHIP_KINDS"))
     }
