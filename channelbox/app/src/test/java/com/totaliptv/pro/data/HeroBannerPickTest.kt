@@ -20,7 +20,8 @@ class HeroBannerPickTest {
         backdrop: String? = null,
         poster: String? = null,
         year: Int? = 2022,
-        rating: String? = "8.2"
+        rating: String? = "8.2",
+        voteCount: Int? = null
     ) = MediaItem(
         id = id,
         name = name,
@@ -31,7 +32,8 @@ class HeroBannerPickTest {
         year = year,
         backdropUrl = backdrop,
         country = country,
-        rating = rating
+        rating = rating,
+        voteCount = voteCount
     )
 
     @Test
@@ -162,4 +164,57 @@ class HeroBannerPickTest {
         assertFalse(HeroBannerPick.isAmerican("United Kingdom"))
         assertFalse(HeroBannerPick.isAmerican("France"))
     }
+    @Test
+    fun skipsImplausibleRatingsAtOrAbove9_5() {
+        val fake = movie("fake", "Inflated", country = "USA", rating = "9.9")
+        val edge = movie("edge", "Nine Five", country = "USA", rating = "9.5")
+        val ok = movie("ok", "Well Known", country = "USA", rating = "8.2")
+        val highOk = movie("hi", "Just Under", country = "USA", rating = "9.4")
+        val picked = HeroBannerPick.pick(listOf(fake, edge, ok, highOk), "2026-11-23", stored = null)
+        assertTrue(picked?.id in setOf("ok", "hi"), "picked=${picked?.id}")
+        assertFalse(picked?.id in setOf("fake", "edge"))
+        val onlyPlausible = HeroBannerPick.pick(listOf(fake, ok), "2026-11-23", stored = null)
+        assertEquals("ok", onlyPlausible?.id)
+    }
+
+    @Test
+    fun skipsKnownLowVoteCountsButKeepsUnknownCounts() {
+        val lowVotes = movie("low", "Obscure High", country = "USA", rating = "9.2", voteCount = 12)
+        val known = movie("known", "Famous", country = "USA", rating = "8.1", voteCount = 5_000)
+        val unknown = movie("unk", "No Votes Field", country = "USA", rating = "8.3")
+        val picked = HeroBannerPick.pick(listOf(lowVotes, known, unknown), "2026-11-23", stored = null)
+        assertTrue(picked?.id in setOf("known", "unk"), "picked=${picked?.id}")
+        assertFalse(picked?.id == "low")
+        assertTrue(HeroBannerPick.hasTooFewVotes(lowVotes))
+        assertFalse(HeroBannerPick.hasTooFewVotes(known))
+        assertFalse(HeroBannerPick.hasTooFewVotes(unknown))
+    }
+
+    @Test
+    fun ignoresStaleCachedImplausibleOrLowVoteId() {
+        val fake = movie("fake", "Inflated", country = "USA", rating = "9.8")
+        val low = movie("low", "Obscure", country = "USA", rating = "9.1", voteCount = 8)
+        val ok = movie("ok", "Solid", country = "USA", rating = "8.0")
+        val fromFake = HeroBannerPick.pick(
+            listOf(fake, ok),
+            "2026-11-23",
+            stored = HeroBannerPick.Stored("2026-11-23", "fake")
+        )
+        assertEquals("ok", fromFake?.id)
+        val fromLow = HeroBannerPick.pick(
+            listOf(low, ok),
+            "2026-11-23",
+            stored = HeroBannerPick.Stored("2026-11-23", "low")
+        )
+        assertEquals("ok", fromLow?.id)
+    }
+
+    @Test
+    fun prefersTheSevenToNineFourBandOverMidRatedTitles() {
+        val mid = movie("mid", "Napoleon", country = "USA", rating = "6.3")
+        val wellKnown = movie("wk", "Top Gun", country = "USA", rating = "8.2")
+        val picked = HeroBannerPick.pick(listOf(mid, wellKnown), "2026-11-23", stored = null)
+        assertEquals("wk", picked?.id)
+    }
+
 }

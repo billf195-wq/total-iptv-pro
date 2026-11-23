@@ -1030,6 +1030,7 @@ fun NetworkImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    alignment: Alignment = Alignment.Center,
     placeholderLabel: String = "?",
     decodeWidth: Int? = null,
     decodeHeight: Int? = null,
@@ -1068,7 +1069,8 @@ fun NetworkImage(
                     model = model,
                     contentDescription = contentDescription,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = contentScale
+                    contentScale = contentScale,
+                    alignment = alignment
                 )
             }
         }

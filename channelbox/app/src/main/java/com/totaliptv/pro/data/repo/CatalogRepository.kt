@@ -901,11 +901,20 @@ class CatalogRepository(
                     val items = cachedItems
                     val idx = serviceIndex
                     val tmdb = tmdbScoreFn(idx)
-                    val (vod, series) = Ratings.topRatedBoth(
+                    val (vodRaw, seriesRaw) = Ratings.topRatedBoth(
                         items,
                         CatalogCategories.TOP_RATED_LIMIT,
                         tmdb
                     )
+                    fun withVotes(list: List<MediaItem>): List<MediaItem> {
+                        if (idx == null) return list
+                        return list.map { item ->
+                            val votes = idx.voteCount(item) ?: return@map item
+                            if (item.voteCount == votes) item else item.copy(voteCount = votes)
+                        }
+                    }
+                    val vod = withVotes(vodRaw)
+                    val series = withVotes(seriesRaw)
                     val prev = topRatedSnapshot
                     topRatedSnapshot = TopRatedSnapshot(items, idx, vod, series)
                     if (prev == null || prev.vod != vod || prev.series != series) changed = true

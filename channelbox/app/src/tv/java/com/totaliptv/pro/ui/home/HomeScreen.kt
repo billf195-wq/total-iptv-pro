@@ -98,7 +98,6 @@ import com.totaliptv.pro.ui.components.ErrorText
 import com.totaliptv.pro.ui.components.FeaturedNowPanel
 import com.totaliptv.pro.ui.components.MovieDetailSheet
 import com.totaliptv.pro.ui.components.LiveChannelCard
-import com.totaliptv.pro.ui.components.SeeAllPosterTile
 import com.totaliptv.pro.ui.components.PosterCard
 import com.totaliptv.pro.ui.focus.FocusTrace
 import com.totaliptv.pro.ui.focus.SafeFocus
@@ -167,10 +166,8 @@ fun HomeScreen(
         return (row?.index ?: 0) to (row?.offset ?: 0)
     }
     val cwStart = rowStart("cw")
-    val newStart = rowStart("new")
     val favStart = rowStart("fav")
     val cwRowState = rememberTvLazyListState(cwStart.first, cwStart.second)
-    val newRowState = rememberTvLazyListState(newStart.first, newStart.second)
     val favRowState = rememberTvLazyListState(favStart.first, favStart.second)
     val vodGridStates = remember { mutableMapOf<String, androidx.compose.foundation.lazy.grid.LazyGridState>() }
     fun vodGridState(isSeries: Boolean, categoryId: String?, sortName: String): androidx.compose.foundation.lazy.grid.LazyGridState {
@@ -481,8 +478,6 @@ fun HomeScreen(
     var channelEpgMap by remember(displayItems) { mutableStateOf<Map<String, EpgNowNext>>(emptyMap()) }
 
     // Home rails
-    var newlyAdded by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    var newlyAddedHasMore by remember { mutableStateOf(false) }
     var heroItem by remember { mutableStateOf<MediaItem?>(null) }
     var continueWatching by remember { mutableStateOf<List<WatchProgress>>(emptyList()) }
     var progressById by remember { mutableStateOf<Map<String, WatchProgress>>(emptyMap()) }
@@ -559,9 +554,6 @@ fun HomeScreen(
     LaunchedEffect(hubTab, catalogRevision) {
         if (hubTab != HubTab.Home) return@LaunchedEffect
         reloadContinueWatching()
-        val newestPreview = CatalogCategories.previewPlusHasMore(repository.newlyAddedMovies())
-        newlyAdded = newestPreview.first
-        newlyAddedHasMore = newestPreview.second
     }
     val heroDir = remember { app.filesDir }
     LaunchedEffect(hubTab, catalogRevision) {
@@ -769,17 +761,10 @@ fun HomeScreen(
                         modifier = Modifier.weight(1f),
                         homeListState = homeListState,
                         cwRowState = cwRowState,
-                        newRowState = newRowState,
                         favRowState = favRowState,
-                        newlyAdded = newlyAdded,
-                        newlyAddedHasMore = newlyAddedHasMore,
                         heroItem = heroItem,
                         heroPlayFocus = heroPlayFocus,
                         heroInfoFocus = heroInfoFocus,
-                        onSeeAllNewlyAdded = {
-                            pendingCategoryId = CatalogCategories.NEWLY_ADDED_VOD_ID
-                            hubTab = HubTab.Movies
-                        },
                         continueWatching = continueWatching,
                         progressById = progressById,
                         favorites = favorites,
@@ -1092,14 +1077,10 @@ fun HomeScreen(
 private fun HomeTabContent(
     homeListState: androidx.compose.foundation.lazy.LazyListState,
     cwRowState: androidx.tv.foundation.lazy.list.TvLazyListState,
-    newRowState: androidx.tv.foundation.lazy.list.TvLazyListState,
     favRowState: androidx.tv.foundation.lazy.list.TvLazyListState,
-    newlyAdded: List<MediaItem>,
-    newlyAddedHasMore: Boolean,
     heroItem: MediaItem? = null,
     heroPlayFocus: FocusRequester,
     heroInfoFocus: FocusRequester,
-    onSeeAllNewlyAdded: () -> Unit,
     continueWatching: List<WatchProgress>,
     progressById: Map<String, WatchProgress>,
     favorites: List<FavoriteRef>,
@@ -1121,12 +1102,11 @@ private fun HomeTabContent(
     onHomeScroll: (index: Int, offset: Int, rows: List<com.totaliptv.pro.data.local.RowScroll>) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
-    val homeScopes = setOf("cw", "new", "fav")
-    LaunchedEffect(homeListState, cwRowState, newRowState, favRowState) {
+    val homeScopes = setOf("cw", "fav")
+    LaunchedEffect(homeListState, cwRowState, favRowState) {
         snapshotFlow {
             val rows = listOf(
                 com.totaliptv.pro.data.local.RowScroll("cw", cwRowState.firstVisibleItemIndex, cwRowState.firstVisibleItemScrollOffset),
-                com.totaliptv.pro.data.local.RowScroll("new", newRowState.firstVisibleItemIndex, newRowState.firstVisibleItemScrollOffset),
                 com.totaliptv.pro.data.local.RowScroll("fav", favRowState.firstVisibleItemIndex, favRowState.firstVisibleItemScrollOffset)
             )
             Triple(homeListState.firstVisibleItemIndex, homeListState.firstVisibleItemScrollOffset, rows)
@@ -1134,7 +1114,6 @@ private fun HomeTabContent(
     }
     val posterRows = listOf(
         continueWatching.isNotEmpty(),
-        newlyAdded.isNotEmpty(),
         favorites.isNotEmpty()
     ).count { it }
     BoxWithConstraints(modifier.fillMaxSize()) {
@@ -1159,13 +1138,7 @@ private fun HomeTabContent(
             val heroOffset = if (heroItem != null) 1 else 0
             val rowOrdinal = when (scope) {
                 "cw" -> heroOffset
-                "new" -> heroOffset + if (continueWatching.isNotEmpty()) 1 else 0
-                "fav" -> {
-                    var o = heroOffset
-                    if (continueWatching.isNotEmpty()) o += 1
-                    if (newlyAdded.isNotEmpty()) o += 1
-                    o
-                }
+                "fav" -> heroOffset + if (continueWatching.isNotEmpty()) 1 else 0
                 else -> 0
             }
             // A centered block is already fully on screen. Scrolling it would undo the inset.
@@ -1174,7 +1147,6 @@ private fun HomeTabContent(
             }
             when (scope) {
                 "cw" -> runCatching { cwRowState.scrollToItem(idx) }
-                "new" -> runCatching { newRowState.scrollToItem(idx) }
                 "fav" -> runCatching { favRowState.scrollToItem(idx) }
             }
             kotlinx.coroutines.yield()
@@ -1221,10 +1193,10 @@ private fun HomeTabContent(
                     infoFocus = heroInfoFocus,
                     onDownFromBanner = {
                         val firstCw = continueWatching.firstOrNull()?.id
-                        val firstNew = newlyAdded.firstOrNull()?.id
+                        val firstFav = favorites.firstOrNull()?.id
                         when {
                             firstCw != null -> SafeFocus.request(posterFocus("cw", firstCw))
-                            firstNew != null -> SafeFocus.request(posterFocus("new", firstNew))
+                            firstFav != null -> SafeFocus.request(posterFocus("fav", firstFav))
                             else -> false
                         }
                     }
@@ -1272,55 +1244,6 @@ private fun HomeTabContent(
                 }
             }
         }
-        if (newlyAdded.isNotEmpty()) {
-            item {
-                HomeShelfLabel("Newly added")
-                PosterRowBringIntoView(posterBringIntoView) {
-                TvLazyRow(
-                    state = newRowState,
-                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
-                ) {
-                    tvItemsIndexed(newlyAdded, key = { _, it -> it.id }) { index, item ->
-                        val prog = progressById[item.id]
-                        val pct = prog?.let { (it.fraction() * 100).toInt().coerceIn(1, 99) }
-                        PosterCard(
-                            title = item.name,
-                            imageUrl = item.artworkUrl(),
-                            onClick = {
-                                if (item.kind == ContentKind.VOD || item.kind == ContentKind.SERIES) {
-                                    onOpenDetail(item, index, "new")
-                                } else {
-                                    onPlay(item)
-                                }
-                            },
-                            isFavorite = item.id in favoriteIds,
-                            onLongClick = { onToggleFavorite(item) },
-                            rating = mergedDisplayRating(item),
-                            progressPercent = pct,
-                            focusRequester = posterFocus("new", item.id),
-                            imageHeight = HomeShelfFit.classicPosterImage,
-                            titleSlotHeight = HomeShelfFit.classicPosterTitle,
-                            modifier = if (heroItem != null && continueWatching.isEmpty()) Modifier.onPreviewKeyEvent { event ->
-                                event.type == KeyEventType.KeyDown &&
-                                    event.key == Key.DirectionUp &&
-                                    SafeFocus.request(heroPlayFocus)
-                            } else Modifier
-                        )
-                    }
-                    if (newlyAddedHasMore) {
-                        item(key = "see-all-new") {
-                            SeeAllPosterTile(
-                                onClick = onSeeAllNewlyAdded,
-                                focusRequester = posterFocus("new", "see-all"),
-                                imageHeight = HomeShelfFit.classicPosterImage,
-                                titleSlotHeight = HomeShelfFit.classicPosterTitle
-                            )
-                        }
-                    }
-                }
-                }
-            }
-        }
         if (favorites.isNotEmpty()) {
             item {
                 HomeShelfLabel("Favorites")
@@ -1349,14 +1272,19 @@ private fun HomeTabContent(
                             },
                             focusRequester = posterFocus("fav", fav.id),
                             imageHeight = HomeShelfFit.classicPosterImage,
-                            titleSlotHeight = HomeShelfFit.classicPosterTitle
+                            titleSlotHeight = HomeShelfFit.classicPosterTitle,
+                            modifier = if (heroItem != null && continueWatching.isEmpty()) Modifier.onPreviewKeyEvent { event ->
+                                event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.DirectionUp &&
+                                    SafeFocus.request(heroPlayFocus)
+                            } else Modifier
                         )
                     }
                 }
                 }
             }
         }
-        if (newlyAdded.isEmpty() && continueWatching.isEmpty()) {
+        if (continueWatching.isEmpty() && favorites.isEmpty()) {
             item {
                 Text(
                     "Add a playlist to see featured titles and rows here.",

@@ -74,14 +74,15 @@ fun HomeHeroBanner(
             .background(CinemaSurface, shape)
             .border(1.dp, Color(0x22FFFFFF), shape)
     ) {
-        // Cap at one 960x400 still (about 0.8 MB in RGB_565), never a full-resolution backdrop.
+        // Cap at one 960x640 still (about 1.2 MB in RGB_565), never a full-resolution backdrop.
         val decodeWidth = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1).coerceAtMost(960)
-        val decodeHeight = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1).coerceAtMost(400)
+        val decodeHeight = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1).coerceAtMost(640)
         NetworkImage(
             url = imageUrl,
             contentDescription = title,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
+            alignment = Alignment.TopCenter,
             placeholderLabel = title.take(1).uppercase(),
             decodeWidth = decodeWidth,
             decodeHeight = decodeHeight,

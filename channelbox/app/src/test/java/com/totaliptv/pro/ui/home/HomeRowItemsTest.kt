@@ -22,20 +22,22 @@ class HomeRowItemsTest {
 
         val classic = File("src/tv/java/com/totaliptv/pro/ui/home/HomeScreen.kt").readText()
         assertTrue(classic.contains("TvLazyRow("))
-        assertTrue(classic.contains("previewPlusHasMore"))
-        assertTrue(classic.contains("SeeAllPosterTile"))
-        assertTrue(classic.contains("CatalogCategories.NEWLY_ADDED_VOD_ID"))
-        // Classic Home no longer has a Top rated row; that group stays in the Movies/Series rails.
+        // Classic Home is hero + Continue watching (+ Favorites). Newly added stays in Movies/Series.
+        assertFalse(classic.contains("HomeShelfLabel(\"Newly added\")"))
+        assertFalse(classic.contains("onSeeAllNewlyAdded"))
+        assertFalse(classic.contains("SeeAllPosterTile"))
         assertFalse(classic.contains("HomeShelfLabel(\"Top rated\")"))
         assertFalse(classic.contains("onSeeAllTopRated"))
         assertFalse(classic.contains("topPicksHasMore"))
+        assertTrue(classic.contains("HomeShelfLabel(\"Continue watching\")"))
+        assertTrue(classic.contains("HomeShelfLabel(\"Favorites\")"))
         assertTrue(classic.contains("onLeftToRail"))
         assertTrue(classic.contains("Key.DirectionLeft"))
         assertTrue(classic.contains("HomeHeroBanner("))
         assertTrue(classic.contains("HeroBannerPick"))
         assertFalse(classic.contains("newlyAddedMovies(Int.MAX_VALUE)"))
         assertFalse(classic.contains("newlyAddedMovies(24)"))
-        // Full lists stay reachable from the See all tile / sidebar row; only the Home preview is capped.
+        // Full Newly added lists stay reachable from the Movies/Series sidebar.
         val seeAllTile = File("src/tv/java/com/totaliptv/pro/ui/components/Components.kt").readText()
             .substringAfter("fun SeeAllPosterTile")
             .substringBefore("fun ChannelGridCard")

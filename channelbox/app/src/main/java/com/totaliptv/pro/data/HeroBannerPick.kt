@@ -9,14 +9,22 @@ import java.time.ZoneId
 
 /**
  * Picks one playable, genuinely top-rated movie for the Classic Home hero, once a day.
- * Within the top-rated set, prefers American titles when origin/country data exists.
- * Daily rotation is deterministic and stays inside that top set.
+ * Implausible scores (>= 9.5) and known low vote counts are skipped. The pool is
+ * well-known titles (about 7.0-9.4). Within that top set, prefers American titles
+ * when origin/country data exists. Daily rotation is deterministic and stays inside
+ * that top set.
  */
 object HeroBannerPick {
     const val FILE_NAME = "hero-banner-pick.txt"
-    /** Titles this close to the highest score count as the top set. */
+    /** Titles this close to the highest eligible score count as the top set. */
     const val TOP_SET_DELTA = 0.3
     const val TOP_SET_CAP = 10
+    /** Inclusive floor for a "well-known" hero rating. */
+    const val MIN_PLAUSIBLE_RATING = 7.0
+    /** Ratings at or above this are treated as implausible and skipped. */
+    const val IMPLAUSIBLE_RATING = 9.5
+    /** Skip a title only when a vote count is known and is below this floor. */
+    const val MIN_VOTE_COUNT = 50
 
     data class Stored(val day: String, val itemId: String)
 
@@ -51,12 +59,36 @@ object HeroBannerPick {
         return ten.takeIf { it > 0.0 && it <= 10.0 }
     }
 
+    /** True when a known vote count is below [MIN_VOTE_COUNT]. Missing counts do not disqualify. */
+    fun hasTooFewVotes(item: MediaItem): Boolean {
+        val votes = item.voteCount ?: return false
+        return votes < MIN_VOTE_COUNT
+    }
+
+    fun isPlausibleRating(rating: Double): Boolean =
+        rating >= MIN_PLAUSIBLE_RATING && rating < IMPLAUSIBLE_RATING
+
+    fun isEligible(item: MediaItem): Boolean {
+        if (!isPlayableMovie(item)) return false
+        if (hasTooFewVotes(item)) return false
+        val rating = ratingNumber(item) ?: return false
+        return isPlausibleRating(rating)
+    }
+
     /**
-     * Highest-rated playable cluster, American-preferred when those titles
+     * Highest-rated eligible cluster, American-preferred when those titles
      * themselves sit in the top set. Capped at [TOP_SET_CAP].
      */
     fun topSet(candidates: List<MediaItem>): List<MediaItem> {
-        val playable = candidates.filter { isPlayableMovie(it) }
+        val preferred = candidates.filter { isEligible(it) }
+        val playable = preferred.ifEmpty {
+            // Nothing in the 7.0–9.4 band: still skip implausible scores and low votes.
+            candidates.filter { item ->
+                isPlayableMovie(item) &&
+                    !hasTooFewVotes(item) &&
+                    (ratingNumber(item) ?: Double.NEGATIVE_INFINITY) < IMPLAUSIBLE_RATING
+            }
+        }
         if (playable.isEmpty()) return emptyList()
         val scored = playable.map { it to (ratingNumber(it) ?: Double.NEGATIVE_INFINITY) }
         val max = scored.maxOf { it.second }

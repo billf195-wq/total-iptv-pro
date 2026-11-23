@@ -68,7 +68,9 @@ data class MediaItem(
     /** Wide backdrop from the provider (`backdrop_path`); Home hero prefers this over the poster. */
     val backdropUrl: String? = null,
     /** Origin / country when the provider sent one (Xtream `country`). */
-    val country: String? = null
+    val country: String? = null,
+    /** Known vote count (e.g. TMDB) when one was resolved; null if unknown. */
+    val voteCount: Int? = null
 ) {
     /** Best available artwork for browse grids / logos. */
     fun artworkUrl(): String? = posterUrl?.takeIf { it.isNotBlank() } ?: logoUrl?.takeIf { it.isNotBlank() }

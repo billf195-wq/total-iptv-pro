@@ -161,6 +161,9 @@ class ServiceIndex(entries: List<TmdbServiceEntry>) {
     /** "8.2"-style text for [ratingScore]; null when there is no usable TMDB rating. */
     fun ratingDisplay(item: MediaItem): String? = Ratings.formatTen(ratingScore(item))
 
+    /** Known TMDB vote count for [item], or null when the index has no match. */
+    fun voteCount(item: MediaItem): Int? = ratingHit(item)?.voteCount
+
     private fun ratingHit(item: MediaItem): RatingHit? {
         val tv = isTv(item) ?: return null
         item.tmdbId?.takeIf { it > 0 }?.let { id ->

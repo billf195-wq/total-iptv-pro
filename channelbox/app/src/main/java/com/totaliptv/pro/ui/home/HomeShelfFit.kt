@@ -35,8 +35,8 @@ object HomeShelfFit {
     val classicRowHeader = 16.dp
     val classicPosterImage = 100.dp
     val classicPosterTitle = 26.dp
-    /** Classic Home hero banner. Large, but one downscaled still. */
-    val classicHeroHeight = 200.dp
+    /** Classic Home hero banner. Taller now that Home no longer shows Newly added. */
+    val classicHeroHeight = 320.dp
 
     val sidebarLogo = 36.dp
 
