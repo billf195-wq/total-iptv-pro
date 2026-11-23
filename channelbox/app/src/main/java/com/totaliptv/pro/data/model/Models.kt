@@ -64,7 +64,11 @@ data class MediaItem(
     /** Release year when the provider sent one (Xtream `year` / series `releaseDate`). */
     val year: Int? = null,
     /** TMDB id when the provider sent one (Xtream `tmdb` / `tmdb_id`); used for service groups. */
-    val tmdbId: Int? = null
+    val tmdbId: Int? = null,
+    /** Wide backdrop from the provider (`backdrop_path`); Home hero prefers this over the poster. */
+    val backdropUrl: String? = null,
+    /** Origin / country when the provider sent one (Xtream `country`). */
+    val country: String? = null
 ) {
     /** Best available artwork for browse grids / logos. */
     fun artworkUrl(): String? = posterUrl?.takeIf { it.isNotBlank() } ?: logoUrl?.takeIf { it.isNotBlank() }

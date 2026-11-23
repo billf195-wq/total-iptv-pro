@@ -2,6 +2,7 @@ package com.totaliptv.pro.ui.home
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -24,10 +25,21 @@ class HomeRowItemsTest {
         assertTrue(classic.contains("previewPlusHasMore"))
         assertTrue(classic.contains("SeeAllPosterTile"))
         assertTrue(classic.contains("CatalogCategories.NEWLY_ADDED_VOD_ID"))
-        assertTrue(classic.contains("CatalogCategories.TOP_RATED_VOD_ID"))
+        // Classic Home no longer has a Top rated row; that group stays in the Movies/Series rails.
+        assertFalse(classic.contains("HomeShelfLabel(\"Top rated\")"))
+        assertFalse(classic.contains("onSeeAllTopRated"))
+        assertFalse(classic.contains("topPicksHasMore"))
+        assertTrue(classic.contains("onLeftToRail"))
+        assertTrue(classic.contains("Key.DirectionLeft"))
+        assertTrue(classic.contains("HomeHeroBanner("))
+        assertTrue(classic.contains("HeroBannerPick"))
         assertFalse(classic.contains("newlyAddedMovies(Int.MAX_VALUE)"))
         assertFalse(classic.contains("newlyAddedMovies(24)"))
         // Full lists stay reachable from the See all tile / sidebar row; only the Home preview is capped.
+        val seeAllTile = File("src/tv/java/com/totaliptv/pro/ui/components/Components.kt").readText()
+            .substringAfter("fun SeeAllPosterTile")
+            .substringBefore("fun ChannelGridCard")
+                assertEquals(1, seeAllTile.split("text = label").size - 1)
         val cats = File("src/main/java/com/totaliptv/pro/data/CatalogCategories.kt").readText()
         assertTrue(cats.contains("const val HOME_ROW_LIMIT = 20"))
         assertTrue(cats.contains("const val ALL_NAME = \"See all\""))

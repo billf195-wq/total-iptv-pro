@@ -129,7 +129,9 @@ class XtreamApi(
         @SerialName("youtube_trailer") val youtubeTrailer: String? = null,
         @SerialName("tmdb") val tmdbRaw: JsonElement? = null,
         @SerialName("tmdb_id") val tmdbIdRaw: JsonElement? = null,
-        @SerialName("year") val yearRaw: JsonElement? = null
+        @SerialName("year") val yearRaw: JsonElement? = null,
+        @SerialName("backdrop_path") val backdropPath: JsonElement? = null,
+        @SerialName("country") val country: String? = null
     ) {
         val num: Int get() = XtreamApi.flexibleInt(numRaw)
         val streamId: Int get() = XtreamApi.flexibleInt(streamIdRaw)
@@ -744,6 +746,15 @@ class XtreamApi(
         else -> null
     }
 
+    /** First non-blank path from a provider string or string array (`backdrop_path`). */
+    private fun firstImagePath(raw: JsonElement?): String? = when (raw) {
+        is JsonPrimitive -> raw.contentOrNull?.trim()?.takeIf { it.isNotBlank() }
+        is JsonArray -> raw.mapNotNull { el ->
+            (el as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotBlank() }
+        }.firstOrNull()
+        else -> null
+    }
+
     private fun mapVodItem(
         host: String,
         username: String,
@@ -770,7 +781,9 @@ class XtreamApi(
             rating = normalizeRating(s.rating, s.rating5based),
             youtubeTrailer = s.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() },
             year = flexibleYear(s.yearRaw),
-            tmdbId = flexibleInt(s.tmdbRaw).takeIf { it > 0 } ?: flexibleInt(s.tmdbIdRaw).takeIf { it > 0 }
+            tmdbId = flexibleInt(s.tmdbRaw).takeIf { it > 0 } ?: flexibleInt(s.tmdbIdRaw).takeIf { it > 0 },
+            backdropUrl = LogoUrls.absolute(host, firstImagePath(s.backdropPath)),
+            country = s.country?.trim()?.takeIf { it.isNotBlank() }
         )
     }
 

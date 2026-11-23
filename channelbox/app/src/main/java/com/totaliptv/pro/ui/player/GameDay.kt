@@ -155,8 +155,6 @@ fun GameDayPicker(
     val rightFocus = remember { FocusRequester() }
     val startFocus = remember { FocusRequester() }
 
-    BackHandler(enabled = picking == null) { onDismiss() }
-
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -165,6 +163,8 @@ fun GameDayPicker(
             dismissOnClickOutside = false
         )
     ) {
+    // BackHandler must live inside the Dialog window, or Back/Esc never reach it.
+    BackHandler(enabled = picking == null) { onDismiss() }
     MaterialTheme(colorScheme = darkColorScheme(background = PickerBlack, surface = PickerCard)) {
         Box(Modifier.fillMaxSize().background(PickerBlack)) {
             if (picking == null) {

@@ -54,6 +54,8 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
+import coil.size.Precision
+import android.graphics.Bitmap
 import coil.compose.AsyncImage
 import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.splash.AppBrandName
@@ -814,22 +816,12 @@ fun SeeAllPosterTile(
                     modifier = Modifier.padding(8.dp)
                 )
             }
+            // Keep the title slot empty so this tile lines up with posters and the words appear once.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(if (titleSlotHeight != null) Modifier.height(titleSlotHeight) else Modifier)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Text(
-                    text = label,
-                    color = if (focused) Color.White else OnCinema,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            )
         }
     }
 }
@@ -1036,7 +1028,8 @@ fun NetworkImage(
     contentScale: ContentScale = ContentScale.Crop,
     placeholderLabel: String = "?",
     decodeWidth: Int = 220,
-    decodeHeight: Int = 330
+    decodeHeight: Int = 330,
+    rgb565: Boolean = false
 ) {
     Box(modifier = modifier.background(Color(0xFF151C28)), contentAlignment = Alignment.Center) {
         Text(
@@ -1046,10 +1039,12 @@ fun NetworkImage(
         )
         if (!url.isNullOrBlank()) {
             val context = LocalContext.current
-            val model = remember(url, decodeWidth, decodeHeight) {
+            val model = remember(url, decodeWidth, decodeHeight, rgb565) {
                 ImageRequest.Builder(context)
                     .data(url)
                     .size(decodeWidth, decodeHeight)
+                    .precision(Precision.EXACT)
+                    .apply { if (rgb565) bitmapConfig(Bitmap.Config.RGB_565) }
                     .addHeader("User-Agent", com.totaliptv.pro.data.LogoUrls.USER_AGENT)
                     .allowHardware(false)
                     .crossfade(false)

@@ -46,6 +46,8 @@ class HomeShelfFitTest {
         val classic = File("src/tv/java/com/totaliptv/pro/ui/home/HomeScreen.kt").readText()
         val tab = classic.substringAfter("fun HomeTabContent").substringBefore("fun HomeShelfLabel")
         assertFalse(tab.contains("HeroFeatureBanner("))
+        assertTrue(tab.contains("HomeHeroBanner("))
+        assertTrue(tab.contains("onInfo"))
         assertTrue(tab.contains("HomeShelfFit.classicPosterImage"))
         assertTrue(tab.contains("centeredTopOffset"))
         assertTrue(tab.contains("userScrollEnabled = !centerHome"))

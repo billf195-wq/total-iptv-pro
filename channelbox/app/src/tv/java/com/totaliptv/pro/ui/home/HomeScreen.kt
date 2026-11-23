@@ -53,6 +53,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +69,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.totaliptv.pro.data.LiveChannelMapping
 import com.totaliptv.pro.data.CatalogCategories
+import com.totaliptv.pro.data.HeroBannerPick
 import com.totaliptv.pro.data.FavoriteSections
 import com.totaliptv.pro.data.LiveFavorites
 import com.totaliptv.pro.data.model.Category
@@ -92,6 +98,7 @@ import com.totaliptv.pro.ui.components.LiveChannelCard
 import com.totaliptv.pro.ui.components.SeeAllPosterTile
 import com.totaliptv.pro.ui.components.PosterCard
 import com.totaliptv.pro.ui.focus.FocusTrace
+import com.totaliptv.pro.ui.focus.SafeFocus
 import com.totaliptv.pro.ui.home.HomeShelfFit
 import com.totaliptv.pro.ui.home.NoVerticalHomeScroll
 import com.totaliptv.pro.ui.home.PosterRowBringIntoView
@@ -109,8 +116,10 @@ import com.totaliptv.pro.ui.theme.WarningAmber
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class HubTab { Home, Live, Movies, Series }
 
@@ -156,11 +165,9 @@ fun HomeScreen(
     }
     val cwStart = rowStart("cw")
     val newStart = rowStart("new")
-    val topStart = rowStart("top")
     val favStart = rowStart("fav")
     val cwRowState = rememberTvLazyListState(cwStart.first, cwStart.second)
     val newRowState = rememberTvLazyListState(newStart.first, newStart.second)
-    val topRowState = rememberTvLazyListState(topStart.first, topStart.second)
     val favRowState = rememberTvLazyListState(favStart.first, favStart.second)
     val vodGridStates = remember { mutableMapOf<String, androidx.compose.foundation.lazy.grid.LazyGridState>() }
     fun vodGridState(isSeries: Boolean, categoryId: String?, sortName: String): androidx.compose.foundation.lazy.grid.LazyGridState {
@@ -470,9 +477,8 @@ fun HomeScreen(
 
     // Home rails
     var newlyAdded by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    var topPicks by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var newlyAddedHasMore by remember { mutableStateOf(false) }
-    var topPicksHasMore by remember { mutableStateOf(false) }
+    var heroItem by remember { mutableStateOf<MediaItem?>(null) }
     var continueWatching by remember { mutableStateOf<List<WatchProgress>>(emptyList()) }
     var progressById by remember { mutableStateOf<Map<String, WatchProgress>>(emptyMap()) }
     /** Continue watching long-press menu target (entry + row index). */
@@ -551,9 +557,25 @@ fun HomeScreen(
         val newestPreview = CatalogCategories.previewPlusHasMore(repository.newlyAddedMovies())
         newlyAdded = newestPreview.first
         newlyAddedHasMore = newestPreview.second
-        val topPreview = CatalogCategories.previewPlusHasMore(repository.topRated(ContentKind.VOD))
-        topPicks = topPreview.first
-        topPicksHasMore = topPreview.second
+    }
+    val heroDir = remember { app.filesDir }
+    LaunchedEffect(hubTab, catalogRevision) {
+        if (hubTab != HubTab.Home) return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            repeat(8) {
+                val today = HeroBannerPick.dayString(System.currentTimeMillis())
+                val stored = HeroBannerPick.read(heroDir)
+                val picked = HeroBannerPick.pick(repository.topRated(ContentKind.VOD), today, stored)
+                if (picked != null) {
+                    if (stored == null || stored.day != today || stored.itemId != picked.id) {
+                        HeroBannerPick.write(heroDir, HeroBannerPick.Stored(today, picked.id))
+                    }
+                    withContext(Dispatchers.Main) { heroItem = picked }
+                    return@withContext
+                }
+                kotlinx.coroutines.delay(350)
+            }
+        }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -740,18 +762,12 @@ fun HomeScreen(
                         homeListState = homeListState,
                         cwRowState = cwRowState,
                         newRowState = newRowState,
-                        topRowState = topRowState,
                         favRowState = favRowState,
                         newlyAdded = newlyAdded,
-                        topPicks = topPicks,
                         newlyAddedHasMore = newlyAddedHasMore,
-                        topPicksHasMore = topPicksHasMore,
+                        heroItem = heroItem,
                         onSeeAllNewlyAdded = {
                             pendingCategoryId = CatalogCategories.NEWLY_ADDED_VOD_ID
-                            hubTab = HubTab.Movies
-                        },
-                        onSeeAllTopRated = {
-                            pendingCategoryId = CatalogCategories.TOP_RATED_VOD_ID
                             hubTab = HubTab.Movies
                         },
                         continueWatching = continueWatching,
@@ -782,7 +798,9 @@ fun HomeScreen(
                     )
                 }
                 else -> {
-                    // Live / Movies / Series share left rail + main pane
+                    // Live / Movies / Series share left rail + main pane.
+                    // Left from a first-column poster returns here, not to a neighbor rail row.
+                    val selectedRailFocus = remember(hubTab, selectedCategoryId) { FocusRequester() }
                     Row(modifier = Modifier.fillMaxSize()) {
                         Column(
                             modifier = Modifier
@@ -802,7 +820,8 @@ fun HomeScreen(
                                     title = "Favorites",
                                     selected = onFavoritesRow,
                                     count = FavoriteSections.count(favorites, ContentKind.LIVE),
-                                    onClick = { selectedCategoryId = LiveFavorites.CATEGORY_ID }
+                                    onClick = { selectedCategoryId = LiveFavorites.CATEGORY_ID },
+                                    modifier = if (onFavoritesRow) Modifier.focusRequester(selectedRailFocus) else Modifier
                                 )
                                 CategoryRailItem(
                                     title = "TV Guide",
@@ -832,7 +851,8 @@ fun HomeScreen(
                                         title = "Favorites",
                                         selected = onFavoritesRow,
                                         count = FavoriteSections.count(favorites, browseKind ?: ContentKind.VOD),
-                                        onClick = { selectedCategoryId = favCategoryId }
+                                        onClick = { selectedCategoryId = favCategoryId },
+                                        modifier = if (onFavoritesRow) Modifier.focusRequester(selectedRailFocus) else Modifier
                                     )
                                 }
                                 val allId = CatalogCategories.allId(browseKind ?: ContentKind.VOD)
@@ -840,7 +860,8 @@ fun HomeScreen(
                                     title = CatalogCategories.ALL_NAME,
                                     selected = selectedCategoryId == allId,
                                     count = allCategoryCount,
-                                    onClick = { selectedCategoryId = allId }
+                                    onClick = { selectedCategoryId = allId },
+                                    modifier = if (selectedCategoryId == allId) Modifier.focusRequester(selectedRailFocus) else Modifier
                                 )
                                 Spacer(Modifier.height(6.dp))
                             }
@@ -871,7 +892,8 @@ fun HomeScreen(
                                             title = cat.name,
                                             selected = cat.id == selectedCategoryId,
                                             count = categoryCounts[cat.id],
-                                            onClick = { selectedCategoryId = cat.id }
+                                            onClick = { selectedCategoryId = cat.id },
+                                            modifier = if (cat.id == selectedCategoryId) Modifier.focusRequester(selectedRailFocus) else Modifier
                                         )
                                     }
                                 }
@@ -937,6 +959,7 @@ fun HomeScreen(
                                     onVisibleIndex = { lastVisibleIndex = it },
                                     onVisibleOffset = { lastVisibleOffset = it },
                                     gridState = vodGridState(hubTab == HubTab.Series, selectedCategoryId, catalogSort.name),
+                                    onLeftToRail = { SafeFocus.request(selectedRailFocus) },
                                     onPlay = { playMedia(it) },
                                     onOpenDetail = { item, index ->
                                         openDetailFromPoster(item, focusKey = item.id, index = index, scope = "vod-grid")
@@ -1049,14 +1072,11 @@ private fun HomeTabContent(
     homeListState: androidx.compose.foundation.lazy.LazyListState,
     cwRowState: androidx.tv.foundation.lazy.list.TvLazyListState,
     newRowState: androidx.tv.foundation.lazy.list.TvLazyListState,
-    topRowState: androidx.tv.foundation.lazy.list.TvLazyListState,
     favRowState: androidx.tv.foundation.lazy.list.TvLazyListState,
     newlyAdded: List<MediaItem>,
-    topPicks: List<MediaItem>,
     newlyAddedHasMore: Boolean,
-    topPicksHasMore: Boolean,
+    heroItem: MediaItem? = null,
     onSeeAllNewlyAdded: () -> Unit,
-    onSeeAllTopRated: () -> Unit,
     continueWatching: List<WatchProgress>,
     progressById: Map<String, WatchProgress>,
     favorites: List<FavoriteRef>,
@@ -1078,13 +1098,12 @@ private fun HomeTabContent(
     onHomeScroll: (index: Int, offset: Int, rows: List<com.totaliptv.pro.data.local.RowScroll>) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
-    val homeScopes = setOf("cw", "new", "top", "fav")
-    LaunchedEffect(homeListState, cwRowState, newRowState, topRowState, favRowState) {
+    val homeScopes = setOf("cw", "new", "fav")
+    LaunchedEffect(homeListState, cwRowState, newRowState, favRowState) {
         snapshotFlow {
             val rows = listOf(
                 com.totaliptv.pro.data.local.RowScroll("cw", cwRowState.firstVisibleItemIndex, cwRowState.firstVisibleItemScrollOffset),
                 com.totaliptv.pro.data.local.RowScroll("new", newRowState.firstVisibleItemIndex, newRowState.firstVisibleItemScrollOffset),
-                com.totaliptv.pro.data.local.RowScroll("top", topRowState.firstVisibleItemIndex, topRowState.firstVisibleItemScrollOffset),
                 com.totaliptv.pro.data.local.RowScroll("fav", favRowState.firstVisibleItemIndex, favRowState.firstVisibleItemScrollOffset)
             )
             Triple(homeListState.firstVisibleItemIndex, homeListState.firstVisibleItemScrollOffset, rows)
@@ -1093,15 +1112,19 @@ private fun HomeTabContent(
     val posterRows = listOf(
         continueWatching.isNotEmpty(),
         newlyAdded.isNotEmpty(),
-        topPicks.isNotEmpty(),
         favorites.isNotEmpty()
     ).count { it }
+    val heroPlayFocus = remember { FocusRequester() }
+    val heroInfoFocus = remember { FocusRequester() }
     BoxWithConstraints(modifier.fillMaxSize()) {
-    val homeBlock = HomeShelfFit.homeBlock(
+    val rowsBlock = HomeShelfFit.homeBlock(
         HomeShelfFit.classicRow(),
         HomeShelfFit.classicRowGap,
         posterRows
     )
+    val homeBlock = rowsBlock + if (heroItem != null) {
+        HomeShelfFit.classicHeroHeight + HomeShelfFit.classicRowGap
+    } else 0.dp
     val centerHome = posterRows > 0 && homeBlock <= maxHeight
     LaunchedEffect(pendingFocusRestore, restoreFocusId, restoreFocusIndex, restoreFocusScope, centerHome) {
         if (!pendingFocusRestore) return@LaunchedEffect
@@ -1112,20 +1135,14 @@ private fun HomeTabContent(
         val idx = restoreFocusIndex.coerceAtLeast(0)
         var focused = false
         for (attempt in 0 until 12) {
+            val heroOffset = if (heroItem != null) 1 else 0
             val rowOrdinal = when (scope) {
-                "cw" -> 0
-                "new" -> if (continueWatching.isNotEmpty()) 1 else 0
-                "top" -> {
-                    var o = 0
-                    if (continueWatching.isNotEmpty()) o += 1
-                    if (newlyAdded.isNotEmpty()) o += 1
-                    o
-                }
+                "cw" -> heroOffset
+                "new" -> heroOffset + if (continueWatching.isNotEmpty()) 1 else 0
                 "fav" -> {
-                    var o = 0
+                    var o = heroOffset
                     if (continueWatching.isNotEmpty()) o += 1
                     if (newlyAdded.isNotEmpty()) o += 1
-                    if (topPicks.isNotEmpty()) o += 1
                     o
                 }
                 else -> 0
@@ -1137,7 +1154,6 @@ private fun HomeTabContent(
             when (scope) {
                 "cw" -> runCatching { cwRowState.scrollToItem(idx) }
                 "new" -> runCatching { newRowState.scrollToItem(idx) }
-                "top" -> runCatching { topRowState.scrollToItem(idx) }
                 "fav" -> runCatching { favRowState.scrollToItem(idx) }
             }
             kotlinx.coroutines.yield()
@@ -1171,6 +1187,29 @@ private fun HomeTabContent(
         ),
         verticalArrangement = Arrangement.spacedBy(HomeShelfFit.classicRowGap)
     ) {
+        if (heroItem != null) {
+            item(key = "home-hero") {
+                val shownHero = heroItem.copy(rating = mergedDisplayRating(heroItem) ?: heroItem.rating)
+                HomeHeroBanner(
+                    title = shownHero.name,
+                    imageUrl = HeroBannerPick.imageUrl(shownHero),
+                    metaLine = HeroBannerPick.metaLine(shownHero),
+                    onPlay = { onPlay(heroItem) },
+                    onInfo = { onOpenDetail(heroItem, 0, "hero") },
+                    playFocus = heroPlayFocus,
+                    infoFocus = heroInfoFocus,
+                    onDownFromBanner = {
+                        val firstCw = continueWatching.firstOrNull()?.id
+                        val firstNew = newlyAdded.firstOrNull()?.id
+                        when {
+                            firstCw != null -> SafeFocus.request(posterFocus("cw", firstCw))
+                            firstNew != null -> SafeFocus.request(posterFocus("new", firstNew))
+                            else -> false
+                        }
+                    }
+                )
+            }
+        }
         if (continueWatching.isNotEmpty()) {
             item {
                 HomeShelfLabel("Continue watching")
@@ -1200,7 +1239,12 @@ private fun HomeTabContent(
                             progressPercent = pct,
                             focusRequester = posterFocus("cw", prog.id),
                             imageHeight = HomeShelfFit.classicPosterImage,
-                            titleSlotHeight = HomeShelfFit.classicPosterTitle
+                            titleSlotHeight = HomeShelfFit.classicPosterTitle,
+                            modifier = if (heroItem != null) Modifier.onPreviewKeyEvent { event ->
+                                event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.DirectionUp &&
+                                    SafeFocus.request(heroPlayFocus)
+                            } else Modifier
                         )
                     }
                 }
@@ -1234,7 +1278,12 @@ private fun HomeTabContent(
                             progressPercent = pct,
                             focusRequester = posterFocus("new", item.id),
                             imageHeight = HomeShelfFit.classicPosterImage,
-                            titleSlotHeight = HomeShelfFit.classicPosterTitle
+                            titleSlotHeight = HomeShelfFit.classicPosterTitle,
+                            modifier = if (heroItem != null && continueWatching.isEmpty()) Modifier.onPreviewKeyEvent { event ->
+                                event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.DirectionUp &&
+                                    SafeFocus.request(heroPlayFocus)
+                            } else Modifier
                         )
                     }
                     if (newlyAddedHasMore) {
@@ -1242,50 +1291,6 @@ private fun HomeTabContent(
                             SeeAllPosterTile(
                                 onClick = onSeeAllNewlyAdded,
                                 focusRequester = posterFocus("new", "see-all"),
-                                imageHeight = HomeShelfFit.classicPosterImage,
-                                titleSlotHeight = HomeShelfFit.classicPosterTitle
-                            )
-                        }
-                    }
-                }
-                }
-            }
-        }
-        if (topPicks.isNotEmpty()) {
-            item {
-                HomeShelfLabel("Top rated")
-                PosterRowBringIntoView(posterBringIntoView) {
-                TvLazyRow(
-                    state = topRowState,
-                    horizontalArrangement = Arrangement.spacedBy(ClassicDimens.PosterRowGap)
-                ) {
-                    tvItemsIndexed(topPicks, key = { _, it -> "tp-${it.id}" }) { index, item ->
-                        val prog = progressById[item.id]
-                        val pct = prog?.let { (it.fraction() * 100).toInt().coerceIn(1, 99) }
-                        PosterCard(
-                            title = item.name,
-                            imageUrl = item.artworkUrl(),
-                            onClick = {
-                                if (item.kind == ContentKind.VOD || item.kind == ContentKind.SERIES) {
-                                    onOpenDetail(item, index, "top")
-                                } else {
-                                    onPlay(item)
-                                }
-                            },
-                            isFavorite = item.id in favoriteIds,
-                            onLongClick = { onToggleFavorite(item) },
-                            rating = mergedDisplayRating(item),
-                            progressPercent = pct,
-                            focusRequester = posterFocus("top", item.id),
-                            imageHeight = HomeShelfFit.classicPosterImage,
-                            titleSlotHeight = HomeShelfFit.classicPosterTitle
-                        )
-                    }
-                    if (topPicksHasMore) {
-                        item(key = "see-all-top") {
-                            SeeAllPosterTile(
-                                onClick = onSeeAllTopRated,
-                                focusRequester = posterFocus("top", "see-all"),
                                 imageHeight = HomeShelfFit.classicPosterImage,
                                 titleSlotHeight = HomeShelfFit.classicPosterTitle
                             )
@@ -1330,7 +1335,7 @@ private fun HomeTabContent(
                 }
             }
         }
-        if (newlyAdded.isEmpty() && topPicks.isEmpty() && continueWatching.isEmpty()) {
+        if (newlyAdded.isEmpty() && continueWatching.isEmpty()) {
             item {
                 Text(
                     "Add a playlist to see featured titles and rows here.",
@@ -1539,6 +1544,7 @@ private fun VodMainPane(
     onOpenDetail: (MediaItem, index: Int) -> Unit,
     onToggleFavorite: (MediaItem) -> Unit,
     posterColumns: Int = 6,
+    onLeftToRail: () -> Boolean = { false },
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState? = null,
     onVisibleOffset: (Int) -> Unit = {}
 ) {
@@ -1638,6 +1644,8 @@ private fun VodMainPane(
                     val shown = posterOverrides[item.id] ?: item
                     val prog = progressById[item.id]
                     val pct = prog?.let { (it.fraction() * 100).toInt().coerceIn(1, 99) }
+                    val cols = AppPreferences.normalizePosterColumns(posterColumns)
+                    val firstCol = cols > 0 && index % cols == 0
                     PosterCard(
                         title = shown.name,
                         imageUrl = shown.artworkUrl(),
@@ -1650,7 +1658,14 @@ private fun VodMainPane(
                         onLongClick = { onToggleFavorite(item) },
                         rating = mergedDisplayRating(shown),
                         progressPercent = pct,
-                        focusRequester = posterFocus("vod-grid", item.id)
+                        focusRequester = posterFocus("vod-grid", item.id),
+                        modifier = if (firstCol) {
+                            Modifier.onPreviewKeyEvent { event ->
+                                event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.DirectionLeft &&
+                                    onLeftToRail()
+                            }
+                        } else Modifier
                     )
                 }
             }
