@@ -115,6 +115,44 @@ class HeroBannerPickTest {
     }
 
     @Test
+    fun picksHighestRatedNotAMidRatedTitle() {
+        val mid = movie("nap", "Napoleon", country = "USA", rating = "6.3")
+        val highUs = movie("us-hi", "Top American", country = "USA", rating = "8.8")
+        val highUk = movie("uk-hi", "Top UK", country = "United Kingdom", rating = "8.9")
+        val mid2 = movie("mid2", "Also Mid", country = "USA", rating = "6.1")
+        val picked = HeroBannerPick.pick(listOf(mid, mid2, highUk, highUs), "2026-11-23", stored = null)
+        assertTrue(picked?.id in setOf("us-hi", "uk-hi"), "picked=${picked?.id}")
+        // American preferred only when that title is itself in the top set.
+        // 8.8 is within 0.3 of 8.9, so the US title can win; 6.3 cannot.
+        assertFalse(picked?.id in setOf("nap", "mid2"))
+        val onlyHigh = HeroBannerPick.pick(listOf(mid, highUk, mid2), "2026-11-23", stored = null)
+        assertEquals("uk-hi", onlyHigh?.id)
+    }
+
+    @Test
+    fun ignoresStaleCachedMidRatedIdWhenABetterTopSetExists() {
+        val mid = movie("nap", "Napoleon", country = "USA", rating = "6.3")
+        val high = movie("hi", "Best", country = "USA", rating = "8.7")
+        val cached = HeroBannerPick.pick(
+            listOf(mid, high),
+            "2026-11-23",
+            stored = HeroBannerPick.Stored("2026-11-23", "nap")
+        )
+        assertEquals("hi", cached?.id)
+    }
+
+    @Test
+    fun rotatesOnlyInsideTheTopSet() {
+        val top = (1..3).map { movie("t-$it", "Top $it", country = "USA", rating = "8.8") }
+        val rest = (1..20).map { movie("m-$it", "Mid $it", country = "USA", rating = "6.3") }
+        val ids = (1..28).map { d ->
+            HeroBannerPick.pick(top + rest, "2026-04-%02d".format(d), stored = null)?.id
+        }.toSet()
+        assertTrue(ids.all { it.orEmpty().startsWith("t-") }, ids.toString())
+        assertTrue(ids.size >= 2, ids.toString())
+    }
+
+    @Test
     fun americanTokens() {
         assertTrue(HeroBannerPick.isAmerican("USA"))
         assertTrue(HeroBannerPick.isAmerican("United States"))

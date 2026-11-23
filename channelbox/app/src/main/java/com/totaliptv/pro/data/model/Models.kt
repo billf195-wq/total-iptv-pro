@@ -76,6 +76,17 @@ data class MediaItem(
     /** Numeric-style rating for UI badge; never returns "0.0". */
     fun displayRating(): String? =
         rating?.trim()?.takeIf { it.isNotBlank() && it != "0" && it != "0.0" && !it.equals("N/A", true) }
+
+    /** List/cache copy without plot or trailer; filled again when a title is opened. */
+    fun withoutPlotAndTrailer(): MediaItem =
+        if (plot.isNullOrBlank() && youtubeTrailer.isNullOrBlank()) this
+        else copy(plot = null, youtubeTrailer = null)
+}
+
+/** Same-instance when nothing to strip, so catalog identity checks stay valid. */
+fun List<MediaItem>.withoutPlotAndTrailer(): List<MediaItem> {
+    if (none { !it.plot.isNullOrBlank() || !it.youtubeTrailer.isNullOrBlank() }) return this
+    return map { it.withoutPlotAndTrailer() }
 }
 
 @Serializable

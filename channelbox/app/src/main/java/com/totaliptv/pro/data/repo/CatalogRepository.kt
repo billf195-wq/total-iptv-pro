@@ -35,6 +35,7 @@ import com.totaliptv.pro.ui.epg.GuideEpgLoad
 import com.totaliptv.pro.ui.epg.GuideWindow
 import com.totaliptv.pro.data.model.FavoriteRef
 import com.totaliptv.pro.data.model.MediaItem
+import com.totaliptv.pro.data.model.withoutPlotAndTrailer
 import com.totaliptv.pro.data.model.PlaylistSource
 import com.totaliptv.pro.data.model.SourceType
 import com.totaliptv.pro.data.xtream.XtreamApi
@@ -77,6 +78,7 @@ class CatalogRepository(
 
     @Volatile
     private var cachedItems: List<MediaItem> = emptyList()
+        set(value) { field = value.withoutPlotAndTrailer() }
 
     /** Full catalog as loaded (never filtered). Loads and merges always read and write these. */
     @Volatile
@@ -84,6 +86,7 @@ class CatalogRepository(
 
     @Volatile
     private var rawItems: List<MediaItem> = emptyList()
+        set(value) { field = value.withoutPlotAndTrailer() }
 
     /** Movies / series merges finished for the current source (for the PIN lock's remembered ids). */
     @Volatile
@@ -1727,9 +1730,8 @@ class CatalogRepository(
             out = out.copy(posterUrl = details.posterUrl)
         }
         if (needsTrailer && !details.youtubeTrailer.isNullOrBlank()) {
+            // Plot/trailer stay on this returned item only (detail sheet), not the catalog list.
             out = out.copy(youtubeTrailer = details.youtubeTrailer)
-            // Keep catalog entry in sync so Preview works without another fetch
-            updateItemTrailer(out.id, details.youtubeTrailer)
         }
         if (needsPlot && !details.plot.isNullOrBlank()) {
             out = out.copy(plot = details.plot)
@@ -1756,23 +1758,8 @@ class CatalogRepository(
         val sid = item.xtreamStreamId ?: return@withContext null
         val creds = activeXtreamCreds ?: return@withContext null
         val details = xtreamApi.fetchMediaDetails(creds, sid, item.kind == ContentKind.SERIES)
-        val trailer = details.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() }
-        if (trailer != null) updateItemTrailer(item.id, trailer)
-        trailer
-    }
-
-    private fun updateItemTrailer(id: String, trailer: String) {
-        cachedItems = withTrailer(cachedItems, id, trailer) ?: return
-        withTrailer(rawItems, id, trailer)?.let { rawItems = it }
-        rawItems.firstOrNull { it.id == id }?.kind?.takeIf { it != ContentKind.LIVE }?.let { dirtyKinds.add(it) }
-    }
-
-    private fun withTrailer(cur: List<MediaItem>, id: String, trailer: String): List<MediaItem>? {
-        val i = cur.indexOfFirst { it.id == id }
-        if (i < 0) return null
-        val next = cur.toMutableList()
-        next[i] = next[i].copy(youtubeTrailer = trailer)
-        return next
+        // Do not write the trailer back into cached list items.
+        details.youtubeTrailer?.trim()?.takeIf { it.isNotBlank() }
     }
 
     suspend fun epgForChannel(item: MediaItem): EpgNowNext = withContext(Dispatchers.IO) {

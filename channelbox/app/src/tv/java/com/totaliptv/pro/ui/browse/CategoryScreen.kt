@@ -226,7 +226,7 @@ fun BrowseScreen(
         }
         val missing = displayItems.filter { it.artworkUrl().isNullOrBlank() && it.xtreamStreamId != null }
         if (missing.isEmpty()) return@LaunchedEffect
-        posterOverrides = missing.associate { it.id to repository.resolvePoster(it) }
+        posterOverrides = missing.associate { it.id to repository.resolvePoster(it).withoutPlotAndTrailer() }
     }
 
     LaunchedEffect(categories) {

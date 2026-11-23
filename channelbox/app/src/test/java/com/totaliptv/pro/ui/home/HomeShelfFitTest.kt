@@ -156,4 +156,16 @@ class HomeShelfFitTest {
             assertTrue(path, File(path).readText().contains("PhonePageHeader("))
         }
     }
+
+    @Test
+    fun networkImageDecodesAtDisplayedSizeNotAFixedPoster() {
+        val src = File("src/tv/java/com/totaliptv/pro/ui/components/Components.kt").readText()
+            .substringAfter("fun NetworkImage")
+            .substringBefore("fun ErrorText")
+        assertTrue(src.contains("onSizeChanged"))
+        assertTrue(src.contains("decodeWidth: Int? = null"))
+        assertTrue(src.contains("decodeHeight: Int? = null"))
+        assertFalse(src.contains("decodeWidth: Int = 220"))
+        assertFalse(src.contains("decodeHeight: Int = 330"))
+    }
 }

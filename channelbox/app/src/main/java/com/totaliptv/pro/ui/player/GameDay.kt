@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,8 +38,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
@@ -47,6 +50,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import com.totaliptv.pro.ui.focus.SafeFocus
+import com.totaliptv.pro.ui.nav.TvBack
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -163,10 +167,22 @@ fun GameDayPicker(
             dismissOnClickOutside = false
         )
     ) {
-    // BackHandler must live inside the Dialog window, or Back/Esc never reach it.
+    // BackHandler must live inside the Dialog window, or Back never reaches it.
+    // Esc is remapped to Back on this dialog window (MainActivity remap does not apply here).
+    RemapEscapeToBackInWindow()
     BackHandler(enabled = picking == null) { onDismiss() }
     MaterialTheme(colorScheme = darkColorScheme(background = PickerBlack, surface = PickerCard)) {
-        Box(Modifier.fillMaxSize().background(PickerBlack)) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(PickerBlack)
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                        if (picking == null) onDismiss() else picking = null
+                        true
+                    } else false
+                }
+        ) {
             if (picking == null) {
                 SetupSlots(
                     left = left,
@@ -574,4 +590,33 @@ private fun FocusTextButton(
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 22.dp, vertical = 14.dp)
     )
+}
+
+@Composable
+private fun RemapEscapeToBackInWindow() {
+    val view = LocalView.current
+    DisposableEffect(view) {
+        var window: android.view.Window? = null
+        var original: android.view.Window.Callback? = null
+        var parent: android.view.ViewParent? = view.parent
+        while (parent != null) {
+            if (parent is DialogWindowProvider) {
+                window = parent.window
+                break
+            }
+            parent = (parent as? android.view.View)?.parent
+        }
+        val wrapped = window?.callback
+        if (window != null && wrapped != null) {
+            original = wrapped
+            window.callback = object : android.view.Window.Callback by wrapped {
+                override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+                    return wrapped.dispatchKeyEvent(TvBack.asBackKeyEvent(event))
+                }
+            }
+        }
+        onDispose {
+            if (window != null && original != null) window.callback = original
+        }
+    }
 }

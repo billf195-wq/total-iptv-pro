@@ -32,4 +32,15 @@ class MemoryBudgetTest {
         assertEquals(4, MemoryBudget.serviceIndexApplyEveryPersists(tight = true))
         assertEquals(2, MemoryBudget.serviceIndexApplyEveryPersists(tight = false))
     }
+
+    @Test
+    fun evictsGridBitmapsOnlyOnTwoGbOrLowRam() {
+        val twoGb = MemoryBudget.TWO_GB_BYTES
+        assertTrue(MemoryBudget.shouldEvictGridBitmaps(totalMemBytes = twoGb, isLowRam = false))
+        assertTrue(MemoryBudget.shouldEvictGridBitmaps(totalMemBytes = twoGb - 1, isLowRam = false))
+        assertTrue(MemoryBudget.shouldEvictGridBitmaps(totalMemBytes = 1024L * 1024L * 1024L, isLowRam = false))
+        assertFalse(MemoryBudget.shouldEvictGridBitmaps(totalMemBytes = twoGb + 1, isLowRam = false))
+        assertTrue(MemoryBudget.shouldEvictGridBitmaps(totalMemBytes = twoGb + 1, isLowRam = true))
+        assertFalse(MemoryBudget.shouldEvictGridBitmaps(totalMemBytes = 0L, isLowRam = false))
+    }
 }

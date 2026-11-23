@@ -31,6 +31,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
@@ -41,6 +43,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -1027,11 +1031,17 @@ fun NetworkImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
     placeholderLabel: String = "?",
-    decodeWidth: Int = 220,
-    decodeHeight: Int = 330,
+    decodeWidth: Int? = null,
+    decodeHeight: Int? = null,
     rgb565: Boolean = false
 ) {
-    Box(modifier = modifier.background(Color(0xFF151C28)), contentAlignment = Alignment.Center) {
+    var layoutSize by remember { mutableStateOf(IntSize.Zero) }
+    Box(
+        modifier = modifier
+            .background(Color(0xFF151C28))
+            .onSizeChanged { layoutSize = it },
+        contentAlignment = Alignment.Center
+    ) {
         Text(
             text = placeholderLabel,
             color = OnCinemaMuted,
@@ -1039,23 +1049,28 @@ fun NetworkImage(
         )
         if (!url.isNullOrBlank()) {
             val context = LocalContext.current
-            val model = remember(url, decodeWidth, decodeHeight, rgb565) {
-                ImageRequest.Builder(context)
-                    .data(url)
-                    .size(decodeWidth, decodeHeight)
-                    .precision(Precision.EXACT)
-                    .apply { if (rgb565) bitmapConfig(Bitmap.Config.RGB_565) }
-                    .addHeader("User-Agent", com.totaliptv.pro.data.LogoUrls.USER_AGENT)
-                    .allowHardware(false)
-                    .crossfade(false)
-                    .build()
+            val w = (decodeWidth ?: layoutSize.width).coerceAtLeast(1)
+            val h = (decodeHeight ?: layoutSize.height).coerceAtLeast(1)
+            val ready = decodeWidth != null || layoutSize.width >= 8
+            if (ready) {
+                val model = remember(url, w, h, rgb565) {
+                    ImageRequest.Builder(context)
+                        .data(url)
+                        .size(w, h)
+                        .precision(Precision.EXACT)
+                        .apply { if (rgb565) bitmapConfig(Bitmap.Config.RGB_565) }
+                        .addHeader("User-Agent", com.totaliptv.pro.data.LogoUrls.USER_AGENT)
+                        .allowHardware(false)
+                        .crossfade(false)
+                        .build()
+                }
+                AsyncImage(
+                    model = model,
+                    contentDescription = contentDescription,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = contentScale
+                )
             }
-            AsyncImage(
-                model = model,
-                contentDescription = contentDescription,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = contentScale
-            )
         }
     }
 }
@@ -1122,13 +1137,21 @@ fun AppTopNav(
     userBadge: String? = null,
     sourceKind: String? = null,
     focusRequester: FocusRequester? = null,
+    onDownFromNav: (() -> Boolean)? = null,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(HomeShelfFit.classicNav)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 12.dp)
+            .then(
+                if (onDownFromNav != null) Modifier.onPreviewKeyEvent { event ->
+                    event.type == KeyEventType.KeyDown &&
+                        event.key == Key.DirectionDown &&
+                        onDownFromNav()
+                } else Modifier
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         AppBrandName(

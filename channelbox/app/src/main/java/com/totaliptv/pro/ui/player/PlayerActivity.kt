@@ -1633,13 +1633,26 @@ class PlayerActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         com.totaliptv.pro.data.PlaybackGate.enter()
-        player?.playWhenReady = true
+        if (player == null && !isFinishing && !isDestroyed) {
+            resumeApplied = false
+            resumeInProgress = false
+            resumeWaitAttempts = 0
+            initPlayer()
+        } else {
+            player?.playWhenReady = true
+        }
     }
 
     override fun onStop() {
         savePlaybackProgress()
         player?.playWhenReady = false
         com.totaliptv.pro.data.PlaybackGate.exit()
+        if (PlayerRelease.shouldReleaseOnStop(isInPictureInPictureMode, isChangingConfigurations)) {
+            playerView?.player = null
+            val previous = player
+            player = null
+            runCatching { previous?.release() }
+        }
         super.onStop()
     }
 

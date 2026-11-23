@@ -149,14 +149,22 @@ class SplitPlayerActivity : ComponentActivity() {
         super.onStart()
         com.totaliptv.pro.data.PlaybackGate.enter()
         if (released) return
-        left.player?.playWhenReady = true
-        right.player?.playWhenReady = true
+        if (left.player == null || right.player == null) {
+            if (left.player == null) startSide(left)
+            if (right.player == null) startSide(right)
+        } else {
+            left.player?.playWhenReady = true
+            right.player?.playWhenReady = true
+        }
     }
 
     override fun onStop() {
         left.player?.playWhenReady = false
         right.player?.playWhenReady = false
         com.totaliptv.pro.data.PlaybackGate.exit()
+        if (PlayerRelease.shouldReleaseOnStop(isInPictureInPictureMode, isChangingConfigurations)) {
+            releasePlayersOnly()
+        }
         super.onStop()
     }
 
@@ -787,10 +795,7 @@ class SplitPlayerActivity : ComponentActivity() {
         finish()
     }
 
-    private fun releaseBoth() {
-        if (released) return
-        released = true
-        hideControlsJob?.cancel()
+    private fun releasePlayersOnly() {
         for (side in listOf(leftOrNull(), rightOrNull())) {
             side ?: continue
             side.bufferJob?.cancel()
@@ -799,6 +804,13 @@ class SplitPlayerActivity : ComponentActivity() {
             side.player?.release()
             side.player = null
         }
+    }
+
+    private fun releaseBoth() {
+        if (released) return
+        released = true
+        hideControlsJob?.cancel()
+        releasePlayersOnly()
         scope.coroutineContext[Job]?.cancel()
     }
 

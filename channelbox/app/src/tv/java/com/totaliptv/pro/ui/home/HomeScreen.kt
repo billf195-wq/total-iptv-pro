@@ -70,6 +70,9 @@ import androidx.tv.material3.Text
 import com.totaliptv.pro.data.LiveChannelMapping
 import com.totaliptv.pro.data.CatalogCategories
 import com.totaliptv.pro.data.HeroBannerPick
+import com.totaliptv.pro.data.model.withoutPlotAndTrailer
+import com.totaliptv.pro.util.MemoryBudget
+import coil.imageLoader
 import com.totaliptv.pro.data.FavoriteSections
 import com.totaliptv.pro.data.LiveFavorites
 import com.totaliptv.pro.data.model.Category
@@ -236,6 +239,8 @@ fun HomeScreen(
     val vodLoading by repository.vodLoading.collectAsState()
     val vodError by repository.vodError.collectAsState()
     val pillFocus = remember { FocusRequester() }
+    val heroPlayFocus = remember { FocusRequester() }
+    val heroInfoFocus = remember { FocusRequester() }
     val clockFmt = remember { SimpleDateFormat("h:mm a | MMM d", Locale.getDefault()) }
     var clockText by remember { mutableStateOf(clockFmt.format(Date())) }
     val scope = rememberCoroutineScope()
@@ -610,7 +615,7 @@ fun HomeScreen(
             for (item in chunk) {
                 val resolved = repository.resolvePoster(item)
                 if (!resolved.artworkUrl().isNullOrBlank()) {
-                    acc[item.id] = resolved
+                    acc[item.id] = resolved.withoutPlotAndTrailer()
                 }
             }
             if (acc.isNotEmpty()) posterOverrides = acc.toMap()
@@ -710,7 +715,10 @@ fun HomeScreen(
                 onRefreshData = { triggerRefreshData() },
                 userBadge = sourceBadge?.first,
                 sourceKind = sourceBadge?.second,
-                focusRequester = pillFocus
+                focusRequester = pillFocus,
+                onDownFromNav = if (hubTab == HubTab.Home && heroItem != null) {
+                    { com.totaliptv.pro.ui.focus.SafeFocus.request(heroPlayFocus) }
+                } else null
             )
 
             refreshStatus?.let { status ->
@@ -766,6 +774,8 @@ fun HomeScreen(
                         newlyAdded = newlyAdded,
                         newlyAddedHasMore = newlyAddedHasMore,
                         heroItem = heroItem,
+                        heroPlayFocus = heroPlayFocus,
+                        heroInfoFocus = heroInfoFocus,
                         onSeeAllNewlyAdded = {
                             pendingCategoryId = CatalogCategories.NEWLY_ADDED_VOD_ID
                             hubTab = HubTab.Movies
@@ -801,6 +811,17 @@ fun HomeScreen(
                     // Live / Movies / Series share left rail + main pane.
                     // Left from a first-column poster returns here, not to a neighbor rail row.
                     val selectedRailFocus = remember(hubTab, selectedCategoryId) { FocusRequester() }
+                    val evictContext = LocalContext.current
+                    DisposableEffect(hubTab) {
+                        val leaving = hubTab
+                        onDispose {
+                            if ((leaving == HubTab.Movies || leaving == HubTab.Series) &&
+                                MemoryBudget.shouldEvictGridBitmaps(evictContext)
+                            ) {
+                                evictContext.imageLoader.memoryCache?.clear()
+                            }
+                        }
+                    }
                     Row(modifier = Modifier.fillMaxSize()) {
                         Column(
                             modifier = Modifier
@@ -1076,6 +1097,8 @@ private fun HomeTabContent(
     newlyAdded: List<MediaItem>,
     newlyAddedHasMore: Boolean,
     heroItem: MediaItem? = null,
+    heroPlayFocus: FocusRequester,
+    heroInfoFocus: FocusRequester,
     onSeeAllNewlyAdded: () -> Unit,
     continueWatching: List<WatchProgress>,
     progressById: Map<String, WatchProgress>,
@@ -1114,8 +1137,6 @@ private fun HomeTabContent(
         newlyAdded.isNotEmpty(),
         favorites.isNotEmpty()
     ).count { it }
-    val heroPlayFocus = remember { FocusRequester() }
-    val heroInfoFocus = remember { FocusRequester() }
     BoxWithConstraints(modifier.fillMaxSize()) {
     val rowsBlock = HomeShelfFit.homeBlock(
         HomeShelfFit.classicRow(),

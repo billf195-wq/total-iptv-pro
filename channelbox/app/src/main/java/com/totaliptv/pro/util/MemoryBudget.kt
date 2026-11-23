@@ -44,4 +44,21 @@ object MemoryBudget {
 
     /** Rebuild ServiceIndex every N persist callbacks (plus first and end). */
     fun serviceIndexApplyEveryPersists(tight: Boolean): Int = if (tight) 4 else 2
+
+    const val TWO_GB_BYTES = 2L * 1024L * 1024L * 1024L
+
+    /**
+     * Evict decoded Movies/Series grid bitmaps only on low-RAM boxes
+     * (isLowRamDevice or total RAM of 2 GB or less).
+     */
+    fun shouldEvictGridBitmaps(totalMemBytes: Long, isLowRam: Boolean): Boolean =
+        isLowRam || (totalMemBytes in 1L..TWO_GB_BYTES)
+
+    fun shouldEvictGridBitmaps(context: Context): Boolean {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        if (am.isLowRamDevice) return true
+        val info = ActivityManager.MemoryInfo()
+        am.getMemoryInfo(info)
+        return shouldEvictGridBitmaps(info.totalMem, isLowRam = false)
+    }
 }
