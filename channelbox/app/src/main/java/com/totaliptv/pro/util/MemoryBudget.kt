@@ -33,11 +33,15 @@ object MemoryBudget {
         if (Build.VERSION.SDK_INT >= 23) Process.is64Bit()
         else Build.SUPPORTED_ABIS.any { it.contains("64") }
 
-    fun coilMemoryCacheBytes(tight: Boolean): Int =
-        if (tight) 8 * 1024 * 1024 else 32 * 1024 * 1024
+    /**
+     * 1.4.118: generous image caches on every box. Instant posters and
+     * banners are the priority; do not shrink these when tight().
+     * tight() still scales persist/service-index cadence only.
+     */
+    fun coilMemoryCacheBytes(): Int = 64 * 1024 * 1024
 
-    fun coilDiskCacheBytes(tight: Boolean): Long =
-        if (tight) 32L * 1024 * 1024 else 64L * 1024 * 1024
+    /** Sized so a typical Movies+Series library plus banners fits. */
+    fun coilDiskCacheBytes(): Long = 512L * 1024 * 1024
 
     /** Write the service-cache JSON every N TMDB pages (plus at query end). */
     fun persistEveryPages(tight: Boolean): Int = if (tight) 8 else 5
@@ -48,17 +52,10 @@ object MemoryBudget {
     const val TWO_GB_BYTES = 2L * 1024L * 1024L * 1024L
 
     /**
-     * Evict decoded Movies/Series grid bitmaps only on low-RAM boxes
-     * (isLowRamDevice or total RAM of 2 GB or less).
+     * 1.4.118: never evict decoded grid or banner bitmaps when switching
+     * categories, including on 2 GB / low-RAM boxes.
      */
-    fun shouldEvictGridBitmaps(totalMemBytes: Long, isLowRam: Boolean): Boolean =
-        isLowRam || (totalMemBytes in 1L..TWO_GB_BYTES)
+    fun shouldEvictGridBitmaps(totalMemBytes: Long, isLowRam: Boolean): Boolean = false
 
-    fun shouldEvictGridBitmaps(context: Context): Boolean {
-        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        if (am.isLowRamDevice) return true
-        val info = ActivityManager.MemoryInfo()
-        am.getMemoryInfo(info)
-        return shouldEvictGridBitmaps(info.totalMem, isLowRam = false)
-    }
+    fun shouldEvictGridBitmaps(context: Context): Boolean = false
 }

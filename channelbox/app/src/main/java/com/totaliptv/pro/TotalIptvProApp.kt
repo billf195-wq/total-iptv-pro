@@ -21,6 +21,7 @@ import com.totaliptv.pro.data.local.WatchProgressStore
 import java.io.File
 import com.totaliptv.pro.data.repo.CatalogRepository
 import com.totaliptv.pro.util.MemoryBudget
+import com.totaliptv.pro.data.PosterPrefetch
 import com.totaliptv.pro.dvr.DvrRecorder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,6 +62,7 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         license.start()
         repository = CatalogRepository(preferences)
         repository.attachVodCacheDir(filesDir)
+        PosterPrefetch.start(this, repository, appScope)
         val memory = MemoryBudget.snapshot(this)
         repository.attachMemoryBudget(memory.tight)
         lastPlace = LastPlaceStore(File(filesDir, "last-place.json"))
@@ -105,16 +107,14 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .memoryCache {
-                val tight = MemoryBudget.snapshot(this@TotalIptvProApp).tight
                 MemoryCache.Builder(this)
-                    .maxSizeBytes(MemoryBudget.coilMemoryCacheBytes(tight))
+                    .maxSizeBytes(MemoryBudget.coilMemoryCacheBytes())
                     .build()
             }
             .diskCache {
-                val tight = MemoryBudget.snapshot(this@TotalIptvProApp).tight
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(MemoryBudget.coilDiskCacheBytes(tight))
+                    .maxSizeBytes(MemoryBudget.coilDiskCacheBytes())
                     .build()
             }
             .respectCacheHeaders(false)

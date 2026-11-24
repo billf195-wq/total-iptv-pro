@@ -71,8 +71,6 @@ import com.totaliptv.pro.data.LiveChannelMapping
 import com.totaliptv.pro.data.CatalogCategories
 import com.totaliptv.pro.data.HeroBannerPick
 import com.totaliptv.pro.data.model.withoutPlotAndTrailer
-import com.totaliptv.pro.util.MemoryBudget
-import coil.imageLoader
 import com.totaliptv.pro.data.FavoriteSections
 import com.totaliptv.pro.data.LiveFavorites
 import com.totaliptv.pro.data.model.Category
@@ -796,17 +794,6 @@ fun HomeScreen(
                     // Live / Movies / Series share left rail + main pane.
                     // Left from a first-column poster returns here, not to a neighbor rail row.
                     val selectedRailFocus = remember(hubTab, selectedCategoryId) { FocusRequester() }
-                    val evictContext = LocalContext.current
-                    DisposableEffect(hubTab) {
-                        val leaving = hubTab
-                        onDispose {
-                            if ((leaving == HubTab.Movies || leaving == HubTab.Series) &&
-                                MemoryBudget.shouldEvictGridBitmaps(evictContext)
-                            ) {
-                                evictContext.imageLoader.memoryCache?.clear()
-                            }
-                        }
-                    }
                     Row(modifier = Modifier.fillMaxSize()) {
                         Column(
                             modifier = Modifier
