@@ -8,7 +8,7 @@
         android:name="android.hardware.touchscreen"
         android:required="false" />
 
-    <application>
+    <application android:largeHeap="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -108,13 +108,14 @@ open class TotalIptvProApp : Application(), ImageLoaderFactory {
         return ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizeBytes(MemoryBudget.coilMemoryCacheBytes())
+                    .maxSizeBytes(MemoryBudget.coilMemoryCacheBytes(this@TotalIptvProApp))
                     .build()
             }
             .diskCache {
+                val dir = cacheDir.resolve("image_cache")
                 DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(MemoryBudget.coilDiskCacheBytes())
+                    .directory(dir)
+                    .maxSizeBytes(MemoryBudget.coilDiskCacheBytes(dir))
                     .build()
             }
             .respectCacheHeaders(false)

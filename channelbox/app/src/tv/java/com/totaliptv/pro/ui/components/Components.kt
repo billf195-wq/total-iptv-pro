@@ -58,6 +58,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
+import coil.memory.MemoryCache
 import coil.size.Precision
 import android.graphics.Bitmap
 import coil.compose.AsyncImage
@@ -1037,17 +1038,23 @@ fun NetworkImage(
     rgb565: Boolean = false
 ) {
     var layoutSize by remember { mutableStateOf(IntSize.Zero) }
+    var failed by remember(url) { mutableStateOf(false) }
     Box(
         modifier = modifier
             .background(Color(0xFF151C28))
             .onSizeChanged { layoutSize = it },
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = placeholderLabel,
-            color = OnCinemaMuted,
-            style = MaterialTheme.typography.titleMedium
-        )
+        // Letter only when there is no URL or the request failed. Never use it as a
+        // loading placeholder: a disk-cache hit would flash the letter while Coil
+        // decodes the bitmap after a memory-cache eviction.
+        if (url.isNullOrBlank() || failed) {
+            Text(
+                text = placeholderLabel,
+                color = OnCinemaMuted,
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
         if (!url.isNullOrBlank()) {
             val context = LocalContext.current
             val w = (decodeWidth ?: layoutSize.width).coerceAtLeast(1)
@@ -1055,11 +1062,17 @@ fun NetworkImage(
             val ready = decodeWidth != null || layoutSize.width >= 8
             if (ready) {
                 val model = remember(url, w, h, rgb565) {
+                    val cacheKey = MemoryCache.Key(
+                        url,
+                        mapOf("size" to "${w}x${h}", "rgb565" to rgb565.toString()),
+                    )
                     ImageRequest.Builder(context)
                         .data(url)
                         .size(w, h)
                         .precision(Precision.EXACT)
                         .apply { if (rgb565) bitmapConfig(Bitmap.Config.RGB_565) }
+                        .memoryCacheKey(cacheKey)
+                        .placeholderMemoryCacheKey(cacheKey)
                         .addHeader("User-Agent", com.totaliptv.pro.data.LogoUrls.USER_AGENT)
                         .allowHardware(false)
                         .crossfade(false)
@@ -1070,7 +1083,9 @@ fun NetworkImage(
                     contentDescription = contentDescription,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = contentScale,
-                    alignment = alignment
+                    alignment = alignment,
+                    onError = { failed = true },
+                    onSuccess = { failed = false }
                 )
             }
         }

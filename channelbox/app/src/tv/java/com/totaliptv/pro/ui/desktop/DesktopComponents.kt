@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import coil.request.ImageRequest
+import coil.memory.MemoryCache
 import coil.compose.AsyncImage
 import com.totaliptv.pro.data.LogoUrls
 import com.totaliptv.pro.data.model.MediaItem
@@ -191,9 +192,12 @@ fun DesktopPosterCard(
                 if (!url.isNullOrBlank()) {
                     val context = LocalContext.current
                     val model = remember(url) {
+                        val cacheKey = MemoryCache.Key(url, mapOf("size" to "200x300", "rgb565" to "true"))
                         ImageRequest.Builder(context)
                             .data(url)
                             .size(200, 300)
+                            .memoryCacheKey(cacheKey)
+                            .placeholderMemoryCacheKey(cacheKey)
                             .addHeader("User-Agent", LogoUrls.USER_AGENT)
                             .allowHardware(false)
                             // Posters are opaque: half the heap per bitmap, less GC while scrolling.

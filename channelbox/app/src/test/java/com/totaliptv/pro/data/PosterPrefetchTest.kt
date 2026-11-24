@@ -157,8 +157,10 @@ class PosterPrefetchTest {
         assertTrue(pref.contains("Dispatchers.IO"))
         assertFalse(pref.contains("memoryCachePolicy(CachePolicy.ENABLED)"))
         val budget = File("src/main/java/com/totaliptv/pro/util/MemoryBudget.kt").readText()
-        assertTrue(budget.contains("fun coilDiskCacheBytes(): Long = 512L * 1024 * 1024"))
-        assertTrue(budget.contains("fun coilMemoryCacheBytes(): Int = 64 * 1024 * 1024"))
+        assertTrue(budget.contains("DISK_CACHE_MAX_BYTES = 2L * 1024L * 1024L * 1024L"))
+        assertTrue(budget.contains("MEMORY_CACHE_4GB_BYTES = 384 * 1024 * 1024"))
+        assertTrue(budget.contains("fun coilDiskCacheBytes(freeSpaceBytes: Long)"))
+        assertTrue(budget.contains("fun coilMemoryCacheBytes(totalMemBytes: Long, heapLimitMb: Int)"))
     }
 
     @Test
